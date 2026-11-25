@@ -26,7 +26,7 @@ const CREW={crew:{heavy:{tool:'claude',model:'claude-opus-5-5'},standard:{tool:'
 
 // The pathways API over an in-memory list. `box` records what the page sent; `failSave`, `failList`, `failCreate` and `failDelete` make the next such call (or, for `failList`, that many) fail.
 function fixture({list=three(),failList=0,shelf=SHELF}={}){
- const box={list,saves:[],deletes:[],creates:[],failSave:'',failList,failCreate:'',failDelete:false,created:0}
+ const box={list,saves:[],deletes:[],creates:[],failSave:'',failList,failCreate:'',failDelete:false,created:0,hold:null}
  const err=(status,code,error,field)=>({status,json:{error,code,...(field?{field}:{})}})
  const routes={
   [`${LIST}/skills`]:{skills:shelf},
@@ -46,8 +46,11 @@ function fixture({list=three(),failList=0,shelf=SHELF}={}){
   },
  }
  // Each pathway's own path, for every id a test can reach (the three, and copies made by Duplicate).
- for(const id of ['p1','p2','p3','p4','p5','new1','new2','new3'])routes[`${LIST}/${id}`]=r=>{
-  const m=r.method(),at=box.list.findIndex(p=>p.id===id)
+ for(const id of ['p1','p2','p3','p4','p5','new1','new2','new3'])routes[`${LIST}/${id}`]=async r=>{
+  const m=r.method()
+  // `hold`, when set, is a promise a PUT's answer waits for, so a test can act while a save is out.
+  if(m==='PUT'&&box.hold)await box.hold
+  const at=box.list.findIndex(p=>p.id===id)
   if(m==='PUT'){
    const b=r.postDataJSON();box.saves.push(b)
    if(box.failSave==='changed'){box.failSave='';return err(409,'pathway_changed','That pathway changed. Reload it before trying again.')}
@@ -340,11 +343,18 @@ const item=(page,name)=>palette(page).locator(`[data-palette-item="${name}"]`)
 // On a phone the palette is a sheet that Add a stage opens; on a desktop it is always there.
 const showPalette=async(page,width)=>{if(width<700&&!await page.getByRole('dialog',{name:'Add a stage'}).count())await page.getByRole('button',{name:'Add a stage'}).click()}
 const closeSheet=async(page,width)=>{if(width<700)await page.getByRole('dialog').getByRole('button',{name:'Close'}).click()}
+const closeAny=async page=>{const d=page.locator('dialog[open]');if(await d.count())await d.getByRole('button',{name:'Close',exact:true}).click()}
+// A stage's controls: the inspector on a desktop; on a phone the stage's sheet, opened from its card on `part`.
+const stageControls=async(page,width,title,part)=>{if(width<700){await closeAny(page);await card(page,title).click();if(part)await inspector(page).getByRole('tab',{name:part,exact:true}).click()}return inspector(page)}
+// A palette tab: always there on a desktop; on a phone in the sheet Add a stage opens.
+const paletteTab=async(page,width,name)=>{if(width<700&&!await page.getByRole('dialog',{name:'Add a stage'}).count()){await closeAny(page);await page.getByRole('button',{name:'Add a stage'}).click()}await tab(page,name).click()}
 const goEditor=async(page,id)=>{await page.goto(`${base}/factory/pathways/${id}`);await page.getByRole('heading',{name:'Pathway editor'}).waitFor();await cards(page).first().waitFor()}
 
-// Built by keyboard and buttons from the standard stages, then saved: the body is what the server is sent.
+// Built by keyboard and buttons from the standard stages, then saved: the body is what the server is sent. On a phone the
+// palette and the stage's controls are sheets, and the line runs top to bottom.
 async function editorBuild(width,theme){
  const {f,w,page}=await open(width,theme,{list:[]})
+ const earlier=width<700?'Alt+ArrowUp':'Alt+ArrowLeft'
  try{
   await goList(page)
   await page.getByRole('button',{name:'Start from the standard stages',exact:true}).click()
@@ -352,49 +362,60 @@ async function editorBuild(width,theme){
   await expect.poll(()=>titles(page)).toEqual(['Code','Review','Test','PR','Babysit','Merge'])
   await page.getByRole('textbox',{name:'Pathway name'}).fill('Ship with audit')
   // Your own stage goes in before Merge, is selected and named "Stage 1".
+  await paletteTab(page,width,'Stages')
   await item(page,'stage:custom').click()
   await expect.poll(()=>titles(page)).toEqual(['Code','Review','Test','PR','Babysit','Stage 1','Merge'])
   await expect(card(page,'Stage 1')).toHaveAttribute('aria-pressed','true')
-  await expect(inspector(page).getByText('Stage 6 of 7')).toBeVisible()
-  await inspector(page).getByRole('textbox',{name:'Name',exact:true}).fill('Security audit')
-  await inspector(page).getByRole('textbox',{name:'Prompt'}).fill('Check every new endpoint.')
-  await expect(inspector(page)).toContainText('25 of 4,000 bytes')
+  let controls=await stageControls(page,width,'Stage 1','Prompt')
+  await expect(controls.getByText('Stage 6 of 7')).toBeVisible()
+  await controls.getByRole('textbox',{name:'Name',exact:true}).fill('Security audit')
+  await controls.getByRole('textbox',{name:'Prompt'}).fill('Check every new endpoint.')
+  await expect(controls).toContainText('25 of 4,000 bytes')
   // Two places earlier by keyboard, each heard.
+  await closeAny(page)
   await card(page,'Security audit').focus()
-  await page.keyboard.press('Alt+ArrowLeft')
+  await page.keyboard.press(earlier)
   await expect(live(page)).toHaveText('Security audit moved to place 5 of 7')
-  await page.keyboard.press('Alt+ArrowLeft')
+  await page.keyboard.press(earlier)
   await expect(live(page)).toHaveText('Security audit moved to place 4 of 7')
   await expect.poll(()=>titles(page)).toEqual(['Code','Review','Test','Security audit','PR','Babysit','Merge'])
   await expect(card(page,'Security audit')).toBeFocused()
-  // A move the rules refuse is said, and nothing moves: Merge cannot go earlier.
+  // A move the rules refuse is said, and nothing moves: Merge cannot go earlier. Said again, it is heard again.
   await card(page,'Merge').focus()
-  await page.keyboard.press('Alt+ArrowLeft')
+  await page.keyboard.press(earlier)
+  await expect(live(page)).toHaveText('Merge is always the last stage.')
+  await page.keyboard.press(earlier)
   await expect(live(page)).toHaveText('Merge is always the last stage.')
   await card(page,'Security audit').click()
   // A named model, from the favourites, then an effort.
-  await inspector(page).getByRole('radio',{name:'A named model'}).check()
-  await tab(page,'Models').click()
+  controls=await stageControls(page,width,'Security audit','Model')
+  if(width<700)await controls.getByRole('button',{name:'A named model'}).click()
+  else await controls.getByRole('radio',{name:'A named model'}).check()
+  await paletteTab(page,width,'Models')
   await item(page,'model:claude/claude-opus-5-5').click()
-  await inspector(page).getByRole('combobox',{name:'Effort'}).selectOption('high')
+  controls=await stageControls(page,width,'Security audit','Model')
+  await controls.getByRole('combobox',{name:'Effort'}).selectOption('high')
   await expect(card(page,'Security audit')).toContainText('claude-opus-5-5 · high')
-  await expect(inspector(page).getByText('A named model has no stand-in when its plan runs low. A crew tier does.')).toBeVisible()
+  await expect(controls.getByText('A named model has no stand-in when its plan runs low. A crew tier does.')).toBeVisible()
   // Two skills, and the third is refused with its reason.
-  await tab(page,'Skills').click()
+  await paletteTab(page,width,'Skills')
   await item(page,'skill:threat-model').click()
   await item(page,'skill:deps-check').click()
   await expect(item(page,'skill:test-first')).toBeDisabled()
   await expect(item(page,'skill:test-first')).toContainText('A stage can have up to 2 skills.')
-  await expect(inspector(page).getByText('Skills (2 of 2)')).toBeVisible()
+  controls=await stageControls(page,width,'Security audit','Skills')
+  await expect(controls.getByText(width<700?'2 of 2 skills.':'Skills (2 of 2)')).toBeVisible()
   await expect(card(page,'Security audit')).toContainText('2 skills · prompt ✓')
   // A library prompt is added after what was typed.
-  await tab(page,'Prompts').click()
+  await paletteTab(page,width,'Prompts')
   await item(page,'prompt:pr1').click()
-  await expect(inspector(page).getByRole('textbox',{name:'Prompt'})).toHaveValue('Check every new endpoint.\n\nCheck every new endpoint for auth.\nList what you find.')
+  controls=await stageControls(page,width,'Security audit','Prompt')
+  await expect(controls.getByRole('textbox',{name:'Prompt'})).toHaveValue('Check every new endpoint.\n\nCheck every new endpoint for auth.\nList what you find.')
   // A second Code is not offered.
-  await tab(page,'Stages').click()
+  await paletteTab(page,width,'Stages')
   await expect(item(page,'stage:code')).toBeDisabled()
   await expect(item(page,'stage:code')).toContainText('in use')
+  await closeAny(page)
   await expect(page.getByText('Not saved yet')).toBeVisible()
   await page.getByRole('button',{name:'Save',exact:true}).click()
   await expect(page).toHaveURL(base+'/factory/pathways/new1')
@@ -417,6 +438,32 @@ async function editorBuild(width,theme){
   await expect(page).toHaveURL(base+'/factory/pathways')
   await expect(row(page,'Ship with audit')).toBeVisible()
   expect(f.box.saves).toEqual([])
+  expect(w.errors).toEqual([])
+ }finally{await w.context.close()}
+}
+
+// Typing while a save is out: the typed text stays, is unsaved, and the next Save goes on the answer's updatedAt.
+async function editorSaveInFlight(width,theme){
+ const {f,w,page}=await open(width,theme)
+ try{
+  await goEditor(page,'p1')
+  const name=page.getByRole('textbox',{name:'Pathway name'})
+  await name.fill('Standard A')
+  let release
+  f.box.hold=new Promise(r=>{release=r})
+  await page.getByRole('button',{name:'Save',exact:true}).click()
+  await expect(page.getByText('Saving…').first()).toBeVisible()
+  await name.fill('Standard B')
+  f.box.hold=null
+  release()
+  await expect.poll(()=>f.box.saves.length).toBe(1)
+  await expect(page.getByText('Unsaved changes')).toBeVisible()
+  await expect(name).toHaveValue('Standard B')
+  const answered=f.box.list.find(p=>p.id==='p1').updatedAt
+  expect(answered).not.toBe(f.box.saves[0].updatedAt)
+  await page.getByRole('button',{name:'Save',exact:true}).click()
+  await expect(page.getByText('✓ Saved')).toBeVisible()
+  expect(f.box.saves[1]).toMatchObject({name:'Standard B',updatedAt:answered})
   expect(w.errors).toEqual([])
  }finally{await w.context.close()}
 }
@@ -445,8 +492,30 @@ async function editorLeave(width,theme){
   await ask.getByRole('button',{name:'Discard changes'}).click()
   await expect(page).toHaveURL(base+'/factory/pathways')
   await expect(row(page,'Standard')).toContainText('The usual line, from code to merge.')
-  // Closing the tab with an edit asks the browser's own question.
+  // Reached by browser back, then forward with an edit: Discard changes throws the edits away and goes on, and the guard still asks next time.
   await page.getByRole('link',{name:'Standard',exact:true}).click()
+  await cards(page).first().waitFor()
+  await page.getByRole('link',{name:'Pathways',exact:true}).click()
+  await expect(page).toHaveURL(base+'/factory/pathways')
+  await page.goBack()
+  await expect(page).toHaveURL(base+'/factory/pathways/p1')
+  await description.fill('Changed, then forward.')
+  await page.goForward()
+  await expect(page).toHaveURL(base+'/factory/pathways/p1')
+  await ask.getByRole('button',{name:'Discard changes'}).click()
+  await expect(ask).toHaveCount(0)
+  await expect(page).toHaveURL(base+'/factory/pathways')
+  await expect(row(page,'Standard')).toContainText('The usual line, from code to merge.')
+  await page.goForward()
+  await expect(page).toHaveURL(base+'/factory/pathways/p1')
+  await expect(description).toHaveValue('The usual line, from code to merge.')
+  await expect(page.getByText('Unsaved changes')).toHaveCount(0)
+  await description.fill('Changed after discarding.')
+  await page.goBack()
+  await expect(ask).toBeVisible()
+  await ask.getByRole('button',{name:'Keep editing'}).click()
+  await expect(description).toHaveValue('Changed after discarding.')
+  // Closing the tab with an edit asks the browser's own question.
   await description.fill('Changed once more.')
   const asked=page.waitForEvent('dialog')
   await page.close({runBeforeUnload:true})
@@ -584,6 +653,19 @@ async function editorLook(width,theme){
   await tab(page,'Skills').click()
   await expect(item(page,'skill:threat-model')).toContainText('Find the ways in before someone else does.')
   await shot(page,'editor-skills',width,theme)
+  // Remove in the inspector: focus goes to the card now in that place, then to + once the line is empty.
+  await inspector(page).getByRole('button',{name:'Remove',exact:true}).click()
+  await expect(cards(page).nth(3)).toBeFocused()
+  await expect(cards(page).nth(3).locator('.title')).toHaveText('PR')
+  for(let n=5;n>0;n--){await cards(page).first().click();await inspector(page).getByRole('button',{name:'Remove',exact:true}).click()}
+  await expect(page.getByRole('button',{name:'Add a stage'})).toBeFocused()
+  // Earlier stays focusable at the first place, so focus is not lost there.
+  await tab(page,'Stages').click()
+  await item(page,'stage:plan').click()
+  await item(page,'stage:design').click()
+  await inspector(page).getByRole('button',{name:'Earlier',exact:true}).click()
+  await expect(inspector(page).getByRole('button',{name:'Earlier',exact:true})).toHaveAttribute('aria-disabled','true')
+  await expect(inspector(page).getByRole('button',{name:'Earlier',exact:true})).toBeFocused()
   expect(w.errors).toEqual([])
  }finally{await w.context.close()}
 }
@@ -644,9 +726,11 @@ try{
   await editorLook(width,theme)
   await editorBuild(width,theme)
  }
+ await editorBuild(390,'light')
  for(const [width,theme] of [[1280,'light'],[390,'dark']]){
   await editorLeave(width,theme)
   await editorChanged(width,theme)
+  await editorSaveInFlight(width,theme)
   await editorMissingSkill(width,theme)
   await editorRefusals(width,theme)
   await editorLong(width,theme)

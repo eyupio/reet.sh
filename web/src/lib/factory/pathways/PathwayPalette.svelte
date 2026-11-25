@@ -16,9 +16,9 @@
 
   // What can go on a pathway, in four tabs. Every item is a button: a stage is added at the end (before Merge), and a
   // model, skill or prompt is applied to the selected stage. Items carry data-palette-item for the drag layer.
-  let { tab = $bindable('stages'), stages, stage, shelf, shelfFailed, prompts, promptsFailed, favourites, crew, onadd, onmodel, onskill, onprompt, canskill }: {
+  let { tab = $bindable('stages'), stages, stage, shelf, shelfFailed, onretryshelf, prompts, promptsFailed, favourites, crew, onadd, onmodel, onskill, onprompt, canskill }: {
     tab?: PaletteTab; stages: PathwayStage[]; stage: PathwayStage | null
-    shelf: PathwaySkill[] | null; shelfFailed: boolean; prompts: TerminalPrompt[] | null; promptsFailed: boolean
+    shelf: PathwaySkill[] | null; shelfFailed: boolean; onretryshelf: () => void; prompts: TerminalPrompt[] | null; promptsFailed: boolean
     favourites: ModelFavourite[]; crew: GafferCrew | null
     onadd: (kind: string) => string; onmodel: (choice: ModelChoice) => void; onskill: (id: string) => void; onprompt: (text: string) => void; canskill: (id: string) => string
   } = $props()
@@ -104,7 +104,8 @@
       <button type="button" class="item" data-palette-item="model:other" disabled={!stage} onclick={() => onmodel('other')}><span class="grip" aria-hidden="true">⠿</span><span class="name">Other…</span></button>
 
     {:else if tab === 'skills'}
-      {#if shelf === null}<p class="quiet">{shelfFailed ? 'Your skills could not be read.' : 'Reading your skills…'}</p>
+      {#if shelf === null && shelfFailed}<p class="quiet failed">Your skills could not be read. <button type="button" class="retry" onclick={onretryshelf}>Retry</button></p>
+      {:else if shelf === null}<p class="quiet">Reading your skills…</p>
       {:else if !shelf.length}<p class="quiet">No skills a stage can load yet. Make a skill Active on the Skills page.</p>
       {:else if !skills.length}<p class="quiet">No skill matches “{query.trim()}”.</p>{/if}
       {#each skills as s (s.id)}
@@ -168,6 +169,10 @@
   .tick { color: var(--accent-text); font-weight: 700; }
   .sub, .why { grid-column: 2 / -1; color: var(--muted); font-size: 14px; line-height: 1.4; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; }
   .why { color: var(--warn); }
+  .retry { padding: 0; border: 0; background: none; color: var(--accent-text); font: inherit; font-weight: 600; cursor: pointer; }
+  .retry:hover { text-decoration: underline; }
+  .retry:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+  @media (pointer: coarse) { .retry { min-height: 44px; } }
   .quiet { margin: 4px 0; color: var(--muted); font-size: 14px; }
   .status { margin: 0; color: var(--warn); font-size: 14px; }
   .hint { margin: 10px 0 0; color: var(--muted); font-size: 14px; line-height: 1.5; }

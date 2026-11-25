@@ -4,7 +4,7 @@
   import StageCard from './StageCard.svelte'
 
   // The pathway's stages in order, joined by arrows, with a + at the end. Sideways from 700 px wide, top to bottom below.
-  // `onmove` answers whether the stage moved, so focus can follow a card moved from the keyboard.
+  // `onmove` answers whether the stage moved, so focus can follow a card moved from the keyboard; the editor places focus after a removal.
   let { stages, selected, problems, vertical, onselect, onmove, onremove, onaddend }: {
     stages: PathwayStage[]; selected: number; problems: StageProblem[]; vertical: boolean
     onselect: (at: number) => void; onmove: (from: number, to: number) => boolean; onremove: (at: number) => void; onaddend: () => void
@@ -20,11 +20,6 @@
     await tick()
     cardAt(to)?.focus()
   }
-  async function keyRemove(at: number) {
-    onremove(at)
-    await tick()
-    ;(cardAt(Math.min(at, stages.length - 1)) ?? list?.querySelector<HTMLElement>('.add'))?.focus()
-  }
 </script>
 
 <div class="line" class:vertical data-pathway-line bind:this={list}>
@@ -35,7 +30,7 @@
           <li>
             {#if at > 0}<span class="join" aria-hidden="true"></span>{/if}
             <StageCard {stage} {at} {vertical} selected={selected === at} problem={problems.find(p => p.at === at)?.text ?? ''}
-              onselect={() => onselect(at)} onmove={to => void keyMove(at, to)} onremove={() => void keyRemove(at)} />
+              onselect={() => onselect(at)} onmove={to => void keyMove(at, to)} onremove={() => onremove(at)} />
           </li>
         {/each}
       </ol>

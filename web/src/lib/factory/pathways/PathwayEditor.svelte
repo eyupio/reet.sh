@@ -50,7 +50,6 @@
   // Someone else saved this pathway after it was read: their version, once read, and whether the choice is showing.
   let conflict = $state(false), theirs = $state.raw<Pathway | null>(null)
   let asking = $state<'' | 'link' | 'back'>('')
-  let letGo = false
   let said = $state('')
   let phone = $state(false), sheet = $state<'' | 'stage' | 'add'>('')
   const uid = $props.id()
@@ -73,9 +72,14 @@
     }
   }
 
+  async function loadShelf() {
+    shelfFailed = false
+    try { shelf = await listGafferPathwaySkills(signal()) } catch { if (!life.signal.aborted) shelfFailed = true }
+  }
+
   onMount(() => {
     void loadPathway()
-    void listGafferPathwaySkills(signal()).then(s => { shelf = s }).catch(() => { if (!life.signal.aborted) shelfFailed = true })
+    void loadShelf()
     void readPromptLibrary(life.signal).then(l => { prompts = l.prompts }).catch(() => { if (!life.signal.aborted) promptsFailed = true })
     void listModelFavourites(life.signal).then(f => { favourites = f.favourites }).catch(() => { /* a helper only */ })
     void getGafferCrew(life.signal).then(a => { crew = a.crew }).catch(() => { /* the tiers are still offered, without who they are */ })
@@ -84,14 +88,14 @@
     const fit = () => { phone = narrow.matches; if (!phone) sheet = '' }
     fit()
     narrow.addEventListener('change', fit)
-    // Browser back with unsaved changes: the editor's address goes back on before the page reads it (the page waits for
-    // every listener), and the person is asked. Discard changes then goes back for real.
+    // Browser back or forward with unsaved changes: the editor's address goes back on before the page reads it (the page
+    // waits for every listener), and the person is asked. Discard changes throws the edits away, then goes back.
     const pop = () => {
-      if (letGo || !changed) return
+      if (!changed) return
       history.pushState(null, '', here())
       asking = 'back'
     }
-    const unload = (event: BeforeUnloadEvent) => { if (!letGo && changed) { event.preventDefault(); event.returnValue = '' } }
+    const unload = (event: BeforeUnloadEvent) => { if (changed) { event.preventDefault(); event.returnValue = '' } }
     addEventListener('popstate', pop)
     addEventListener('beforeunload', unload)
     return () => {
@@ -117,7 +121,8 @@
   const offered = (tool: string): string[] | null | undefined => machinesFailed ? null : !machines ? undefined : onMachines(tool) ? effortUnion(machines.map(m => reportedEfforts(tool, m.capabilities))) : null
 
   // The edits. Each goes through pathways.ts; refusals are said in the live region and returned to the caller.
-  const say = (text: string) => { said = text }
+  // Cleared first, so the same sentence twice is still read out twice.
+  const say = (text: string) => { said = ''; void tick().then(() => { said = text }) }
   const titled = (s: PathwayStage) => stageTitle(s).trim() || 'This stage'
   function edit(next: Pathway) { draft = next }
   function add(kind: string): string {
@@ -141,11 +146,15 @@
     say(`${titled(moving)} moved to place ${to + 1} of ${draft.stages.length}`)
     return true
   }
-  function remove(at: number) {
+  // Focus goes to the card now in its place, or the one before, or the + when the line is empty, wherever Remove was pressed.
+  async function remove(at: number) {
     const gone = draft.stages[at]
     edit(removeStage(draft, at))
     if (selected === at) { selected = -1; sheet = '' } else if (selected > at) selected--
     say(`${titled(gone)} removed.`)
+    await tick()
+    const line = document.querySelector('[data-pathway-line]')
+    ;(line?.querySelector<HTMLElement>(`[data-stage-index="${Math.min(at, draft.stages.length - 1)}"]`) ?? line?.querySelector<HTMLElement>('.add'))?.focus()
   }
   function patch(p: Partial<PathwayStage>) { if (selected >= 0) edit(patchStage(draft, selected, p)) }
   async function applyModel(choice: ModelChoice) {
@@ -222,7 +231,7 @@
     info = 'Your edits are still here. Saving now replaces the version saved elsewhere.'
   }
   function discard() {
-    draft = saved; nameError = ''; descriptionError = ''; saveError = ''; info = ''
+    draft = saved; conflict = false; theirs = null; nameError = ''; descriptionError = ''; saveError = ''; info = ''
     selected = Math.min(selected, saved.stages.length - 1)
   }
   function back(event: MouseEvent) {
@@ -233,7 +242,8 @@
   }
   function leave() {
     const how = asking
-    asking = ''; letGo = true
+    asking = ''
+    discard()
     if (how === 'back') history.back()
     else onclose()
   }
@@ -250,7 +260,7 @@
 </script>
 
 {#snippet palette()}
-  <PathwayPalette bind:tab stages={draft.stages} {stage} {shelf} {shelfFailed} {prompts} {promptsFailed} {favourites} {crew}
+  <PathwayPalette bind:tab stages={draft.stages} {stage} {shelf} {shelfFailed} onretryshelf={loadShelf} {prompts} {promptsFailed} {favourites} {crew}
     onadd={add} onmodel={choice => void applyModel(choice)} onskill={applySkill} onprompt={applyPrompt} {canskill} />
 {/snippet}
 
@@ -330,12 +340,12 @@
       {#if !phone}<aside class="side">{@render palette()}</aside>{/if}
       <div class="main">
         <div class="canvas">
-          <PathwayLine stages={draft.stages} {selected} problems={problems.stages} vertical={phone} onselect={select} onmove={move} onremove={remove} onaddend={() => void focusPalette('stages')} />
+          <PathwayLine stages={draft.stages} {selected} problems={problems.stages} vertical={phone} onselect={select} onmove={move} onremove={at => void remove(at)} onaddend={() => void focusPalette('stages')} />
         </div>
         {#if !phone}
           {#if stage}
             <StageInspector stages={draft.stages} at={selected} {shelf} {crew} {favourites} {models} {modelsRead} {modelsFailed} {onMachines} {offered} problems={stageProblems}
-              onpatch={patch} onmove={to => move(selected, to)} onremove={() => remove(selected)} onaddskill={applySkill} onremoveskill={skillId => edit(removeSkill(draft, selected, skillId))}
+              onpatch={patch} onmove={to => move(selected, to)} onremove={() => void remove(selected)} onaddskill={applySkill} onremoveskill={skillId => edit(removeSkill(draft, selected, skillId))}
               onpickskill={() => void focusPalette('skills')} />
           {:else}
             <p class="pick">Select a stage to set its model, skills and prompt.</p>
@@ -350,8 +360,9 @@
 {#if phone && sheet === 'stage' && stage}
   <dialog class="sheet" use:shell={{ sheet: 'bottom' }} use:modal aria-label={stageTitle(stage).trim() || 'Unnamed stage'}>
     <div class="handle" aria-hidden="true"></div>
-    <StageInspector sheet stages={draft.stages} at={selected} {shelf} {crew} {favourites} {models} {modelsRead} {modelsFailed} {onMachines} {offered} problems={stageProblems}
-      onpatch={patch} onmove={to => move(selected, to)} onremove={() => remove(selected)} onaddskill={applySkill} onremoveskill={skillId => edit(removeSkill(draft, selected, skillId))}
+    <p class="vh" aria-live="polite">{said}</p>
+    <StageInspector sheet stages={draft.stages} at={selected} {shelf} {shelfFailed} onretryshelf={loadShelf} {crew} {favourites} {models} {modelsRead} {modelsFailed} {onMachines} {offered} problems={stageProblems}
+      onpatch={patch} onmove={to => move(selected, to)} onremove={() => void remove(selected)} onaddskill={applySkill} onremoveskill={skillId => edit(removeSkill(draft, selected, skillId))}
       onclose={() => { sheet = '' }} />
   </dialog>
 {/if}
@@ -359,6 +370,7 @@
   <dialog class="sheet" use:shell={{ sheet: 'bottom' }} use:modal aria-labelledby={`${uid}-add`}>
     <div class="handle" aria-hidden="true"></div>
     <div class="sheet-head"><h2 id={`${uid}-add`}>Add a stage</h2><button type="button" class="btn quiet" onclick={() => { sheet = '' }}>Close</button></div>
+    <p class="vh" aria-live="polite">{said}</p>
     <div class="sheet-palette">{@render palette()}</div>
   </dialog>
 {/if}

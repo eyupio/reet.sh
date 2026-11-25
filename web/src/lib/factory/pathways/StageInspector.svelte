@@ -7,17 +7,17 @@
   import GafferModelSelect from '../../GafferModelSelect.svelte'
   import ClineSourceSelect from '../../ClineSourceSelect.svelte'
   import {
-    MAX_STAGE_GUIDANCE_BYTES, MAX_STAGE_PROMPT_BYTES, MAX_STAGE_SKILLS, byteLength, canAddSkill, canMove, stageTitle,
+    MAX_STAGE_GUIDANCE_BYTES, MAX_STAGE_NAME, MAX_STAGE_PROMPT_BYTES, MAX_STAGE_SKILLS, byteLength, canAddSkill, canMove, stageTitle,
     type PathwayAgent, type PathwaySkill, type PathwayStage, type StageProblem,
   } from '../pathways'
 
   // The selected stage's own fields: its place, name, who does it, skills and prompt. Every change goes up as a patch.
   // On a narrow screen (`sheet`) it is the body of a bottom sheet: the name with ↑ ↓ ✕, then Model, Skills and Prompt tabs.
   let {
-    stages, at, shelf, crew, favourites, models, modelsRead, modelsFailed, onMachines, offered, problems, sheet = false,
+    stages, at, shelf, shelfFailed = false, onretryshelf, crew, favourites, models, modelsRead, modelsFailed, onMachines, offered, problems, sheet = false,
     onpatch, onmove, onremove, onaddskill, onremoveskill, onpickskill, onclose,
   }: {
-    stages: PathwayStage[]; at: number; shelf: PathwaySkill[] | null; crew: GafferCrew | null; favourites: ModelFavourite[]
+    stages: PathwayStage[]; at: number; shelf: PathwaySkill[] | null; shelfFailed?: boolean; onretryshelf?: () => void; crew: GafferCrew | null; favourites: ModelFavourite[]
     models: Record<string, MachineModels | null>; modelsRead: Record<string, boolean>; modelsFailed: Record<string, boolean>
     onMachines: (tool: string) => boolean | null; offered: (tool: string) => string[] | null | undefined
     problems: StageProblem[]; sheet?: boolean
@@ -103,7 +103,7 @@
 {#snippet nameField()}
   {#if own}
     <label class="field"><span class="label">Name</span>
-      <input value={stage.name ?? ''} maxlength="80" aria-invalid={said('name').length > 0} aria-describedby={said('name').length ? `${uid}-name` : undefined}
+      <input value={stage.name ?? ''} maxlength={MAX_STAGE_NAME} aria-invalid={said('name').length > 0} aria-describedby={said('name').length ? `${uid}-name` : undefined}
         oninput={e => onpatch({ name: (e.currentTarget as HTMLInputElement).value })} />
     </label>
     {@render problemLines(said('name'), `${uid}-name`)}
@@ -130,8 +130,8 @@
       <div class="head">
         <span class="eyebrow">Stage {at + 1} of {count}</span>
         <div class="tools">
-          <button type="button" class="btn quiet" disabled={!!earlier} title={earlier || undefined} onclick={() => onmove(at - 1)}><span aria-hidden="true">‹</span> Earlier</button>
-          <button type="button" class="btn quiet" disabled={!!later} title={later || undefined} onclick={() => onmove(at + 1)}>Later <span aria-hidden="true">›</span></button>
+          <button type="button" class="btn quiet" aria-disabled={!!earlier} title={earlier || undefined} onclick={() => { if (!earlier) onmove(at - 1) }}><span aria-hidden="true">‹</span> Earlier</button>
+          <button type="button" class="btn quiet" aria-disabled={!!later} title={later || undefined} onclick={() => { if (!later) onmove(at + 1) }}>Later <span aria-hidden="true">›</span></button>
           <button type="button" class="btn quiet remove" onclick={onremove}><span aria-hidden="true">✕</span> Remove</button>
         </div>
       </div>
@@ -179,8 +179,8 @@
     <div class="sheet-head">
       <h2>{title}</h2>
       <div class="icons">
-        <button type="button" class="icon" aria-label="Move earlier" disabled={!!earlier} title={earlier || 'Move earlier'} onclick={() => onmove(at - 1)}>↑</button>
-        <button type="button" class="icon" aria-label="Move later" disabled={!!later} title={later || 'Move later'} onclick={() => onmove(at + 1)}>↓</button>
+        <button type="button" class="icon" aria-label="Move earlier" aria-disabled={!!earlier} title={earlier || 'Move earlier'} onclick={() => { if (!earlier) onmove(at - 1) }}>↑</button>
+        <button type="button" class="icon" aria-label="Move later" aria-disabled={!!later} title={later || 'Move later'} onclick={() => { if (!later) onmove(at + 1) }}>↓</button>
         <button type="button" class="icon remove" aria-label="Remove stage" title="Remove stage" onclick={onremove}>✕</button>
         <button type="button" class="btn quiet close" onclick={onclose}>Close</button>
       </div>
@@ -208,7 +208,8 @@
         {#each skills.filter(missing) as id (id)}
           <button type="button" class="choice gone" aria-label={`Remove skill ${id}`} onclick={() => onremoveskill(id)}><span class="name"><span aria-hidden="true">! </span>{id}</span><span class="tick" aria-hidden="true">✕</span><span class="sub">No longer available. Press to remove it.</span></button>
         {/each}
-        {#if shelf === null}<p class="note">Reading your skills…</p>{/if}
+        {#if shelf === null && shelfFailed}<p class="note">Your skills could not be read. <button type="button" class="link retry" onclick={onretryshelf}>Retry</button></p>
+        {:else if shelf === null}<p class="note">Reading your skills…</p>{/if}
         {#each shelf ?? [] as s (s.id)}
           {@const on = skills.includes(s.id)}
           {@const no = on ? '' : canAddSkill(stage, s, shelf ?? [])}
@@ -234,6 +235,8 @@
   .tools { display: flex; gap: 2px; flex-wrap: wrap; }
   .tools .btn { padding: 6px 10px; min-height: 36px; }
   .remove:hover:not(:disabled) { color: var(--bad); }
+  /* Earlier and Later at the ends stay focusable (focus is not lost when a move reaches an end) but do nothing. */
+  .tools .btn[aria-disabled='true'] { opacity: 0.5; cursor: default; color: var(--muted); text-decoration: none; }
   .label { color: var(--ink); font-size: 14px; font-weight: 600; }
   .field { display: grid; gap: 6px; min-width: 0; }
   input, select, textarea {
@@ -286,8 +289,8 @@
   h2 { flex: 1; min-width: 0; margin: 0; font: 600 1.3rem/1.2 var(--serif); letter-spacing: -0.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .icons { display: flex; align-items: center; gap: 2px; }
   .icon { display: inline-grid; place-items: center; width: 44px; height: 44px; border: 0; border-radius: 10px; background: transparent; color: var(--ink); font: inherit; font-size: 18px; cursor: pointer; }
-  .icon:disabled { color: var(--line-strong); cursor: default; }
-  .icon:active:not(:disabled) { background: var(--bg-sunk); }
+  .icon[aria-disabled='true'] { color: var(--line-strong); cursor: default; }
+  .icon:active:not([aria-disabled='true']) { background: var(--bg-sunk); }
   .icon.remove { color: var(--bad); }
   .icon:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
   .close { min-height: 44px; padding: 0 10px; }
@@ -316,5 +319,5 @@
   .sheet-body .named { grid-template-columns: minmax(0, 1fr); }
   .sheet-body .named .field:nth-child(2) { grid-column: auto; grid-row: auto; }
   .sheet-body input, .sheet-body select, .sheet-body textarea, .sheet-body .named :global(.model select), .sheet-body .named :global(.model input) { min-height: 44px; font-size: 16px; }
-  @media (pointer: coarse) { .tools .btn, .pills label, .tier select, input, select { min-height: 44px; } .chip button { width: 40px; height: 40px; } }
+  @media (pointer: coarse) { .retry { min-height: 44px; } .tools .btn, .pills label, .tier select, input, select { min-height: 44px; } .chip button { width: 40px; height: 40px; } }
 </style>

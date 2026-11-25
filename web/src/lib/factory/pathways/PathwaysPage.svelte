@@ -77,21 +77,23 @@
       {#snippet actions()}
         <!-- With nothing saved, the empty state offers its own two ways to start. -->
         {#if !loaded || pathways.length}
-          <button class="btn primary" type="button" disabled={!loaded && !failed || atLimit} aria-describedby={atLimit ? 'pathways-limit' : undefined} onclick={() => create('blank')}>New pathway</button>
+          <button class="btn primary" type="button" disabled={(!loaded && !failed) || atLimit} aria-describedby={atLimit ? 'pathways-limit' : undefined} onclick={() => create('blank')}>New pathway</button>
         {/if}
       {/snippet}
       {#snippet meta()}
         {#if atLimit}<p class="limit" id="pathways-limit">You have {MAX_PATHWAYS} pathways, the most you can keep. Delete one to make another.</p>{/if}
       {/snippet}
     </PageHeader>
-    {#if loaded}
-      <PathwayList {pathways} onopen={open} onnew={create} onchange={load} />
-    {:else if failed}
+    {#if failed}
       <div class="failed" role="alert">
-        <p><strong>Your pathways could not be read.</strong> Nothing is shown because nothing was read, not because there is nothing.</p>
+        <p><strong>Your pathways could not be read.</strong> {loaded ? 'The list below is from the last time they were.' : 'Nothing is shown because nothing was read, not because there is nothing.'}</p>
         <button class="btn" type="button" disabled={retrying} aria-busy={retrying} onclick={retry}>Retry</button>
       </div>
-    {:else}
+    {/if}
+    {#if loaded}
+      <PathwayList {pathways} onopen={open} onnew={create} onchange={load}
+        onsaved={p => (pathways = pathways.map(q => (q.id === p.id ? p : q)))} onremoved={id => (pathways = pathways.filter(q => q.id !== id))} />
+    {:else if !failed}
       <Skeleton label="Reading your pathways…" shape="rows" count={3} />
     {/if}
   </div>
@@ -103,7 +105,7 @@
   /* The shell gives this route the whole width (as it does the Factory); the page keeps a reading measure of its own. */
   .pathways-page { width: 100%; max-width: 920px; margin: 0 auto; padding: 36px 40px calc(56px + var(--bottom-chrome, 0px)); box-sizing: border-box; }
   .limit { margin: 0; color: var(--muted); }
-  .failed { display: flex; align-items: center; justify-content: space-between; gap: 12px 16px; flex-wrap: wrap; padding: 14px 16px; border: 1px solid var(--bad); border-radius: var(--radius); background: var(--card); }
+  .failed { margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px 16px; flex-wrap: wrap; padding: 14px 16px; border: 1px solid var(--bad); border-radius: var(--radius); background: var(--card); }
   .failed p { flex: 1 1 280px; margin: 0; color: var(--muted); }
   .failed strong { color: var(--bad); font-weight: 600; }
   @media (max-width: 1000px) { .pathways-page { padding: 24px 24px calc(40px + var(--bottom-chrome, 0px)); } }

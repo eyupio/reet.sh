@@ -7,12 +7,16 @@
 
   // The person's pathways, one card each: the name (into the editor), the stage line, the description and anything that
   // stops work starting on it, with a switch that turns it on or off at once and a menu with Edit, Duplicate and Delete.
-  let { pathways, onopen, onnew, onchange }: {
+  let { pathways, onopen, onnew, onchange, onsaved, onremoved }: {
     pathways: Pathway[]
     onopen: (id: string) => void
     onnew: (start: 'blank' | 'standard') => void
-    /** Read the list again after a change here; the switch waits for it before it lets go of its own value. */
+    /** Read the list again: after someone else's save, or to meet a sign-out. */
     onchange: () => void | Promise<void>
+    /** The server's answer to a save here, to take that pathway's place (its new updatedAt with it). */
+    onsaved: (p: Pathway) => void
+    /** A pathway deleted here, to leave the list. */
+    onremoved: (id: string) => void
   } = $props()
 
   let notice = $state<{ text: string; bad: boolean } | null>(null)
@@ -32,8 +36,7 @@
     flipping[p.id] = next
     notice = null
     try {
-      await saveGafferPathway({ ...p, enabled: next })
-      await onchange()
+      onsaved(await saveGafferPathway({ ...p, enabled: next }))
     } catch (e) {
       if (await signedOut(e)) return
       if (e instanceof ApiError && e.code === 'pathway_changed') {
@@ -62,6 +65,7 @@
       if (await signedOut(e)) return
       // The limit and a name taken meanwhile are refusals the server words; anything else is a failure to try again.
       say(e instanceof ApiError && e.code ? e.message : `${quoted(p.name)} could not be duplicated just now. Try again.`, true)
+      opener?.focus()
     } finally { working = false }
   }
 
@@ -73,7 +77,7 @@
     working = true; notice = null
     try {
       await deleteGafferPathway(p.id)
-      await onchange()
+      onremoved(p.id)
       say(`Sorted. ${quoted(p.name)} is deleted.`)
       await tick()
       noticeEl?.focus()
@@ -121,7 +125,7 @@
         <div class="body">
           <h2><a href={`/factory/pathways/${encodeURIComponent(p.id)}`} onclick={event => follow(event, p.id)}>{p.name}</a></h2>
           <ol class="line" aria-label={`Stages of ${p.name}`}>
-            {#each p.stages as stage, i (i)}<li><span class="chip" class:own={stage.kind === 'custom'}>{stageTitle(stage)}</span></li>{/each}
+            {#each p.stages as stage, i (i)}<li><span class="chip" class:own={stage.kind === 'custom'}>{stageTitle(stage)}</span>{#if i < p.stages.length - 1}<span class="sep" aria-hidden="true">›</span>{/if}</li>{/each}
           </ol>
           {#if p.description || !on}<p class="desc">{p.description}{#if !on}{p.description ? ' ' : ''}<span class="off-note">Off: not offered to you or Gaffer.</span>{/if}</p>{/if}
           {#each p.problems ?? [] as problem, i (i)}<p class="problem"><span class="mark" aria-hidden="true">!</span> {problem}</p>{/each}
@@ -179,8 +183,9 @@
   h2 a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .line { display: flex; flex-wrap: wrap; align-items: center; row-gap: 6px; margin: 0; padding: 0; list-style: none; }
   .line li { display: flex; align-items: center; }
-  /* The joining mark follows its stage, so a wrapped line never starts with one. */
-  .line li:not(:last-child)::after { content: '›' / ''; padding: 0 6px; color: var(--faint); }
+  /* The joining mark follows its stage, so a wrapped line never starts with one; on a narrow screen, where the line
+     wraps, the chips stand apart with no mark at all, so none is left hanging at a line's end. */
+  .sep { padding: 0 6px; color: var(--faint); }
   .chip { padding: 1px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--bg); color: var(--ink-soft); font-size: 14px; line-height: 20px; white-space: nowrap; }
   .chip.own { border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); background: var(--accent-wash); color: var(--accent-text); }
   .desc, .problem { margin: 0; font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
@@ -188,7 +193,7 @@
   .problem { color: var(--warn); }
   .mark { font-weight: 700; }
   /* Off: the pathway's own text steps back; its switch and menu stay at full strength. */
-  .card.off .body > * { opacity: 0.6; }
+  .card.off :is(h2, .line) { opacity: 0.6; }
 
   .controls { display: flex; align-items: center; gap: 2px; flex: none; margin-top: -4px; }
   .toggle { display: inline-flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 8px; border: 0; border-radius: 8px; background: none; color: var(--muted); font: inherit; font-size: 14px; cursor: pointer; }
@@ -222,6 +227,10 @@
     h2 a { display: inline-flex; align-items: center; min-height: 44px; margin: -9px 0; }
   }
   /* A phone: the name and the controls share the top row, and the rest takes the card's whole width beneath them. */
+  @media (max-width: 650px) {
+    .line { gap: 6px 8px; }
+    .sep { display: none; }
+  }
   @media (max-width: 560px) {
     .card { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px 8px; padding: 14px 8px 16px 16px; }
     .body { display: contents; }

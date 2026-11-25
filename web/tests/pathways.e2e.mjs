@@ -24,9 +24,9 @@ const SHELF=[shelfSkill('threat-model','Find the ways in before someone else doe
 const PROMPTS=[{id:'pr1',title:'Audit endpoints',description:'',body:'Check every new endpoint for auth.\nList what you find.',category:'',tool:'',model:'',effort:'',revision:1,createdAt:now,updatedAt:now}]
 const CREW={crew:{heavy:{tool:'claude',model:'claude-opus-5-5'},standard:{tool:'codex',model:'gpt-5'},light:{tool:'claude',model:'claude-haiku-4-5'}},saved:true,tiers:['light','standard','heavy'],defaults:{}}
 
-// The pathways API over an in-memory list. `box` records what the page sent; `failSave`, `failList` and `failCreate` make the next such call fail.
+// The pathways API over an in-memory list. `box` records what the page sent; `failSave`, `failList`, `failCreate` and `failDelete` make the next such call (or, for `failList`, that many) fail.
 function fixture({list=three(),failList=0,shelf=SHELF}={}){
- const box={list,saves:[],deletes:[],creates:[],failSave:'',failList,failCreate:'',created:0}
+ const box={list,saves:[],deletes:[],creates:[],failSave:'',failList,failCreate:'',failDelete:false,created:0}
  const err=(status,code,error,field)=>({status,json:{error,code,...(field?{field}:{})}})
  const routes={
   [`${LIST}/skills`]:{skills:shelf},
@@ -53,9 +53,10 @@ function fixture({list=three(),failList=0,shelf=SHELF}={}){
    if(box.failSave==='changed'){box.failSave='';return err(409,'pathway_changed','That pathway changed. Reload it before trying again.')}
    if(at>=0&&b.updatedAt!==box.list[at].updatedAt)return err(409,'pathway_changed','That pathway changed. Reload it before trying again.')
    if(box.failSave){box.failSave='';return{status:502,json:{error:'502 Bad Gateway'}}}
-   const saved={...b,updatedAt:Date.now()};box.list=box.list.map(p=>p.id===id?saved:p);return saved
+   // As the server answers: the pathway saved, with a new updatedAt and what would stop a start on it now.
+   const saved={...b,updatedAt:Date.now()+box.saves.length,problems:box.list[at]?.problems??[]};box.list=box.list.map(p=>p.id===id?saved:p);return saved
   }
-  if(m==='DELETE'){box.deletes.push(id);box.list=box.list.filter(p=>p.id!==id);return{status:204,json:null}}
+  if(m==='DELETE'){box.deletes.push(id);if(box.failDelete){box.failDelete=false;return{status:502,json:{error:'502 Bad Gateway'}}}box.list=box.list.filter(p=>p.id!==id);return{status:204,json:null}}
   return at<0?err(404,'','That pathway is not available.'):box.list[at]
  }
  return {box,routes}
@@ -83,8 +84,8 @@ async function listRows(width,theme){
   await goList(page)
   await expect(page.getByText('Your own lines of stages, each with its model, skills and prompt.')).toBeVisible()
   await expect(page.getByRole('list',{name:'Pathways'}).getByRole('listitem').filter({has:page.getByRole('heading')})).toHaveCount(3)
-  await expect(row(page,'Standard').getByRole('list',{name:'Stages of Standard'}).getByRole('listitem')).toHaveText(['Code','Review','Test','PR','Babysit','Merge'])
-  await expect(row(page,'Careful release').getByRole('list',{name:'Stages of Careful release'}).getByRole('listitem')).toHaveText(['Code','Security pass','Review','PR','Merge'])
+  await expect(row(page,'Standard').getByRole('list',{name:'Stages of Standard'}).locator('.chip')).toHaveText(['Code','Review','Test','PR','Babysit','Merge'])
+  await expect(row(page,'Careful release').getByRole('list',{name:'Stages of Careful release'}).locator('.chip')).toHaveText(['Code','Security pass','Review','PR','Merge'])
   await expect(row(page,'Careful release').locator('.chip.own')).toHaveText(['Security pass'])
   await expect(row(page,'Careful release')).toContainText('! The skill “lint-rules” on Code is no longer on your shelf.')
   await expect(row(page,'Docs only')).toContainText('Off: not offered to you or Gaffer.')
@@ -135,6 +136,55 @@ async function listSwitch(width,theme){
   await page.getByRole('switch',{name:'Careful release is on, switch off',exact:true}).click()
   await expect(page.getByRole('alert')).toContainText('“Careful release” was changed somewhere else, so the list now shows it as it is saved.')
   await expect(page.getByRole('switch',{name:'Careful release is on, switch off',exact:true})).toHaveAttribute('aria-checked','true')
+  expect(w.errors).toEqual([])
+ }finally{await w.context.close()}
+}
+
+// A change made here stays on screen from the server's answer, whatever a later read of the list does: the switch keeps its
+// new value and its next save sends the new updatedAt, a deleted row goes, and a delete that fails keeps the row and says so.
+async function listKeepsSaved(width,theme){
+ const {f,w,page}=await open(width,theme)
+ try{
+  await goList(page)
+  f.box.failList=5
+  await page.getByRole('switch',{name:'Standard is on, switch off',exact:true}).click()
+  await expect(page.getByRole('switch',{name:'Standard is off, switch on',exact:true})).toHaveAttribute('aria-checked','false')
+  const first=f.box.list.find(p=>p.id==='p1').updatedAt
+  expect(first).not.toBe(f.box.saves[0].updatedAt)
+  await page.getByRole('switch',{name:'Standard is off, switch on',exact:true}).click()
+  await expect(page.getByRole('switch',{name:'Standard is on, switch off',exact:true})).toHaveAttribute('aria-checked','true')
+  expect(f.box.saves.map(s=>[s.enabled,s.updatedAt])).toEqual([[false,f.box.saves[0].updatedAt],[true,first]])
+  await expect(page.getByRole('alert')).toHaveCount(0)
+  // Delete, with the list still unreadable: the row goes.
+  await actions(page,'Docs only').click()
+  await page.getByRole('menuitem',{name:'Delete'}).click()
+  await page.getByRole('dialog',{name:'Delete “Docs only”?'}).getByRole('button',{name:'Delete',exact:true}).click()
+  await expect(row(page,'Docs only')).toHaveCount(0)
+  await expect(page.getByRole('status').filter({hasText:'Sorted. “Docs only” is deleted.'})).toBeVisible()
+  // A delete that fails keeps the row, says so, and gives focus back to the menu button.
+  f.box.failDelete=true
+  await actions(page,'Careful release').click()
+  await page.getByRole('menuitem',{name:'Delete'}).click()
+  await page.getByRole('dialog',{name:'Delete “Careful release”?'}).getByRole('button',{name:'Delete',exact:true}).click()
+  await expect(page.getByRole('alert')).toContainText('“Careful release” could not be deleted just now. Try again.')
+  await expect(row(page,'Careful release')).toBeVisible()
+  await expect(actions(page,'Careful release')).toBeFocused()
+  // A read of the list that fails once it is shown says so above it, with Retry, and keeps the rows.
+  // A failed Duplicate gives focus back to the menu button too.
+  f.box.failCreate='limit'
+  await actions(page,'Careful release').click()
+  await page.getByRole('menuitem',{name:'Duplicate'}).click()
+  await expect(page.getByRole('alert')).toContainText('This account already has 50 pathways.')
+  await expect(actions(page,'Careful release')).toBeFocused()
+  f.box.failCreate=''
+  await page.getByRole('link',{name:'Standard',exact:true}).click()
+  await expect(page).toHaveURL(base+'/factory/pathways/p1')
+  await page.goBack()
+  await expect(page.getByRole('alert')).toContainText('Your pathways could not be read. The list below is from the last time they were.')
+  await expect(row(page,'Careful release')).toBeVisible()
+  f.box.failList=0
+  await page.getByRole('button',{name:'Retry',exact:true}).click()
+  await expect(page.getByRole('alert')).toHaveCount(0)
   expect(w.errors).toEqual([])
  }finally{await w.context.close()}
 }
@@ -580,6 +630,7 @@ try{
  for(const [width,theme] of [[1280,'light'],[1280,'dark'],[390,'light'],[390,'dark']]){
   await listRows(width,theme)
   await listSwitch(width,theme)
+  await listKeepsSaved(width,theme)
   await listEmpty(width,theme)
  }
  for(const [width,theme] of [[1280,'light'],[390,'dark']]){

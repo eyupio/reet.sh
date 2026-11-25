@@ -9,7 +9,7 @@
 
   // Factory › Pathways: /factory/pathways lists the person's pathways, /factory/pathways/new and /factory/pathways/<id>
   // open the editor. Moving between them stays in the page (history.pushState), and browser back and forward follow.
-  let { onsignedout }: { userId: number; onsignedout: (e: unknown) => void } = $props()
+  let { onsignedout, ontitle }: { userId: number; onsignedout: (e: unknown) => void; ontitle?: (title: string) => void } = $props()
   // As the server holds it (internal/store MaxGafferPathways).
   const MAX_PATHWAYS = 50
 
@@ -46,7 +46,8 @@
 
   onMount(() => {
     if (route.kind === 'list') void load()
-    const back = () => { route = parse(); if (route.kind === 'list') void load() }
+    // Read after every other popstate listener has run: the editor's may put its own address back to ask before leaving.
+    const back = () => setTimeout(() => { route = parse(); if (route.kind === 'list') void load() })
     addEventListener('popstate', back)
     return () => { removeEventListener('popstate', back); life.abort() }
   })
@@ -59,6 +60,14 @@
     if (next.kind === 'list') void load()
   }
   const open = (id: string) => go({ kind: 'edit', id })
+  // A new pathway, once saved, takes its own address in place of /new, so back does not return to an empty editor.
+  function created(p: Pathway) {
+    if (route.kind !== 'new') return
+    history.replaceState(null, '', `/factory/pathways/${encodeURIComponent(p.id)}`)
+    route = { kind: 'edit', id: p.id }
+  }
+  // The list keeps the shell's title; the editor names the pathway in it.
+  $effect(() => { if (route.kind === 'list') ontitle?.('') })
   function create(from: 'blank' | 'standard') { start = from; go({ kind: 'new' }) }
 </script>
 
@@ -87,7 +96,7 @@
     {/if}
   </div>
 {:else}
-  <PathwayEditor id={route.kind === 'edit' ? route.id : null} {start} onclose={() => go({ kind: 'list' })} onsaved={p => open(p.id)} />
+  <PathwayEditor id={route.kind === 'edit' ? route.id : null} {start} onclose={() => go({ kind: 'list' })} onsaved={created} {ontitle} />
 {/if}
 
 <style>

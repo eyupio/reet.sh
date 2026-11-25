@@ -756,7 +756,7 @@
     {#await pages.Pathways()}
       <RouteSkeleton variant="rows" />
     {:then { default: Page }}
-      <Page userId={currentUser?.id ?? 0} onsignedout={fail} />
+      <Page userId={currentUser?.id ?? 0} onsignedout={fail} ontitle={title => (workspaceTitle = title)} />
     {:catch}
       <PageLoadError />
     {/await}

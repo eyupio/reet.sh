@@ -18,15 +18,27 @@ const careful=()=>pathway('p2','Careful release',[st('code',{skills:['lint-rules
 const docs=()=>pathway('p3','Docs only',[st('custom',{name:'Write docs',prompt:'Write the docs.'}),st('pr')],{enabled:false,description:'Words, not code.'})
 const three=()=>[standard(),careful(),docs()]
 
+// What the editor reads beside the pathway: the skills a stage can load, the prompt library, model favourites and the crew.
+const shelfSkill=(id,description,bytes)=>({id,name:id,description,bytes})
+const SHELF=[shelfSkill('threat-model','Find the ways in before someone else does.',700),shelfSkill('deps-check','Check new dependencies for known problems.',500),shelfSkill('test-first','Write the failing test before the fix.',600)]
+const PROMPTS=[{id:'pr1',title:'Audit endpoints',description:'',body:'Check every new endpoint for auth.\nList what you find.',category:'',tool:'',model:'',effort:'',revision:1,createdAt:now,updatedAt:now}]
+const CREW={crew:{heavy:{tool:'claude',model:'claude-opus-5-5'},standard:{tool:'codex',model:'gpt-5'},light:{tool:'claude',model:'claude-haiku-4-5'}},saved:true,tiers:['light','standard','heavy'],defaults:{}}
+
 // The pathways API over an in-memory list. `box` records what the page sent; `failSave`, `failList` and `failCreate` make the next such call fail.
-function fixture({list=three(),failList=0}={}){
+function fixture({list=three(),failList=0,shelf=SHELF}={}){
  const box={list,saves:[],deletes:[],creates:[],failSave:'',failList,failCreate:'',created:0}
- const err=(status,code,error)=>({status,json:{error,code}})
+ const err=(status,code,error,field)=>({status,json:{error,code,...(field?{field}:{})}})
  const routes={
+  [`${LIST}/skills`]:{skills:shelf},
+  '/api/v2/terminal/prompts':{prompts:PROMPTS},
+  '/api/v2/profile/model-favourites':{version:1,favourites:[{tool:'claude',model:'claude-opus-5-5',agentDefault:false}]},
+  '/api/v2/gaffer/crew':r=>r.method()==='GET'?CREW:{status:405,json:{error:'no'}},
   [LIST]:r=>{
    if(r.method()==='POST'){
     const b=r.postDataJSON();box.creates.push(b)
     if(box.failCreate==='limit')return err(409,'pathway_limit','This account already has 50 pathways. Delete one before saving another.')
+    if(box.failCreate==='name'){box.failCreate='';return err(409,'pathway_name','A pathway with that name already exists.')}
+    if(box.failCreate==='invalid'){box.failCreate='';return err(400,'invalid','The description cannot hold control characters.','description')}
     const made={...b,id:`new${++box.created}`,createdAt:Date.now(),updatedAt:Date.now()};box.list=[...box.list,made];return{status:201,json:made}
    }
    if(box.failList>0){box.failList--;return{status:502,json:{error:'502 Bad Gateway'}}}
@@ -34,11 +46,12 @@ function fixture({list=three(),failList=0}={}){
   },
  }
  // Each pathway's own path, for every id a test can reach (the three, and copies made by Duplicate).
- for(const id of ['p1','p2','p3','new1','new2','new3'])routes[`${LIST}/${id}`]=r=>{
+ for(const id of ['p1','p2','p3','p4','p5','new1','new2','new3'])routes[`${LIST}/${id}`]=r=>{
   const m=r.method(),at=box.list.findIndex(p=>p.id===id)
   if(m==='PUT'){
    const b=r.postDataJSON();box.saves.push(b)
    if(box.failSave==='changed'){box.failSave='';return err(409,'pathway_changed','That pathway changed. Reload it before trying again.')}
+   if(at>=0&&b.updatedAt!==box.list[at].updatedAt)return err(409,'pathway_changed','That pathway changed. Reload it before trying again.')
    if(box.failSave){box.failSave='';return{status:502,json:{error:'502 Bad Gateway'}}}
    const saved={...b,updatedAt:Date.now()};box.list=box.list.map(p=>p.id===id?saved:p);return saved
   }
@@ -260,6 +273,309 @@ async function listStates(width,theme){
  }finally{await w2.context.close()}
 }
 
+// The editor. Cards are found by their title; the palette and the inspector by their regions.
+const audit=()=>pathway('p4','Ship with audit',[st('code'),st('review',{tier:'heavy'}),st('test'),
+ st('custom',{name:'Security audit',prompt:'Check every new endpoint for auth. List what you find, worst first.',agent:{tool:'claude',model:'claude-opus-5-5',effort:'high'},skills:['threat-model','deps-check']}),
+ st('pr',{tier:'light'}),st('merge',{tier:'light'})],{description:'For changes that touch sign-in or billing.'})
+const everything=()=>pathway('p5','Everything, carefully',[...['plan','design','code','review','test'].map(k=>st(k)),
+ ...['Threat model','Security audit','Load test','Docs pass'].map(name=>st('custom',{name,prompt:`Do the ${name.toLowerCase()}.`})),...['pr','babysit','merge'].map(k=>st(k))])
+const cards=page=>page.getByRole('list',{name:'Stages'}).locator('[data-stage-index]')
+const card=(page,title)=>cards(page).filter({has:page.locator('.title').getByText(title,{exact:true})})
+const titles=page=>cards(page).locator('.title').allTextContents()
+const palette=page=>page.getByRole('region',{name:'Palette'})
+const inspector=page=>page.getByRole('region',{name:'Selected stage'})
+const live=page=>page.locator('[data-pathway-live]')
+const tab=(page,name)=>palette(page).getByRole('tab',{name,exact:true})
+const item=(page,name)=>palette(page).locator(`[data-palette-item="${name}"]`)
+// On a phone the palette is a sheet that Add a stage opens; on a desktop it is always there.
+const showPalette=async(page,width)=>{if(width<700&&!await page.getByRole('dialog',{name:'Add a stage'}).count())await page.getByRole('button',{name:'Add a stage'}).click()}
+const closeSheet=async(page,width)=>{if(width<700)await page.getByRole('dialog').getByRole('button',{name:'Close'}).click()}
+const goEditor=async(page,id)=>{await page.goto(`${base}/factory/pathways/${id}`);await page.getByRole('heading',{name:'Pathway editor'}).waitFor();await cards(page).first().waitFor()}
+
+// Built by keyboard and buttons from the standard stages, then saved: the body is what the server is sent.
+async function editorBuild(width,theme){
+ const {f,w,page}=await open(width,theme,{list:[]})
+ try{
+  await goList(page)
+  await page.getByRole('button',{name:'Start from the standard stages',exact:true}).click()
+  await expect(page).toHaveURL(base+'/factory/pathways/new')
+  await expect.poll(()=>titles(page)).toEqual(['Code','Review','Test','PR','Babysit','Merge'])
+  await page.getByRole('textbox',{name:'Pathway name'}).fill('Ship with audit')
+  // Your own stage goes in before Merge, is selected and named "Stage 1".
+  await item(page,'stage:custom').click()
+  await expect.poll(()=>titles(page)).toEqual(['Code','Review','Test','PR','Babysit','Stage 1','Merge'])
+  await expect(card(page,'Stage 1')).toHaveAttribute('aria-pressed','true')
+  await expect(inspector(page).getByText('Stage 6 of 7')).toBeVisible()
+  await inspector(page).getByRole('textbox',{name:'Name',exact:true}).fill('Security audit')
+  await inspector(page).getByRole('textbox',{name:'Prompt'}).fill('Check every new endpoint.')
+  await expect(inspector(page)).toContainText('25 of 4,000 bytes')
+  // Two places earlier by keyboard, each heard.
+  await card(page,'Security audit').focus()
+  await page.keyboard.press('Alt+ArrowLeft')
+  await expect(live(page)).toHaveText('Security audit moved to place 5 of 7')
+  await page.keyboard.press('Alt+ArrowLeft')
+  await expect(live(page)).toHaveText('Security audit moved to place 4 of 7')
+  await expect.poll(()=>titles(page)).toEqual(['Code','Review','Test','Security audit','PR','Babysit','Merge'])
+  await expect(card(page,'Security audit')).toBeFocused()
+  // A move the rules refuse is said, and nothing moves: Merge cannot go earlier.
+  await card(page,'Merge').focus()
+  await page.keyboard.press('Alt+ArrowLeft')
+  await expect(live(page)).toHaveText('Merge is always the last stage.')
+  await card(page,'Security audit').click()
+  // A named model, from the favourites, then an effort.
+  await inspector(page).getByRole('radio',{name:'A named model'}).check()
+  await tab(page,'Models').click()
+  await item(page,'model:claude/claude-opus-5-5').click()
+  await inspector(page).getByRole('combobox',{name:'Effort'}).selectOption('high')
+  await expect(card(page,'Security audit')).toContainText('claude-opus-5-5 · high')
+  await expect(inspector(page).getByText('A named model has no stand-in when its plan runs low. A crew tier does.')).toBeVisible()
+  // Two skills, and the third is refused with its reason.
+  await tab(page,'Skills').click()
+  await item(page,'skill:threat-model').click()
+  await item(page,'skill:deps-check').click()
+  await expect(item(page,'skill:test-first')).toBeDisabled()
+  await expect(item(page,'skill:test-first')).toContainText('A stage can have up to 2 skills.')
+  await expect(inspector(page).getByText('Skills (2 of 2)')).toBeVisible()
+  await expect(card(page,'Security audit')).toContainText('2 skills · prompt ✓')
+  // A library prompt is added after what was typed.
+  await tab(page,'Prompts').click()
+  await item(page,'prompt:pr1').click()
+  await expect(inspector(page).getByRole('textbox',{name:'Prompt'})).toHaveValue('Check every new endpoint.\n\nCheck every new endpoint for auth.\nList what you find.')
+  // A second Code is not offered.
+  await tab(page,'Stages').click()
+  await expect(item(page,'stage:code')).toBeDisabled()
+  await expect(item(page,'stage:code')).toContainText('in use')
+  await expect(page.getByText('Not saved yet')).toBeVisible()
+  await page.getByRole('button',{name:'Save',exact:true}).click()
+  await expect(page).toHaveURL(base+'/factory/pathways/new1')
+  expect(f.box.creates).toEqual([{name:'Ship with audit',description:'',enabled:true,stages:[
+   {kind:'code',tier:'standard'},{kind:'review',tier:'heavy'},{kind:'test',tier:'standard'},
+   {kind:'custom',name:'Security audit',prompt:'Check every new endpoint.\n\nCheck every new endpoint for auth.\nList what you find.',agent:{tool:'claude',model:'claude-opus-5-5',effort:'high'},skills:['threat-model','deps-check']},
+   {kind:'pr',tier:'light'},{kind:'babysit',tier:'light'},{kind:'merge',tier:'light'}]}])
+  await expect(page.getByText('Unsaved changes')).toHaveCount(0)
+  await expect(page).toHaveTitle('Ship with audit · Pathways · reet.sh')
+  // An edit, then the back link: asked first; Keep editing stays, Discard changes leaves without saving.
+  await page.getByRole('textbox',{name:'Pathway name'}).fill('Ship with audit 2')
+  await expect(page.getByText('Unsaved changes')).toBeVisible()
+  await page.getByRole('link',{name:'Pathways',exact:true}).click()
+  const ask=page.getByRole('dialog',{name:'Leave without saving?'})
+  await ask.getByRole('button',{name:'Keep editing'}).click()
+  await expect(ask).toHaveCount(0)
+  await expect(page.getByRole('textbox',{name:'Pathway name'})).toHaveValue('Ship with audit 2')
+  await page.getByRole('link',{name:'Pathways',exact:true}).click()
+  await ask.getByRole('button',{name:'Discard changes'}).click()
+  await expect(page).toHaveURL(base+'/factory/pathways')
+  await expect(row(page,'Ship with audit')).toBeVisible()
+  expect(f.box.saves).toEqual([])
+  expect(w.errors).toEqual([])
+ }finally{await w.context.close()}
+}
+
+// Browser back and closing the tab ask first; Discard puts the saved pathway back.
+async function editorLeave(width,theme){
+ const {w,page}=await open(width,theme)
+ try{
+  await goList(page)
+  await page.getByRole('link',{name:'Standard',exact:true}).click()
+  await cards(page).first().waitFor()
+  const description=page.getByRole('textbox',{name:'Description'})
+  await description.fill('Changed.')
+  await page.goBack()
+  const ask=page.getByRole('dialog',{name:'Leave without saving?'})
+  await expect(ask).toBeVisible()
+  await expect(page).toHaveURL(base+'/factory/pathways/p1')
+  await shot(page,'editor-leave',width,theme)
+  await ask.getByRole('button',{name:'Keep editing'}).click()
+  await expect(description).toHaveValue('Changed.')
+  await page.getByRole('button',{name:'Discard',exact:true}).click()
+  await expect(description).toHaveValue('The usual line, from code to merge.')
+  await expect(page.getByText('Unsaved changes')).toHaveCount(0)
+  await description.fill('Changed again.')
+  await page.goBack()
+  await ask.getByRole('button',{name:'Discard changes'}).click()
+  await expect(page).toHaveURL(base+'/factory/pathways')
+  await expect(row(page,'Standard')).toContainText('The usual line, from code to merge.')
+  // Closing the tab with an edit asks the browser's own question.
+  await page.getByRole('link',{name:'Standard',exact:true}).click()
+  await description.fill('Changed once more.')
+  const asked=page.waitForEvent('dialog')
+  await page.close({runBeforeUnload:true})
+  const dialog=await asked
+  expect(dialog.type()).toBe('beforeunload')
+  await dialog.dismiss()
+  expect(w.errors).toEqual([])
+ }finally{await w.context.close()}
+}
+
+// Someone else's save landed first: the editor says so, keeps the edits, and offers both ways on.
+async function editorChanged(width,theme){
+ const {f,w,page}=await open(width,theme)
+ try{
+  await goEditor(page,'p1')
+  const name=page.getByRole('textbox',{name:'Pathway name'})
+  await name.fill('Standard line')
+  const elsewhere=now+5000
+  f.box.list=f.box.list.map(p=>p.id==='p1'?{...p,name:'Standard, as saved elsewhere',updatedAt:elsewhere}:p)
+  await page.getByRole('button',{name:'Save',exact:true}).click()
+  const alert=page.getByRole('alert').filter({hasText:'was changed somewhere else'})
+  await expect(alert).toBeVisible()
+  await expect(alert.getByRole('button',{name:'Load the saved one'})).toBeVisible()
+  await expect(name).toHaveValue('Standard line')
+  await shot(page,'editor-changed',width,theme)
+  // Keep editing: the next Save is the person's, over the newer one.
+  await alert.getByRole('button',{name:'Keep editing'}).click()
+  await expect(alert).toHaveCount(0)
+  await expect(name).toHaveValue('Standard line')
+  await page.getByRole('button',{name:'Save',exact:true}).click()
+  await expect(page.getByText('✓ Saved')).toBeVisible()
+  expect(f.box.saves.at(-1)).toMatchObject({name:'Standard line',updatedAt:elsewhere})
+  // Load the saved one: the newer one replaces the edits.
+  await name.fill('Standard mine')
+  f.box.list=f.box.list.map(p=>p.id==='p1'?{...p,name:'Standard theirs',updatedAt:elsewhere+1}:p)
+  await page.getByRole('button',{name:'Save',exact:true}).click()
+  await page.getByRole('button',{name:'Load the saved one'}).click()
+  await expect(name).toHaveValue('Standard theirs')
+  await expect(page.getByText('Unsaved changes')).toHaveCount(0)
+  expect(w.errors).toEqual([])
+ }finally{await w.context.close()}
+}
+
+// A skill gone from the shelf: ! on the card and in the inspector, Save says why, and removing it lets Save go.
+async function editorMissingSkill(width,theme){
+ const {f,w,page}=await open(width,theme)
+ try{
+  await goEditor(page,'p2')
+  await expect(card(page,'Code')).toContainText('!')
+  const save=page.getByRole('button',{name:'Save',exact:true})
+  await expect(save).toBeDisabled()
+  await expect(page.getByRole('list',{name:'Why Save is off'})).toContainText('The skill lint-rules is no longer available. Remove it.')
+  await shot(page,'editor-problems',width,theme)
+  await card(page,'Code').click()
+  await expect(inspector(page)).toContainText('The skill lint-rules is no longer available.')
+  await inspector(page).getByRole('button',{name:'Remove skill lint-rules'}).click()
+  await closeSheet(page,width)
+  await expect(save).toBeEnabled()
+  await save.click()
+  await expect(page.getByText('✓ Saved')).toBeVisible()
+  expect(f.box.saves[0].stages[0]).toEqual({kind:'code',tier:'standard'})
+  expect(w.errors).toEqual([])
+ }finally{await w.context.close()}
+}
+
+// A new, empty pathway; an order rule refused by button with a sentence; the server's refusals under their fields.
+async function editorRefusals(width,theme){
+ const {f,w,page}=await open(width,theme)
+ try{
+  await goList(page)
+  await page.getByRole('button',{name:'New pathway',exact:true}).click()
+  await expect(page.getByText('No stages yet.')).toBeVisible()
+  await expect(page.getByRole('button',{name:'Save',exact:true})).toBeDisabled()
+  await expect(page.getByRole('list',{name:'Why Save is off'})).toContainText('Add at least one stage.')
+  if(width>=700)await expect(page.getByText('Select a stage to set its model, skills and prompt.')).toBeVisible()
+  await shot(page,'editor-empty',width,theme)
+  await showPalette(page,width)
+  await item(page,'stage:merge').click()
+  await expect(palette(page).getByRole('status')).toHaveText('Merge needs a PR stage before it.')
+  await expect(cards(page)).toHaveCount(0)
+  await item(page,'stage:code').click()
+  await expect.poll(()=>titles(page)).toEqual(['Code'])
+  await page.getByRole('textbox',{name:'Pathway name'}).fill('Docs only')
+  f.box.failCreate='name'
+  await page.getByRole('button',{name:'Save',exact:true}).click()
+  await expect(page.getByRole('textbox',{name:'Pathway name'})).toHaveAccessibleDescription('You already have a pathway with that name.')
+  await page.getByRole('textbox',{name:'Pathway name'}).fill('Docs first')
+  f.box.failCreate='invalid'
+  await page.getByRole('button',{name:'Save',exact:true}).click()
+  await expect(page.getByRole('textbox',{name:'Description'})).toHaveAccessibleDescription('The description cannot hold control characters.')
+  f.box.failCreate='limit'
+  await page.getByRole('button',{name:'Save',exact:true}).click()
+  await expect(page.getByRole('alert')).toContainText('This account already has 50 pathways.')
+  expect(w.errors).toEqual([])
+ }finally{await w.context.close()}
+}
+
+// Twelve stages: every card reached by keyboard and scrolled into view when selected; nothing more can be added.
+async function editorLong(width,theme){
+ const {w,page}=await open(width,theme,{list:[...three(),everything()]})
+ try{
+  await goEditor(page,'p5')
+  await expect(cards(page)).toHaveCount(12)
+  await showPalette(page,width)
+  await expect(item(page,'stage:custom')).toBeDisabled()
+  await expect(item(page,'stage:custom')).toContainText('A pathway can have up to 12 stages.')
+  await closeSheet(page,width)
+  await cards(page).first().focus()
+  for(let n=1;n<12;n++)await page.keyboard.press('Tab')
+  await expect(cards(page).last()).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(cards(page).last()).toHaveAttribute('aria-pressed','true')
+  await expect(inspector(page).getByText('Stage 12 of 12')).toBeVisible()
+  await expect(cards(page).last()).toBeInViewport()
+  const scroller=await page.locator('[data-pathway-line]').boundingBox(),last=await cards(page).last().boundingBox()
+  expect(last.x>=scroller.x-1&&last.x+last.width<=scroller.x+scroller.width+1).toBe(true)
+  await noOverflow(page)
+  await shot(page,'editor-long',width,theme)
+  expect(w.errors).toEqual([])
+ }finally{await w.context.close()}
+}
+
+// The look at desktop: a custom stage on a named model selected, then the Skills tab.
+async function editorLook(width,theme){
+ const {w,page}=await open(width,theme,{list:[...three(),audit()]})
+ try{
+  await goEditor(page,'p4')
+  await card(page,'Security audit').click()
+  await expect(inspector(page).getByRole('radio',{name:'A named model'})).toBeChecked()
+  await expect(card(page,'Merge')).toContainText('Built in · waits for you')
+  await expect(card(page,'Merge')).toContainText('Always last')
+  await expect(card(page,'Security audit')).toContainText('Your own')
+  await noOverflow(page)
+  await shot(page,'editor',width,theme)
+  await tab(page,'Skills').click()
+  await expect(item(page,'skill:threat-model')).toContainText('Find the ways in before someone else does.')
+  await shot(page,'editor-skills',width,theme)
+  expect(w.errors).toEqual([])
+ }finally{await w.context.close()}
+}
+
+// A phone: the line top to bottom, the stage's controls in a bottom sheet with three tabs, and adding through the palette sheet.
+async function editorPhone(width,theme){
+ const {w,page}=await open(width,theme,{list:[...three(),audit()]})
+ try{
+  await goEditor(page,'p4')
+  await noOverflow(page)
+  await targets(page)
+  const [a,b]=[await cards(page).nth(0).boundingBox(),await cards(page).nth(1).boundingBox()]
+  expect(b.y>a.y+a.height).toBe(true)
+  await card(page,'Security audit').click()
+  const sheet=page.getByRole('dialog',{name:'Security audit'})
+  await expect(sheet).toBeVisible()
+  for(const name of ['Model','Skills','Prompt']){
+   await sheet.getByRole('tab',{name,exact:true}).click()
+   await expect(sheet.getByRole('tab',{name,exact:true})).toHaveAttribute('aria-selected','true')
+   await targets(page,'dialog[open]')
+   await shot(page,`editor-sheet-${name.toLowerCase()}`,width,theme)
+  }
+  await sheet.getByRole('tab',{name:'Skills',exact:true}).click()
+  await expect(sheet.getByRole('button',{name:/^threat-model/})).toContainText('✓')
+  await sheet.getByRole('tab',{name:'Model',exact:true}).click()
+  await sheet.getByRole('button',{name:/^Heavy/}).click()
+  await sheet.getByRole('button',{name:'Move earlier'}).click()
+  await expect(live(page)).toHaveText('Security audit moved to place 3 of 6')
+  await sheet.getByRole('button',{name:'Close'}).click()
+  await expect(sheet).toHaveCount(0)
+  await expect(card(page,'Security audit')).toContainText('heavy · crew')
+  await page.getByRole('button',{name:'Add a stage'}).click()
+  const add=page.getByRole('dialog',{name:'Add a stage'})
+  await expect(add).toBeVisible()
+  await shot(page,'editor-sheet-add',width,theme)
+  await add.locator('[data-palette-item="stage:plan"]').click()
+  await expect(add).toHaveCount(0)
+  await expect.poll(()=>titles(page)).toEqual(['Code','Review','Security audit','Test','PR','Plan','Merge'])
+  expect(w.errors).toEqual([])
+ }finally{await w.context.close()}
+}
+
 try{
  for(const [width,theme] of [[1280,'light'],[1280,'dark'],[390,'light'],[390,'dark']]){
   await listRows(width,theme)
@@ -273,5 +589,18 @@ try{
   await fromFactory(width,theme)
   await listStates(width,theme)
  }
- console.log('Pathways: the list, its switch, Duplicate and Delete, the empty, loading and failed states, the limit, and the way in from the Factory pass at 1280 and 390, light and dark.')
+ for(const [width,theme] of [[1280,'light'],[1280,'dark']]){
+  await editorLook(width,theme)
+  await editorBuild(width,theme)
+ }
+ for(const [width,theme] of [[1280,'light'],[390,'dark']]){
+  await editorLeave(width,theme)
+  await editorChanged(width,theme)
+  await editorMissingSkill(width,theme)
+  await editorRefusals(width,theme)
+  await editorLong(width,theme)
+ }
+ await editorLong(390,'light')
+ for(const theme of ['light','dark'])await editorPhone(390,theme)
+ console.log('Pathways: the list, its switch, Duplicate and Delete, the empty, loading and failed states, the limit, and the way in from the Factory, and the editor (building by keyboard and buttons, saving, leaving, someone else\'s save, a missing skill, refusals, twelve stages and the phone sheets) pass at 1280 and 390, light and dark.')
 }finally{await browser.close()}

@@ -8,6 +8,7 @@
     body,
     details,
     confirmLabel = 'Confirm',
+    cancelLabel = 'Cancel',
     secondaryLabel,
     danger = false,
     onconfirm,
@@ -19,6 +20,7 @@
     body: string
     details?: string
     confirmLabel?: string
+    cancelLabel?: string
     secondaryLabel?: string
     danger?: boolean
     onconfirm: () => void
@@ -60,7 +62,7 @@
     {#if details}<textarea class="details" readonly rows="8" aria-label="Proposed changes" value={details}></textarea>{/if}
     {#if children}{@render children()}{/if}
     <div class="actions" data-shell-foot>
-      <button type="button" class="btn quiet" bind:this={cancelBtn} onclick={cancel}>Cancel</button>
+      <button type="button" class="btn quiet" bind:this={cancelBtn} onclick={cancel}>{cancelLabel}</button>
       {#if secondaryLabel && onsecondary}
         <button type="button" class="btn quiet secondary" onclick={secondary}>{secondaryLabel}</button>
       {/if}

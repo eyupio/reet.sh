@@ -72,7 +72,7 @@ function reset({ empty = false } = {}) {
   patches = []; patched = []; ends = []; creates = []; staleNext = null; hidden = false
   sockets = new Map(); failing = new Set(); ticketDelay = 0; attachingNow = 0; attachingMost = 0
   reopens = []; reopenFail = new Map(); staleReopens = 0; reopenDelay = 0; reopenNow = 0; reopenMost = 0; conflicted = new Set()
-  posts = []; bracketed = new Set(); histories = new Map(); historyReads = 0; delete machines[0].capabilities.commandHistory; delete machines[0].capabilities.resume
+  posts = []; bracketed = new Set(); savedList = null; folders = null; histories = new Map(); historyReads = 0; delete machines[0].capabilities.commandHistory; delete machines[0].capabilities.resume
   renames = []; folderProjects = []; createFail = []; patchFail = new Set(); deskReadFail = false
   projectsFail = false; renameFail = false; projectReads = 0
   profileRemove = false; deletes = []; deleteLeft = new Set(); endFail = new Set(); createDeskFail = null; docRefuse = new Map(); adjustDoc = null
@@ -82,6 +82,9 @@ function reset({ empty = false } = {}) {
 let posts = []
 // The sessions whose shell turns bracketed paste on.
 let bracketed = new Set()
+// The command bar's reads: the account's saved commands and each folder's folders (by path), when a part sets them;
+// until then both are unmocked, as before.
+let savedList = null, folders = null
 /** As the controller copies a desk (`from`): the same tabs and panes under fresh ids, and no sessions. */
 let copies = 0
 function copyDoc(doc) {
@@ -240,6 +243,12 @@ const api = async route => {
       }
       data = { ok: true, left }
     }
+  }
+  else if (savedList && path === '/api/v2/terminal/commands' && method === 'GET') data = { commands: savedList }
+  else if (folders && /^\/api\/v2\/machines\/[^/]+\/browse$/.test(path)) {
+    const at = url.searchParams.get('path')
+    data = { path: at, home: '/home/dev', parent: at.replace(/\/[^/]+$/, '') || '/', repo: {}, repoTop: '', more: false, partial: false, scanned: 0, omitted: 0,
+      entries: (folders.get(at) ?? []).map(name => ({ name, dir: true, hidden: name.startsWith('.') })) }
   }
   else return route.fulfill({ status: 404, json: { error: `Unmocked ${path}` } })
   await route.fulfill({ json: data })
@@ -2937,6 +2946,65 @@ try {
     expect(sent('sess-c')).toBe('')
     await expect(stripe()).toBeVisible()
     console.log('ok - input from a pane that is not the focused one is not sent on')
+  }
+
+  // ── the command bar: the next actions, completion, and Run in the focused pane's shell ──
+  {
+    reset()
+    machines[0].capabilities.commandHistory = true
+    histories.set('sess-deploy', { entries: [{ command: 'git status', source: 'bash' }, { command: 'go test ./...', source: 'bash' }], sources: [], truncated: false, skipped: 0 })
+    savedList = [{ id: 'c1', name: 'Disk', command: 'df -h', description: '', revision: 1 }]
+    folders = new Map([['/home/dev/PROD_reet', ['.git', 'cmd', 'web']], ['/home/dev/PROD_reet/web', ['src', 'tests']]])
+    await openDesk()
+    const bar = page.getByRole('form', { name: 'Command bar for reet' })
+    const field = bar.getByRole('combobox'), labels = bar.locator('[role=option] > span')
+    // Empty: the folders of the shell's folder to cd into, then the commands run lately and saved.
+    await expect(labels).toHaveText(['cd cmd/', 'cd web/', 'cd ..', 'git status', 'go test ./...', 'df -h'])
+    // Alt+Shift+K moves from the terminal to the bar; Tab takes the suggestion and runs nothing.
+    await pane('pane-deploy').locator('textarea').focus()
+    await page.keyboard.press('Alt+Shift+K')
+    await expect(field).toBeFocused()
+    await field.pressSequentially('cd w')
+    await expect(labels).toHaveText(['web/'])
+    await page.keyboard.press('Tab')
+    await expect(field).toHaveValue('cd web/')
+    // The folder just named offers its own folders.
+    await expect(labels).toHaveText(['src/', 'tests/'])
+    expect(sent('sess-deploy')).toBe('')
+    if (shots) {
+      await page.screenshot({ path: `${shots}/desk-command-bar-light.png` })
+      await page.evaluate(() => { document.documentElement.dataset.theme = 'dark' })
+      await page.screenshot({ path: `${shots}/desk-command-bar-dark.png` })
+      await page.evaluate(() => { document.documentElement.dataset.theme = 'light' })
+    }
+    // Enter types the line and Enter into the focused pane's shell, once, and the bar keeps the keyboard.
+    await page.keyboard.press('Enter')
+    await expect.poll(() => sent('sess-deploy')).toBe('cd web/\r')
+    await expect(field).toHaveValue('')
+    await expect(field).toBeFocused()
+    // What the bar ran is the first command offered; a press on a suggestion fills the field and runs nothing.
+    await expect(labels).toHaveText(['cd cmd/', 'cd web/', 'cd ..', 'cd web/', 'git status', 'go test ./...', 'df -h'].filter((x, i, all) => all.indexOf(x) === i))
+    await labels.filter({ hasText: 'git status' }).click()
+    await expect(field).toHaveValue('git status')
+    await expect(field).toBeFocused()
+    await quiet()
+    expect(sent('sess-deploy')).toBe('cd web/\r')
+    if (shots) {
+      await field.fill('')
+      await page.screenshot({ path: `${shots}/desk-command-bar-next-light.png` })
+      await page.setViewportSize({ width: 390, height: 780 })
+      await page.screenshot({ path: `${shots}/desk-command-bar-phone.png` })
+      await page.setViewportSize({ width: 1360, height: 860 })
+    }
+    // Esc gives the keyboard back to the terminal.
+    await page.keyboard.press('Escape')
+    await expect(pane('pane-deploy').locator('textarea')).toBeFocused()
+    // A pane with no shell running has a bar that says so and takes nothing.
+    sessions = sessions.map(x => x.id === 'sess-logs' ? { ...x, state: 'exited', exitCode: 0 } : x)
+    await tab('logs').click()
+    await expect(page.getByRole('form', { name: 'Command bar for platform logs' }).getByRole('combobox')).toBeDisabled()
+    expect(errors).toEqual([])
+    console.log('ok - the command bar offers the next actions, completes a folder and runs only on Enter')
   }
 
   // ── the look, in both themes and on a phone ──

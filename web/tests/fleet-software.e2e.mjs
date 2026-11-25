@@ -29,7 +29,7 @@ async function open(options, world) {
   const fixture = await openWorkspace(browser, {
     ...options,
     routes: {
-      '/api/v2/settings/software-mirror': { enabled: false, cached: false },
+      '/api/v2/settings/software-mirror': () => world.mirror ?? { enabled: false, cached: false },
       '/api/v2/software/plans': () => ({ machines: world.rows }),
       '/api/v2/software/batches/active': () => ({ json: world.active ?? null }),
       '/api/v2/software/batches': request => {
@@ -211,6 +211,20 @@ try {
     await confirm.getByRole('button', { name: 'Cancel', exact: true }).click()
     await dialog.getByRole('button', { name: 'Update 2 machines', exact: true }).click()
     await expect(confirm.getByRole('alert')).toHaveCount(0)
+    await context.close()
+  }
+
+  // The read-only mirror line says when machines try this controller before the registry.
+  if (run('mirror first')) {
+    const world = { rows: [laptop()], mirror: { enabled: true, cached: true, preferred: true } }
+    const { context, page, errors } = await open({ width: 1280 }, world)
+    const dialog = await openModal(page)
+    await expect(dialog.getByText('Artifact mirror: on, cached, tried first. Owners and admins change it in Admin.', { exact: true })).toBeVisible()
+    world.mirror = { enabled: true, cached: true, preferred: false }
+    await dialog.getByRole('button', { name: 'Close fleet software' }).click()
+    await openModal(page)
+    await expect(page.getByText('Artifact mirror: on, cached. Owners and admins change it in Admin.', { exact: true })).toBeVisible()
+    expect(errors).toEqual([])
     await context.close()
   }
 } finally {

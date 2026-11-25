@@ -154,9 +154,17 @@ concurrent requests share one download.
 
 The machine asks for the digest in its own pinned table, never a URL the
 controller chose; it verifies the archive and binary again before installing.
-The registry is tried first, the mirror only if that fails. The result reports
-`registry` or `mirror`; when both were tried and failed it reports both and the
-refusal says so. Admins can **Cache the reviewed artifact now** to prepare the
+The registry is tried first, the mirror only if that fails. With **Download
+from this controller first** on (the same card, owner or admin, off by default,
+only while the mirror is on), a machine that reports `software-mirror-first-v1`
+tries the mirror first and the registry only if that fails; an older machine
+keeps the registry first. Turning the mirror off turns the preference off too.
+Each source keeps its own time limit, and a half one source downloaded is
+continued by the other. The result reports `registry` or `mirror`; when both
+were tried and failed it reports both in the order tried (`registry+mirror` or
+`mirror+registry`) and the refusal says so. Activity records
+`software-mirror-first-on` and `-off`, and Fleet software says "tried first"
+beside the mirror when it is. Admins can **Cache the reviewed artifact now** to prepare the
 mirror before a machine needs it. The cache keeps only the reviewed digest,
 garbage-collects anything else at controller start, and is excluded from
 backups because it can be fetched again.
@@ -191,14 +199,15 @@ dialog; remove additionally needs the machine's name typed. Activity records a
 - 1.19.5 is the only reviewed version; a newer release is not assumed
   compatible. No registry version lookup is made.
 - The connector downloads the artifact from `registry.npmjs.org`, or from the
-  controller's mirror when that is on and the registry is unreachable. The
+  controller's mirror when that is on and the registry is unreachable (or the
+  other way round when the mirror is preferred). The
   controller must reach the registry to cache the artifact; a machine with
   neither access still cannot apply it.
 - Apply is synchronous. The registry download is capped at five minutes and the
   mirror leg at fifteen, inside a twenty-minute apply; a slow link can time out
   and nothing is changed. The fleet review applies one machine at a time; a batch
-  applies install and update only, one machine at a time. The connector does not
-  resume a partial download, and the mirror serves one reviewed version.
+  applies install and update only, one machine at a time. The mirror serves one
+  reviewed version.
 - Integrity is verified at install. A launch checks the binary's recorded size,
   not its full hash, on every run.
 - The checks use fake artifacts and temporary homes; no physical machine, live

@@ -51,7 +51,9 @@ const makeState = () => {
       if (request.method() === 'PUT') {
         const body = request.postDataJSON()
         calls.mirror.push(body)
-        mirror = { ...mirror, enabled: body.enabled }
+        if (body.preferred && !(body.enabled ?? mirror.enabled)) return { status: 409, json: { error: 'Turn the artifact mirror on first.' } }
+        mirror = { ...mirror, ...body }
+        if (!mirror.enabled) mirror.preferred = false
       }
       return mirror
     },
@@ -119,6 +121,34 @@ try {
     expect(calls.cache).toBe(1)
     expect(errors).toEqual([])
     await context.close()
+  }
+
+  // Downloading from this controller first is a second choice under the mirror, only open while the mirror is on.
+  if (run('mirror first')) {
+    for (const width of [390, 1280]) {
+      const { context, page, errors, calls } = await open({ width, height: 812, touch: width === 390 })
+      await page.goto(`${base}/admin/settings`)
+      const first = page.getByRole('checkbox', { name: 'Download from this controller first' })
+      await expect(first).toBeDisabled()
+      await expect(first).not.toBeChecked()
+      await expect(first).toHaveAccessibleDescription("Machines try this controller's copy before the registry. Turn it off if the controller is slower to reach than the registry.")
+      await page.getByRole('checkbox', { name: 'Serve the reviewed artifact to machines' }).check()
+      await expect(first).toBeEnabled()
+      await first.check()
+      await expect(page.getByText('Machines try this controller first.', { exact: true })).toBeVisible()
+      expect(calls.mirror).toEqual([{ enabled: true }, { preferred: true }])
+      if (width === 390) {
+        const box = await first.locator('..').boundingBox()
+        expect(box.height, 'touch target').toBeGreaterThanOrEqual(44)
+      }
+      // Turning the mirror off turns the preference off with it.
+      await page.getByRole('checkbox', { name: 'Serve the reviewed artifact to machines' }).uncheck()
+      await expect(first).toBeDisabled()
+      await expect(first).not.toBeChecked()
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `document width at ${width}px`).toBe(true)
+      expect(errors).toEqual([])
+      await context.close()
+    }
   }
 
   if (run('phone')) {

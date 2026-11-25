@@ -474,18 +474,20 @@
     }
   }
 
-  async function saveMirror(event: Event) {
+  async function saveMirror(event: Event, field: 'enabled' | 'preferred' = 'enabled') {
     if (!mirror) return
     const input = event.currentTarget as HTMLInputElement
-    const enabled = input.checked
+    const on = input.checked
     mirrorSaving = true
     mirrorNotice = ''
     error = ''
     try {
-      mirror = await setSoftwareMirror(enabled)
-      mirrorNotice = enabled ? 'Machines may fetch the reviewed artifact from this controller.' : 'The artifact mirror is off.'
+      mirror = await setSoftwareMirror({ [field]: on })
+      mirrorNotice = field === 'preferred'
+        ? (on ? 'Machines try this controller first.' : 'Machines try the registry first.')
+        : (on ? 'Machines may fetch the reviewed artifact from this controller.' : 'The artifact mirror is off.')
     } catch (e) {
-      input.checked = mirror.enabled
+      input.checked = !!mirror[field]
       error = e instanceof Error ? e.message : String(e)
       onerror?.(e)
     } finally {
@@ -1026,10 +1028,12 @@
     </section>
     {/if}
     {#if (role === 'owner' || role === 'admin') && mirror}
-    <section class="block" aria-labelledby="admin-software-mirror">
+    <section class="block mirror" aria-labelledby="admin-software-mirror">
       <h2 id="admin-software-mirror">Software artifact mirror</h2>
       <p class="muted">Lets machines that cannot reach registry.npmjs.org download the one reviewed OpenCode artifact from this controller. Every machine still verifies the pinned checksum before it installs anything.</p>
-      <label class="check"><input type="checkbox" checked={mirror.enabled} disabled={mirrorSaving || mirrorCaching} onchange={saveMirror} /> Serve the reviewed artifact to machines</label>
+      <label class="check"><input type="checkbox" checked={mirror.enabled} disabled={mirrorSaving || mirrorCaching} onchange={e => saveMirror(e)} /> Serve the reviewed artifact to machines</label>
+      <label class="check"><input type="checkbox" checked={mirror.enabled && !!mirror.preferred} disabled={!mirror.enabled || mirrorSaving || mirrorCaching} aria-describedby="admin-mirror-first-hint" onchange={e => saveMirror(e, 'preferred')} /> Download from this controller first</label>
+      <p class="muted" id="admin-mirror-first-hint">Machines try this controller's copy before the registry. Turn it off if the controller is slower to reach than the registry.</p>
       <p class="muted" role="status">{mirrorNotice || (mirror.cached ? `Cached ${mirror.version ?? 'the reviewed version'} (${bytes(mirror.size ?? 0)}).` : 'Not cached yet.')}</p>
       {#if !mirror.cached}
         <button class="btn" type="button" disabled={mirrorCaching || mirrorSaving} onclick={() => void cacheMirror()}>{mirrorCaching ? 'Caching…' : 'Cache the reviewed artifact now'}</button>
@@ -1145,7 +1149,7 @@
   .state-block h2 { font: 500 1.25rem/1.2 var(--serif); letter-spacing: -0.02em; margin: 0; }
   .state-block p { margin: 6px 0 12px; color: var(--muted); }
   @media (max-width: 650px) { .user-row { grid-template-columns: 1fr; } .user-tools { grid-column: 1; grid-row: auto; align-items: flex-start; } .user-search { flex-basis: 100%; } .activity-search { flex-basis: 100%; } .events li { grid-template-columns: 1fr; gap: 4px; } .event-meta { justify-content: flex-start; } }
-  @media (pointer: coarse) { .scope, .user-search input, .activity-search input, .instance-settings .check { min-height: 44px; } }
+  @media (pointer: coarse) { .scope, .user-search input, .activity-search input, .instance-settings .check, .mirror .check { min-height: 44px; } }
   @media (min-width: 900px) { .instance-settings { grid-template-columns: 1fr 1fr; align-items: start; } .instance-settings .saved { grid-column: 1 / -1; } }
   @media (prefers-reduced-motion: no-preference) { .scope, .user-row { transition: background-color 0.15s, border-color 0.15s, color 0.15s; } }
 

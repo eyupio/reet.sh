@@ -104,7 +104,7 @@ func (s *Store) SyncMachinesFor(uid int64, now time.Time) ([]SyncMachine, error)
 		return nil, err
 	}
 	reported := map[string]map[string][]reportedRow{}
-	rows, err = tx.Query(`SELECT m.agent_id,lower(m.name),`+reportedState+`,m.digest,m.detail FROM machine_skills m WHERE m.user_id=? ORDER BY m.folder`, retryCutoff(now), uid)
+	rows, err = tx.Query(`SELECT m.agent_id,m.name,`+reportedState+`,m.digest,m.detail FROM machine_skills m WHERE m.user_id=? ORDER BY m.folder`, retryCutoff(now), uid)
 	if err != nil {
 		return nil, err
 	}
@@ -114,6 +114,7 @@ func (s *Store) SyncMachinesFor(uid int64, now time.Time) ([]SyncMachine, error)
 		if err = rows.Scan(&id, &name, &r.state, &r.digest, &r.detail); err != nil {
 			break
 		}
+		name = strings.ToLower(name)
 		if reported[id] == nil {
 			reported[id] = map[string][]reportedRow{}
 		}

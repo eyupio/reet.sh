@@ -288,7 +288,7 @@
   function askForgetMachine(machine: Machine) {
     confirm = {
       title: `Forget ${machine.host}?`,
-      body: 'This removes inventory reports. It does not revoke enrollment or terminal access. Installed files and running shells stay; a future scan can report it again.',
+      body: 'This removes inventory reports. It does not revoke enrolment or terminal access. Installed files and running shells stay; a future scan can report it again.',
       confirmLabel: 'Forget machine',
       danger: true,
       action: async () => { if (await run(`forget-${machine.host}`, () => forgetMachine(machine.host))) onnotice(`Forgot ${machine.host}. Installed files are unchanged.`) },
@@ -307,7 +307,7 @@
     confirm = {
       title: `Revoke live access for ${agent.host}?`,
       body: 'This closes private access and prevents new terminal authorization and sync jobs. Independent local tmux shells keep running. A running sync operation may finish; installed files remain.',
-      confirmLabel: 'Revoke enrollment',
+      confirmLabel: 'Revoke enrolment',
       danger: true,
       action: async () => { if (await run(`revoke-${agent.id}`, () => controlSyncAgent(agent.id, 'revoke'))) onnotice(`${agent.host} is no longer enrolled.`) },
     }
@@ -363,7 +363,7 @@
             {#if locked}<span class="mark head-mark" aria-hidden="true">!</span>{:else}<span class="dot {enrolled ? (agentTone(enrolled) === 'online' ? 'current' : agentTone(enrolled)) : 'empty'}" aria-hidden="true"></span>{/if}
             <div>
               <h3 id={`machine-${encodeURIComponent(machine.host)}`} title={machine.host}>{machine.host}</h3>
-              {#if highlight === machine.host}<p class="added-note">Just added — Active skills follow automatically</p>{/if}
+              {#if highlight === machine.host}<p class="added-note">Just added. Active skills follow automatically</p>{/if}
               {#if machine.aliases?.length}<p class="alias">Also known as {machine.aliases.join(', ')}</p>{:else}<p class="alias">Machine inventory and install locations</p>{/if}
             </div>
           </div>

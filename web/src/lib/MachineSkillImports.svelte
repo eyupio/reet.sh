@@ -105,7 +105,7 @@ import Sentence from './Sentence.svelte'
      <div class="file-table"><table><caption>Files on the machine</caption><thead><tr><th>Keep</th><th>File</th><th>Size</th><th>Mode</th></tr></thead><tbody>{#each selected.preview.files as file (file.path)}<tr class:blocked={!!file.blocked && !exclusions.includes(file.path)}><td><input type="checkbox" aria-label={`Include ${file.path}`} checked={!exclusions.includes(file.path)} disabled={busy || file.path === 'SKILL.md'} onchange={() => toggle(file.path)} /></td><td><strong>{file.path}</strong>{#if file.blocked}<small class="file-issue" class:excluded={exclusions.includes(file.path)}>{file.blocked.replaceAll('_',' ')}{exclusions.includes(file.path) ? ' · excluded' : ' · must be excluded'}</small>{/if}<code>{file.digest.slice(0,16)}…</code></td><td>{file.bytes.toLocaleString()} B</td><td>{file.executable ? 'Executable' : 'Regular'}</td></tr>{/each}</tbody></table></div>
      <p>{selectedFiles.length} files · {selectedFiles.reduce((total,f) => total + f.bytes,0).toLocaleString()} bytes selected</p>
      <details><summary>Source fingerprint</summary><code class="digest">{selected.preview.sourceDigest}</code></details>
-     <p class="hint">The connector will recheck the complete source before upload. A changed file, expired preview or revoked enrollment stops the import.</p>
+     <p class="hint">The connector will recheck the complete source before upload. A changed file, expired preview or revoked enrolment stops the import.</p>
 
     {/if}
     {#if selected.receipt}
@@ -146,5 +146,6 @@ import Sentence from './Sentence.svelte'
  .file-table { overflow: auto; max-height: 340px; margin-top: 14px; border: 1px solid var(--line); border-radius: 8px; } table { width: 100%; border-collapse: collapse; font-size: 0.875rem; } caption { text-align: left; padding: 10px; font-weight: 600; } th,td { text-align: left; padding: 10px; border-top: 1px solid var(--line); } td:nth-child(2) { overflow-wrap: anywhere; } td:nth-child(3) { white-space: nowrap; font-variant-numeric: tabular-nums; } td code { display: block; color: var(--muted); font-size: 0.875rem; } input[type=checkbox] { width: 16px; height: 16px; } .blocked { background: color-mix(in srgb,var(--bad) 7%,transparent); }
  .digest,code { overflow-wrap: anywhere; font-size: 0.875rem; } .digest { display: block; margin-top: 8px; } .receipt { padding: 16px; border: 1px solid var(--line); border-radius: 12px; margin: 16px 0; }
  .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; } ul,ol { padding-left: 18px; } li { margin: 8px 0; font-size: 0.875rem; font-variant-numeric: tabular-nums; } li code,li span { margin-left: 12px; } ol code { display: block; margin-left: 0; } footer { padding: 16px 22px; border-top: 1px solid var(--line); }
+ @media(pointer:coarse) { button { min-height: 44px; } }
  @media(max-width:500px) { header,.body { padding: 16px; } h2 { font-size: 1.35rem; } th,td { padding: 7px; } }
 </style>

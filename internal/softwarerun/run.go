@@ -84,6 +84,9 @@ type Config struct {
 	// member. Members stay pending, and Resume continues them once Paused is
 	// false again. Nil means never paused.
 	Paused func() bool
+	// PreferMirror, when it returns true, asks each machine to try the
+	// controller's artifact mirror before the registry. Nil means never.
+	PreferMirror func() bool
 }
 
 // Orchestrator drives batches, one goroutine per batch.
@@ -294,6 +297,7 @@ func (o *Orchestrator) step(uid int64, batch store.SoftwareBatch, member store.S
 		ExpectedVersion:  member.ExpectedVersion,
 		ExpectedPrevious: member.ExpectedPrevious,
 		ExpectedManaged:  member.ExpectedManaged,
+		PreferMirror:     o.cfg.PreferMirror != nil && o.cfg.PreferMirror(),
 	}
 	ctx, cancel := context.WithTimeout(o.ctx, ApplyTimeout)
 	defer cancel()

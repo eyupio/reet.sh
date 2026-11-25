@@ -125,7 +125,7 @@ func ApplySoftware(ctx context.Context, home string, req terminalproto.SoftwareA
 	defer clearStaging(dir)
 	runCtx, cancel := context.WithTimeout(ctx, softwareApplyTimeout)
 	defer cancel()
-	staged, source, err := stageSoftware(runCtx, dir, sources)
+	staged, source, err := stageSoftware(runCtx, dir, sources, req.PreferMirror)
 	if err != nil {
 		result.Source = source
 		result.State, result.Reason = terminalproto.SoftwareApplyFailed, softwareFailure(err)
@@ -176,34 +176,65 @@ func clearStaging(dir string) {
 // stageSoftware tries the registry first and the controller's mirror only when
 // the registry download fails. Both verify the same pinned artifact; the source
 // is reported so the controller can say what was tried.
-func stageSoftware(ctx context.Context, dir string, sources []SoftwareSource) (agentsoftware.Staged, string, error) {
-	registryCtx, cancel := context.WithTimeout(ctx, softwareRegistryLimit)
-	staged, err := agentsoftware.StageTarball(registryCtx, nil, dir, softwareArtifact)
-	cancel()
-	if err == nil {
-		return staged, "registry", nil
+// stageSoftware fetches the pinned archive from the registry, then from the
+// controller's mirror, or the other way round when preferMirror is set. Both
+// verify the same checksums and share one partial file, so a half one source
+// left is continued by the other.
+func stageSoftware(ctx context.Context, dir string, sources []SoftwareSource, preferMirror bool) (agentsoftware.Staged, string, error) {
+	if preferMirror {
+		staged, tried := stageFromMirror(ctx, dir, sources)
+		if staged != nil {
+			return *staged, "mirror", nil
+		}
+		registryStaged, err := stageFromRegistry(ctx, dir)
+		if err == nil {
+			return registryStaged, "registry", nil
+		}
+		if tried {
+			return agentsoftware.Staged{}, "mirror+registry", err
+		}
+		return agentsoftware.Staged{}, "registry", err
 	}
-	mirrorTried := false
+	registryStaged, err := stageFromRegistry(ctx, dir)
+	if err == nil {
+		return registryStaged, "registry", nil
+	}
+	staged, tried := stageFromMirror(ctx, dir, sources)
+	if staged != nil {
+		return *staged, "mirror", nil
+	}
+	if tried {
+		return agentsoftware.Staged{}, "registry+mirror", err
+	}
+	return agentsoftware.Staged{}, "registry", err
+}
+
+func stageFromRegistry(ctx context.Context, dir string) (agentsoftware.Staged, error) {
+	registryCtx, cancel := context.WithTimeout(ctx, softwareRegistryLimit)
+	defer cancel()
+	return agentsoftware.StageTarball(registryCtx, nil, dir, softwareArtifact)
+}
+
+// stageFromMirror tries each usable mirror source; tried says whether any was.
+func stageFromMirror(ctx context.Context, dir string, sources []SoftwareSource) (*agentsoftware.Staged, bool) {
+	tried := false
 	for _, source := range sources {
 		if source.Client == nil || source.Path == "" {
 			continue
 		}
-		mirrorTried = true
+		tried = true
 		mirrorCtx, cancel := context.WithTimeout(ctx, softwareMirrorLimit)
 		base := source.BaseURL
 		if base == "" {
 			base = privateconn.Origin
 		}
-		staged, mirrorErr := agentsoftware.StageTarballFrom(mirrorCtx, source.Client, dir, softwareArtifact, strings.TrimRight(base, "/")+source.Path, source.Header)
+		staged, err := agentsoftware.StageTarballFrom(mirrorCtx, source.Client, dir, softwareArtifact, strings.TrimRight(base, "/")+source.Path, source.Header)
 		cancel()
-		if mirrorErr == nil {
-			return staged, "mirror", nil
+		if err == nil {
+			return &staged, true
 		}
 	}
-	if mirrorTried {
-		return agentsoftware.Staged{}, "registry+mirror", err
-	}
-	return agentsoftware.Staged{}, "registry", err
+	return nil, tried
 }
 
 func softwareFailure(err error) terminalproto.SoftwareApplyReason {

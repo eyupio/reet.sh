@@ -60,13 +60,12 @@ Later:
 
 - **Fleet-wide agent configuration.** Configure agents across the whole fleet from one place. Today skills and setups are synced and restored per machine, with a reviewed plan before anything changes.
 - **Batch maintenance for every action.** Extend the reviewed batch beyond install and update to rollback and remove, keeping the destructive actions behind typed confirmation.
-- **Mirror resilience.** Resume a partial download and let an account prefer the controller's artifact mirror over the registry; today the registry is tried first and a download is not resumed.
 
 Copy and paste (text and images), structured OpenCode chats, the session workspace (Overview, Changes, Files and GitHub
 views), YOLO sessions, **Needs you** (`attention-v1`), inline
 approvals on Home, **agent software** (OpenCode install/update/rollback/remove and restart recovery, with a fleet review,
 a reviewed batch apply with a pilot order, one-machine-at-a-time apply, and a controller-side artifact mirror for
-machines without registry access), **model defaults** (Make default in every
+machines without registry access, which an owner or admin can have tried first, with a half-finished download continued), **model defaults** (Make default in every
 model picker, live model switching and clearer provider errors), **per-session model and effort** (the same choices in both
 start dialogs, in saved backlog plans and in the live session, with agent default always available) and **agent image
 previews** (inline previews of images an agent reads, writes or references, a full-size viewer, and labelled placeholders

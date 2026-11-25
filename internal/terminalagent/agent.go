@@ -519,6 +519,9 @@ func bodyFeatureError(body terminalproto.Body, features terminalproto.FeatureSet
 		if !has(terminalproto.SoftwareApplyFeature) {
 			return terminalproto.ErrInvalid
 		}
+		if b.PreferMirror && !has(terminalproto.SoftwareMirrorFirstFeature) {
+			return terminalproto.ErrInvalid
+		}
 	case *terminalproto.Upload:
 		if !has(terminalproto.UploadFeature) {
 			return terminalproto.ErrInvalid

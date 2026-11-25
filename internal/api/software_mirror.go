@@ -16,10 +16,14 @@ const (
 	softwareMirrorKey   = "software_mirror_enabled"
 	softwareMirrorByKey = "software_mirror_by"
 	softwareMirrorAtKey = "software_mirror_at"
+	// softwareMirrorFirstKey makes machines try the mirror before the registry.
+	// It only counts while the mirror is on, and turning the mirror off clears it.
+	softwareMirrorFirstKey = "software_mirror_first"
 )
 
 type softwareMirrorView struct {
 	Enabled   bool   `json:"enabled"`
+	Preferred bool   `json:"preferred"`
 	Cached    bool   `json:"cached"`
 	Size      int64  `json:"size,omitempty"`
 	Digest    string `json:"digest,omitempty"`
@@ -33,6 +37,14 @@ func (s *server) softwareMirrorEnabled() (bool, error) {
 	return v == "1", err
 }
 
+// softwareMirrorPreferred reports whether machines should try the mirror
+// first: only while the mirror is on and an owner or admin asked for it.
+func (s *server) softwareMirrorPreferred() bool {
+	enabled, err := s.softwareMirrorEnabled()
+	first, _ := s.st.GetSetting(softwareMirrorFirstKey)
+	return err == nil && enabled && first == "1"
+}
+
 func (s *server) softwareMirrorViewNow() (softwareMirrorView, error) {
 	out := softwareMirrorView{Version: agentsoftware.OpenCodeReviewedVersion}
 	enabled, err := s.softwareMirrorEnabled()
@@ -40,6 +52,7 @@ func (s *server) softwareMirrorViewNow() (softwareMirrorView, error) {
 		return out, err
 	}
 	out.Enabled = enabled
+	out.Preferred = s.softwareMirrorPreferred()
 	if s.mirror != nil {
 		cached := s.mirror.Status()
 		out.Cached, out.Size, out.Digest = cached.Present, cached.Size, cached.Digest
@@ -61,42 +74,74 @@ func (s *server) softwareMirrorGet(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) softwareMirrorPut(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Enabled *bool `json:"enabled"`
+		Enabled   *bool `json:"enabled"`
+		Preferred *bool `json:"preferred"`
 	}
 	if !decode(w, r, &in) {
 		return
 	}
-	if in.Enabled == nil {
-		writeErr(w, http.StatusBadRequest, "enabled is required")
+	if in.Enabled == nil && in.Preferred == nil {
+		writeErr(w, http.StatusBadRequest, "enabled or preferred is required")
 		return
 	}
-	value := "0"
-	if *in.Enabled {
-		value = "1"
+	enabled, err := s.softwareMirrorEnabled()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
 	}
-	name := s.currentUser(r).Name
-	at := time.Now().UnixMilli()
-	for key, v := range map[string]string{
-		softwareMirrorKey:   value,
-		softwareMirrorByKey: name,
-		softwareMirrorAtKey: strconv.FormatInt(at, 10),
-	} {
+	if in.Enabled != nil {
+		enabled = *in.Enabled
+	}
+	if in.Preferred != nil && *in.Preferred && !enabled {
+		writeErrCode(w, http.StatusConflict, "software_mirror_off", "", "Turn the artifact mirror on first.", "")
+		return
+	}
+	settings := map[string]string{
+		softwareMirrorByKey: s.currentUser(r).Name,
+		softwareMirrorAtKey: strconv.FormatInt(time.Now().UnixMilli(), 10),
+	}
+	if in.Enabled != nil {
+		settings[softwareMirrorKey] = settingFlag(*in.Enabled)
+		if !*in.Enabled {
+			settings[softwareMirrorFirstKey] = "0"
+		}
+	}
+	if in.Preferred != nil {
+		settings[softwareMirrorFirstKey] = settingFlag(*in.Preferred)
+	}
+	for key, v := range settings {
 		if err := s.st.SetSetting(key, v); err != nil {
 			writeErr(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 	}
-	action := "software-mirror-off"
-	if *in.Enabled {
-		action = "software-mirror-on"
+	if in.Enabled != nil {
+		action := "software-mirror-off"
+		if *in.Enabled {
+			action = "software-mirror-on"
+		}
+		s.eventRequest(r, action, "", map[string]any{"enabled": *in.Enabled})
 	}
-	s.eventRequest(r, action, "", map[string]any{"enabled": *in.Enabled})
+	if in.Preferred != nil {
+		action := "software-mirror-first-off"
+		if *in.Preferred {
+			action = "software-mirror-first-on"
+		}
+		s.eventRequest(r, action, "", map[string]any{"preferred": *in.Preferred})
+	}
 	out, err := s.softwareMirrorViewNow()
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+func settingFlag(on bool) string {
+	if on {
+		return "1"
+	}
+	return "0"
 }
 
 // softwareMirrorCache downloads and verifies the reviewed artifact now, so an

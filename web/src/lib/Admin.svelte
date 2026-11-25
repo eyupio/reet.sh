@@ -474,18 +474,20 @@
     }
   }
 
-  async function saveMirror(event: Event) {
+  async function saveMirror(event: Event, field: 'enabled' | 'preferred' = 'enabled') {
     if (!mirror) return
     const input = event.currentTarget as HTMLInputElement
-    const enabled = input.checked
+    const on = input.checked
     mirrorSaving = true
     mirrorNotice = ''
     error = ''
     try {
-      mirror = await setSoftwareMirror(enabled)
-      mirrorNotice = enabled ? 'Machines may fetch the reviewed artifact from this controller.' : 'The artifact mirror is off.'
+      mirror = await setSoftwareMirror({ [field]: on })
+      mirrorNotice = field === 'preferred'
+        ? (on ? 'Machines try this controller first.' : 'Machines try the registry first.')
+        : (on ? 'Machines may fetch the reviewed artifact from this controller.' : 'The artifact mirror is off.')
     } catch (e) {
-      input.checked = mirror.enabled
+      input.checked = !!mirror[field]
       error = e instanceof Error ? e.message : String(e)
       onerror?.(e)
     } finally {
@@ -1026,10 +1028,15 @@
     </section>
     {/if}
     {#if (role === 'owner' || role === 'admin') && mirror}
-    <section class="block" aria-labelledby="admin-software-mirror">
+    <section class="block mirror" aria-labelledby="admin-software-mirror">
       <h2 id="admin-software-mirror">Software artifact mirror</h2>
-      <p class="muted">Lets machines that cannot reach registry.npmjs.org download the one reviewed OpenCode artifact from this controller. Every machine still verifies the pinned checksum before it installs anything.</p>
-      <label class="check"><input type="checkbox" checked={mirror.enabled} disabled={mirrorSaving || mirrorCaching} onchange={saveMirror} /> Serve the reviewed artifact to machines</label>
+      <p class="muted">Lets machines download the one reviewed OpenCode archive from this controller instead of the registry. Every machine still checks the pinned checksum before it installs anything.</p>
+      <label class="check"><input type="checkbox" checked={mirror.enabled} disabled={mirrorSaving || mirrorCaching} onchange={e => saveMirror(e)} /> Serve the reviewed artifact to machines</label>
+      <label class="check dep"><input type="checkbox" checked={mirror.enabled && !!mirror.preferred} disabled={!mirror.enabled || mirrorSaving || mirrorCaching} aria-describedby="admin-mirror-first-hint" onchange={e => saveMirror(e, 'preferred')} /> Download from this controller first</label>
+      <p class="note" id="admin-mirror-first-hint">{mirror.enabled ? 'Best when machines reach this controller faster than the registry. If this controller is slow or has no copy, machines fall back to the registry.' : 'Turn the mirror on to use this.'}</p>
+      {#if mirror.enabled && mirror.preferred && !mirror.cached}
+        <p class="warnline"><span class="mark" aria-hidden="true">!</span><span>Not cached yet. The first download fills it, which can take a few minutes.</span></p>
+      {/if}
       <p class="muted" role="status">{mirrorNotice || (mirror.cached ? `Cached ${mirror.version ?? 'the reviewed version'} (${bytes(mirror.size ?? 0)}).` : 'Not cached yet.')}</p>
       {#if !mirror.cached}
         <button class="btn" type="button" disabled={mirrorCaching || mirrorSaving} onclick={() => void cacheMirror()}>{mirrorCaching ? 'Caching…' : 'Cache the reviewed artifact now'}</button>
@@ -1092,6 +1099,12 @@
   .instance-settings fieldset { margin: 0; padding: 16px; border: 1px solid var(--line); border-radius: 8px; min-width: 0; }
   .instance-settings legend { padding: 0 5px; color: var(--muted); font-size: 0.875rem; font-weight: 600; }
   .instance-settings .check { min-height: 32px; }
+  .mirror .check { min-height: 32px; }
+  .mirror .check input { margin: 0; }
+  .mirror .dep { margin-left: 26px; }
+  .mirror .note { margin-left: 52px; max-width: 60ch; }
+  .mirror .warnline { margin: 8px 0 0 26px; max-width: 60ch; display: flex; gap: 8px; align-items: flex-start; color: var(--warn); font-size: 0.875rem; line-height: 1.45; }
+  .mirror .mark { flex: none; width: 20px; height: 20px; display: grid; place-items: center; border: 1px solid currentColor; border-radius: 50%; font-size: 0.875rem; font-weight: 700; line-height: 1; }
   .instance-settings .field { max-width: 24rem; }
   .readonly-settings { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px 24px; margin: 16px 0 0; }
   .readonly-settings dt { color: var(--muted); font-size: 0.875rem; font-weight: 600; }
@@ -1145,7 +1158,7 @@
   .state-block h2 { font: 500 1.25rem/1.2 var(--serif); letter-spacing: -0.02em; margin: 0; }
   .state-block p { margin: 6px 0 12px; color: var(--muted); }
   @media (max-width: 650px) { .user-row { grid-template-columns: 1fr; } .user-tools { grid-column: 1; grid-row: auto; align-items: flex-start; } .user-search { flex-basis: 100%; } .activity-search { flex-basis: 100%; } .events li { grid-template-columns: 1fr; gap: 4px; } .event-meta { justify-content: flex-start; } }
-  @media (pointer: coarse) { .scope, .user-search input, .activity-search input, .instance-settings .check { min-height: 44px; } }
+  @media (pointer: coarse) { .scope, .user-search input, .activity-search input, .instance-settings .check, .mirror .check { min-height: 44px; } }
   @media (min-width: 900px) { .instance-settings { grid-template-columns: 1fr 1fr; align-items: start; } .instance-settings .saved { grid-column: 1 / -1; } }
   @media (prefers-reduced-motion: no-preference) { .scope, .user-row { transition: background-color 0.15s, border-color 0.15s, color 0.15s; } }
 

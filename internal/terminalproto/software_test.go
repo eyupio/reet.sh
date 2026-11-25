@@ -215,3 +215,55 @@ func TestSoftwareApplyResultForRemove(t *testing.T) {
 		t.Fatal("applied rollback result rejected")
 	}
 }
+
+func TestSoftwareMirrorFirstNegotiation(t *testing.T) {
+	for _, value := range []string{"", "software-mirror-first-v10", "software-apply-v1", "Software-mirror-first-v1"} {
+		if SupportsSoftwareMirrorFirst(value) {
+			t.Fatalf("accepted %q", value)
+		}
+	}
+	if !SupportsSoftwareMirrorFirst("software-apply-v1, software-mirror-first-v1") || SoftwareMirrorFirstFeature != "software-mirror-first-v1" {
+		t.Fatal("did not accept software-mirror-first-v1")
+	}
+	caps := testCapabilities()
+	caps.TerminalControl = true
+	caps.SoftwareMirrorFirst = true
+	if caps.Validate() == nil {
+		t.Fatal("mirror first without software apply accepted")
+	}
+	caps.SoftwareApply = true
+	if err := caps.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if caps.ValidateFor(SoftwareApplyFeature) == nil {
+		t.Fatal("mirror first accepted on a connection that did not negotiate it")
+	}
+	if err := caps.ValidateFor(SoftwareApplyFeature + "," + SoftwareMirrorFirstFeature); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// preferMirror is omitted unless set, so a request to an older machine's
+// strict decoder is byte-for-byte what it was.
+func TestSoftwareApplyPreferMirrorEncoding(t *testing.T) {
+	request := SoftwareApply{Tool: "opencode", Action: SoftwareActionInstall, ExpectedState: SoftwareMissing}
+	plain, err := Encode(testMessage(request))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(plain), "preferMirror") {
+		t.Fatalf("unset preference sent: %s", plain)
+	}
+	request.PreferMirror = true
+	raw, err := Encode(testMessage(request))
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := Decode(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := decoded.Body.(*SoftwareApply); !ok || !got.PreferMirror {
+		t.Fatalf("preference lost: %#v", decoded.Body)
+	}
+}

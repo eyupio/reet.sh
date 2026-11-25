@@ -154,3 +154,79 @@ func TestPrivateSoftwareArtifactServesOnlyThePinnedDigest(t *testing.T) {
 		t.Fatalf("disabled mirror: %d", rec.Code)
 	}
 }
+
+// Downloading from the controller first is an owner or admin choice, off by
+// default, audited like the mirror itself, and never on while the mirror is off.
+func TestSoftwareMirrorFirstSetting(t *testing.T) {
+	srv, st, _, _, _ := privateFixture(t, AuthAccounts, "")
+	uid, _ := st.DefaultOwner()
+	owner := terminalLogin(t, st, uid)
+	memberUser, err := st.CreateUser("mirror-member@example.test", "Member", "member", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	member := terminalLogin(t, st, memberUser.ID)
+	put := func(cookie, body string) (int, softwareMirrorView) {
+		r := httptest.NewRequest(http.MethodPut, "/api/v2/settings/software-mirror", bytes.NewReader([]byte(body)))
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set("Origin", "https://reet.example")
+		r.AddCookie(&http.Cookie{Name: sessionCookie, Value: cookie})
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, r)
+		var view softwareMirrorView
+		_ = json.Unmarshal(w.Body.Bytes(), &view)
+		return w.Code, view
+	}
+
+	view, err := srv.s.softwareMirrorViewNow()
+	if err != nil || view.Preferred {
+		t.Fatalf("fresh setting must be registry first: %+v %v", view, err)
+	}
+	if code, _ := put(owner, `{"preferred":true}`); code != http.StatusConflict {
+		t.Fatalf("preferring a mirror that is off: %d", code)
+	}
+	if srv.s.softwareMirrorPreferred() {
+		t.Fatal("preferred while the mirror is off")
+	}
+	if code, _ := put(owner, `{"enabled":true}`); code != http.StatusOK {
+		t.Fatalf("enable: %d", code)
+	}
+	if code, _ := put(member, `{"preferred":true}`); code != http.StatusForbidden {
+		t.Fatalf("a member changed the preference: %d", code)
+	}
+	if srv.s.softwareMirrorPreferred() {
+		t.Fatal("a member's request took effect")
+	}
+	code, view := put(owner, `{"preferred":true}`)
+	if code != http.StatusOK || !view.Enabled || !view.Preferred || view.ChangedBy == "" || view.ChangedAt == 0 {
+		t.Fatalf("prefer: %d %+v", code, view)
+	}
+	if !srv.s.softwareMirrorPreferred() {
+		t.Fatal("the preference did not take effect")
+	}
+	// Turning the mirror off turns the preference off with it.
+	if code, view := put(owner, `{"enabled":false}`); code != http.StatusOK || view.Preferred {
+		t.Fatalf("disable: %d %+v", code, view)
+	}
+	if srv.s.softwareMirrorPreferred() {
+		t.Fatal("preferred after the mirror was turned off")
+	}
+	if code, view := put(owner, `{"enabled":true}`); code != http.StatusOK || view.Preferred {
+		t.Fatalf("turning the mirror back on brought the preference back: %d %+v", code, view)
+	}
+	if code, _ := put(owner, `{}`); code != http.StatusBadRequest {
+		t.Fatalf("empty change: %d", code)
+	}
+
+	events, err := st.ListEventsFor(uid, 50, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]bool{}
+	for _, event := range events {
+		seen[event.Action] = true
+	}
+	if !seen["software-mirror-first-on"] {
+		t.Fatalf("the preference was not audited: %v", seen)
+	}
+}

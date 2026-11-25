@@ -507,3 +507,41 @@ func TestFleetSoftwarePlansReadStoredEvidence(t *testing.T) {
 		t.Fatalf("older row = %+v", row)
 	}
 }
+
+// The mirror-first preference reaches a machine that negotiated
+// software-mirror-first-v1 and is stripped for one that did not.
+func TestMachineSoftwareApplyCarriesTheMirrorPreference(t *testing.T) {
+	for _, tc := range []struct {
+		name               string
+		negotiated, mirror bool
+		preferred, want    bool
+	}{
+		{"preferred and negotiated", true, true, true, true},
+		{"older machine", false, true, true, false},
+		{"not preferred", true, true, false, false},
+		{"mirror off", true, false, false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			caps := softwareTestCapabilities(softwareTestEntry(terminalproto.SoftwareInstalled, "1.18.0"))
+			caps.SoftwareApply = true
+			caps.SoftwareMirrorFirst = tc.negotiated
+			f := softwareApplyAPIFixture(t, caps)
+			for key, on := range map[string]bool{softwareMirrorKey: tc.mirror, softwareMirrorFirstKey: tc.preferred} {
+				if err := f.st.SetSetting(key, settingFlag(on)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			entry := softwareTestEntry(terminalproto.SoftwareInstalled, "1.19.5")
+			f.answer = terminalproto.SoftwareApplyResult{
+				Tool: "opencode", Action: terminalproto.SoftwareActionUpdate, State: terminalproto.SoftwareApplyApplied,
+				Version: "1.19.5", Previous: "1.18.0", Entry: &entry,
+			}
+			if code, _, raw := f.post(t, `{"tool":"opencode","action":"update"}`); code != http.StatusOK {
+				t.Fatalf("apply: %d %s", code, raw)
+			}
+			if len(f.asked) != 1 || f.asked[0].PreferMirror != tc.want {
+				t.Fatalf("preferMirror sent = %+v, want %v", f.asked, tc.want)
+			}
+		})
+	}
+}

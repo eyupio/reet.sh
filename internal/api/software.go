@@ -43,9 +43,10 @@ func (s *server) registerSoftwareRoutes(mux *http.ServeMux) {
 // a single machine uses. A finished batch is audited once, in the background.
 func (s *server) newSoftwareRuns() *softwarerun.Orchestrator {
 	return softwarerun.New(softwarerun.Config{
-		Store:  s.st,
-		Broker: s.terminals,
-		Paused: s.st.Fenced,
+		Store:        s.st,
+		Broker:       s.terminals,
+		Paused:       s.st.Fenced,
+		PreferMirror: s.softwareMirrorPreferred,
 		Settled: func(uid int64, batch store.SoftwareBatch) {
 			s.event(uid, "ui", "software-batch", "", softwareBatchAudit(batch, "finish"))
 		},
@@ -608,6 +609,7 @@ func (s *server) machineSoftwareApply(w http.ResponseWriter, r *http.Request) {
 	request := terminalproto.SoftwareApply{
 		Tool: tool, Action: action, ExpectedState: entry.State,
 		ExpectedVersion: entry.Version, ExpectedPrevious: entry.Previous, ExpectedManaged: entry.Managed,
+		PreferMirror: s.softwareMirrorPreferred(),
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 22*time.Minute)
 	defer cancel()

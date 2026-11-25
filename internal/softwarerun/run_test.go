@@ -451,3 +451,20 @@ func TestAPausedBatchAppliesNothingAndResumeContinuesAfterTheLift(t *testing.T) 
 		t.Fatalf("after the lift: %v", calls)
 	}
 }
+
+func TestRunCarriesTheMirrorPreference(t *testing.T) {
+	st, uid, agents := softwareRunFixture(t, "alpha")
+	batch := softwareRunBatch(t, st, uid, agents...)
+	var preferred atomic.Bool
+	broker := &fakeBroker{apply: func(_ string, in terminalproto.SoftwareApply) (terminalproto.SoftwareApplyResult, error) {
+		preferred.Store(in.PreferMirror)
+		return applied(in), nil
+	}}
+	o := New(Config{Store: st, Broker: broker, Logf: t.Logf, PreferMirror: func() bool { return true }})
+	defer o.Close()
+	o.Start(uid, batch.ID)
+	waitBatch(t, st, uid, batch.ID, store.SoftwareBatchDone)
+	if !preferred.Load() {
+		t.Fatal("the batch request did not carry the preference")
+	}
+}

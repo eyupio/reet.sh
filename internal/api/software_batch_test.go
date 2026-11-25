@@ -353,3 +353,37 @@ func TestSoftwareBatchAuditsStartAndFinish(t *testing.T) {
 		t.Fatalf("batch audit phases: %v", phases)
 	}
 }
+
+func TestSoftwareBatchCarriesTheMirrorPreference(t *testing.T) {
+	f := softwareBatchAPIFixture(t, 1)
+	caps := softwareTestCapabilities(softwareTestEntry(terminalproto.SoftwareInstalled, "1.18.0"))
+	caps.SoftwareApply, caps.SoftwareMirrorFirst = true, true
+	record, err := f.st.BeginRemoteConnectionFor(f.uid, f.agents[0].ID, terminalbroker.ID(), caps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.generations[0] = record.Generation
+	for _, key := range []string{softwareMirrorKey, softwareMirrorFirstKey} {
+		if err := f.st.SetSetting(key, "1"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var mu sync.Mutex
+	var asked []terminalproto.SoftwareApply
+	f.connect(t, 0, func(in terminalproto.SoftwareApply) terminalproto.SoftwareApplyResult {
+		mu.Lock()
+		asked = append(asked, in)
+		mu.Unlock()
+		return appliedSoftware(in)
+	})
+	code, batch, body := f.start(t, "batch_request_mirror", f.agents[0].ID)
+	if code != http.StatusCreated {
+		t.Fatalf("create: %d %s", code, body)
+	}
+	f.wait(t, batch.ID, store.SoftwareBatchDone)
+	mu.Lock()
+	defer mu.Unlock()
+	if len(asked) != 1 || !asked[0].PreferMirror {
+		t.Fatalf("the batch did not carry the preference: %+v", asked)
+	}
+}

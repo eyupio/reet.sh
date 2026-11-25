@@ -866,12 +866,13 @@ export async function getAdminStatus(): Promise<AdminStatus> {
 export async function saveAdminSettings(settings: { refreshEnabled?: boolean; topicsEnabled?: boolean; linkListsEnabled?: boolean; rollupIndividual?: boolean; pruneServerEnvironmentsDays?: number; instanceName?: string }): Promise<void> {
   await req('/api/admin/settings', { method: 'PATCH', body: json(settings) })
 }
-export type SoftwareMirrorStatus = { enabled: boolean; cached: boolean; size?: number; digest?: string; version?: string; changedBy?: string; changedAt?: number }
+export type SoftwareMirrorStatus = { enabled: boolean; preferred?: boolean; cached: boolean; size?: number; digest?: string; version?: string; changedBy?: string; changedAt?: number }
 export async function getSoftwareMirror(): Promise<SoftwareMirrorStatus> {
   return (await req('/api/v2/settings/software-mirror')).json()
 }
-export async function setSoftwareMirror(enabled: boolean): Promise<SoftwareMirrorStatus> {
-  return (await req('/api/v2/settings/software-mirror', { method: 'PUT', body: json({ enabled }) })).json()
+// preferred has machines try this controller before the registry; it needs the mirror on.
+export async function setSoftwareMirror(change: { enabled?: boolean; preferred?: boolean }): Promise<SoftwareMirrorStatus> {
+  return (await req('/api/v2/settings/software-mirror', { method: 'PUT', body: json(change) })).json()
 }
 export async function cacheSoftwareMirror(): Promise<SoftwareMirrorStatus> {
   return (await req('/api/v2/settings/software-mirror/cache', { method: 'POST', body: json({}) })).json()

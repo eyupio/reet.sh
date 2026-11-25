@@ -51,7 +51,9 @@ const makeState = () => {
       if (request.method() === 'PUT') {
         const body = request.postDataJSON()
         calls.mirror.push(body)
-        mirror = { ...mirror, enabled: body.enabled }
+        if (body.preferred && !(body.enabled ?? mirror.enabled)) return { status: 409, json: { error: 'Turn the artifact mirror on first.' } }
+        mirror = { ...mirror, ...body }
+        if (!mirror.enabled) mirror.preferred = false
       }
       return mirror
     },
@@ -119,6 +121,38 @@ try {
     expect(calls.cache).toBe(1)
     expect(errors).toEqual([])
     await context.close()
+  }
+
+  // Downloading from this controller first is a second choice under the mirror, only open while the mirror is on.
+  if (run('mirror first')) {
+    for (const width of [390, 1280]) {
+      const { context, page, errors, calls } = await open({ width, height: 812, touch: width === 390 })
+      await page.goto(`${base}/admin/settings`)
+      const first = page.getByRole('checkbox', { name: 'Download from this controller first' })
+      await expect(first).toBeDisabled()
+      await expect(first).not.toBeChecked()
+      await expect(first).toHaveAccessibleDescription('Turn the mirror on to use this.')
+      await page.getByRole('checkbox', { name: 'Serve the reviewed artifact to machines' }).check()
+      await expect(first).toBeEnabled()
+      await expect(first).toHaveAccessibleDescription('Best when machines reach this controller faster than the registry. If this controller is slow or has no copy, machines fall back to the registry.')
+      const warning = page.getByText('Not cached yet. The first download fills it, which can take a few minutes.', { exact: true })
+      await expect(warning).toBeHidden()
+      await first.check()
+      await expect(warning).toBeVisible()
+      await expect(page.getByText('Machines try this controller first.', { exact: true })).toBeVisible()
+      expect(calls.mirror).toEqual([{ enabled: true }, { preferred: true }])
+      if (width === 390) {
+        const box = await first.locator('..').boundingBox()
+        expect(box.height, 'touch target').toBeGreaterThanOrEqual(44)
+      }
+      // Turning the mirror off turns the preference off with it.
+      await page.getByRole('checkbox', { name: 'Serve the reviewed artifact to machines' }).uncheck()
+      await expect(first).toBeDisabled()
+      await expect(first).not.toBeChecked()
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `document width at ${width}px`).toBe(true)
+      expect(errors).toEqual([])
+      await context.close()
+    }
   }
 
   if (run('phone')) {

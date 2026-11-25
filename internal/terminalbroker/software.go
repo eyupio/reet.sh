@@ -46,6 +46,9 @@ func (b *Broker) SoftwareApply(ctx context.Context, uid int64, agentID string, i
 	if !caps.Capabilities.SoftwareApply {
 		return terminalproto.SoftwareApplyResult{}, ErrSoftwareApplyUnsupported
 	}
+	// An older machine's strict decoder would refuse the field; it keeps
+	// trying the registry first.
+	in.PreferMirror = in.PreferMirror && caps.Capabilities.SoftwareMirrorFirst
 	reply, err := p.callWithin(ctx, terminalproto.Message{Body: in}, SoftwareApplyTimeout)
 	if err == ErrOffline {
 		// callWithin reports a request it could not send as plain ErrOffline.

@@ -49,7 +49,8 @@ If a desk cannot be read when you open it, the page says so and offers **Try aga
 
 The tab bar shows flat tabs with a colour marker and an underline in the tab's colour on the current one.
 
-- Click to switch. Double-click or F2 renames in place. Drag a tab to reorder.
+- Click to switch. Double-click or F2 renames in place. With a mouse, drag a tab to reorder; a sideways drag with a
+  finger or pen pans the tab bar, and Move left or Move right in the tab's menu reorders on a touch screen.
 - The tab shown is each window's own: switching tab saves nothing and moves no other window. The window remembers its tab
   for the desk until it is closed; a new window opens on the tab the desk was last worked in.
 - The tab's menu (right-click, Shift+F10 or ⋮) has Rename, Move left, Move right, Duplicate tab, Close tab and the

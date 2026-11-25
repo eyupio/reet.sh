@@ -16,11 +16,11 @@ What changed.
   change, and the computed `touch-action` allows both axes; the existing tap of a later tab still selects it. Without
   the source change the same test fails: `touch-action` reads `pan-y` and `scrollLeft` stays `0`.
 - No other surface uses `DeskTabs`; the pane chips strip in `DeskScreen.svelte` has no pointer reorder and already
-  pans.
+  pans. `docs/desks.md` says how a mouse reorders and how a touch screen does.
 
-Checked: `npm run check` (127 test files and svelte-check), `npm run build`, `web/tests/desks-phone.e2e.mjs` on a
-390 x 780 touch context, and `web/tests/desks.e2e.mjs` for the desktop reorder test. Before the change the same touch
-drag did not scroll the strip; after it, the drag pans and a tap still selects.
+Checked: `npm run check` (127 test files and svelte-check), `npm run build`, `go vet ./...`,
+`web/tests/desks-phone.e2e.mjs` on a 390 x 780 touch context, and `web/tests/desks.e2e.mjs` for the desktop reorder
+test. Before the change the same touch drag did not scroll the strip; after it, the drag pans and a tap still selects.
 
 Not checked: a real phone, iOS Safari, and a horizontal drag on a strip short enough not to overflow. On the desk page
 the page itself does not scroll vertically, so vertical panning is verified through the computed `touch-action` rather

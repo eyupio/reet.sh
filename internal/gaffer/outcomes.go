@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -87,12 +88,22 @@ var planSessionsTool = elicore.Tool{Name: "propose_sessions", Description: "Prop
 
 func outcomeSystem(max int) string {
 	return "You are Gaffer, the user's warm, practical critical buddy in reet.sh, with occasional dry Yorkshire humour. The user has given you an objective to own. Plan the coding-agent sessions that would meet it, then call propose_sessions exactly once. You start nothing: the user reviews, edits and approves the plan before any session exists.\n" +
-		"Each session is a separate coding agent working in its own isolated copy of the same project. Sessions cannot see or message each other, so every prompt must stand alone: say what to build or change, what is out of scope, how to check it, and that it should raise a pull request describing the work. Split only where the work is genuinely independent, so two sessions never edit the same code. Prefer one session for a small objective. Propose at most " + itoa(max) + " sessions.\n" +
+		"Each session is a separate coding agent working in its own isolated copy of the same project. Sessions cannot see or message each other, so every prompt must stand alone: say what to build or change, what is out of scope, how to check it, and that it should raise a pull request describing the work. Split only where the work is genuinely independent, so two sessions never edit the same code. Prefer one session for a small objective. Propose at most " + strconv.Itoa(max) + " sessions.\n" +
 		"Stay inside the objective: add no scope the user did not ask for, and when something is ambiguous say so in the summary instead of guessing. Each session is a pipeline that runs through stages in this order: plan, design, code, review, test, pr, babysit, merge. For each session list in \"stages\" the ones it needs: leave out plan and design for small, obvious work, and include review and test for anything that changes behaviour. You advise on how demanding each stage is; the user decides which agent and model that means and whether merge happens without them, and you name neither. In \"ratings\" rate a stage light, standard or heavy with one short reason, judged from this work and not from the stage's name: light is mechanical or routine (a pull request for finished work, a small rename), standard is ordinary building and checking, heavy needs careful judgement (unfamiliar or intricate code, data that must not be lost, security, a design with real trade-offs). The user's defaults are heavy for plan, design and review, standard for code and test, and light for pr, babysit and merge: rate only the stages where this work calls for something else, and leave the rest out. A stage whose work falls into clearly different pieces that suit different tiers can be split: in \"parts\" give two to four parts for that stage, each with a short title, a brief saying exactly what that part does and, where it differs from the stage's, its own tier and reason. Parts of a stage run one after another in the same folder, each done by a separate agent that sees only its own brief and the part before's handover, so each brief must stand alone and the order must make sense. Split only when it lets cheaper work go to a lighter tier or hard work to a heavier one; most stages are not split, and the pull request, babysitting and merge never are. Every prompt must end with the sentence \"Do not merge.\" Titles are short plain names of at most 80 characters. The summary says in two or three sentences how the sessions divide the work and what the user should check.\n" +
 		"When the person replies to a previous proposal, their reply is the instruction to act on. Keep what is still right, change what they asked, and address their reply directly in the summary rather than repeating a proposal they turned down."
 }
 
-func itoa(n int) string { return string(rune('0' + n)) }
+// strictJSON decodes raw into v, refusing a field v does not name and anything after the one value.
+func strictJSON(raw []byte, v any) bool {
+	d := json.NewDecoder(bytes.NewReader(raw))
+	d.DisallowUnknownFields()
+	var extra any
+	return d.Decode(v) == nil && d.Decode(&extra) == io.EOF
+}
+
+// pipelineText is what a model wrote, with the tabs and Windows line ends it
+// writes made plain: neither changes the meaning, and the launch prompt rules refuse both.
+var pipelineText = strings.NewReplacer("\r\n", "\n", "\r", "\n", "\t", "    ")
 
 // validPlanPrevious accepts the compact proposal a reply answers. It is
 // model text the browser kept, so it is checked again before it is sent back
@@ -197,7 +208,7 @@ func (s *Service) preparePlan(p Principal, id string, in OutcomePlanInput) (plan
 				ask += "\nSummary: " + previous.Summary
 			}
 			for i, session := range previous.Sessions {
-				ask += "\nSession " + itoa(i+1) + ": " + session.Title
+				ask += "\nSession " + strconv.Itoa(i+1) + ": " + session.Title
 				if len(session.Stages) > 0 {
 					ask += " (stages: " + strings.Join(session.Stages, ", ") + ")"
 				}
@@ -425,13 +436,7 @@ func outcomeSessions(raw json.RawMessage, max int) (string, []OutcomeSession, er
 			} `json:"parts"`
 		} `json:"sessions"`
 	}
-	d := json.NewDecoder(bytes.NewReader(raw))
-	d.DisallowUnknownFields()
-	if err := d.Decode(&in); err != nil {
-		return "", nil, malformed
-	}
-	var extra any
-	if d.Decode(&extra) != io.EOF || len(in.Sessions) == 0 {
+	if !strictJSON(raw, &in) || len(in.Sessions) == 0 {
 		return "", nil, malformed
 	}
 	if len(in.Sessions) > max {
@@ -444,8 +449,7 @@ func outcomeSessions(raw json.RawMessage, max int) (string, []OutcomeSession, er
 	seen := map[string]bool{}
 	out := make([]OutcomeSession, 0, len(in.Sessions))
 	for _, item := range in.Sessions {
-		// Models write tabs and Windows line ends; neither changes the meaning, and the launch prompt rules refuse both.
-		prompt := strings.TrimSpace(strings.NewReplacer("\r\n", "\n", "\r", "\n", "\t", "    ").Replace(item.Prompt))
+		prompt := strings.TrimSpace(pipelineText.Replace(item.Prompt))
 		if prompt == "" || len(prompt) > MaxOutcomePromptBytes || !terminalproto.ValidPrompt(prompt) {
 			return "", nil, malformed
 		}
@@ -493,7 +497,7 @@ func outcomeSessions(raw json.RawMessage, max int) (string, []OutcomeSession, er
 		var order []string
 		for _, part := range item.Parts {
 			name := strings.TrimSpace(part.Title)
-			brief := strings.TrimSpace(strings.NewReplacer("\r\n", "\n", "\r", "\n", "\t", "    ").Replace(part.Brief))
+			brief := strings.TrimSpace(pipelineText.Replace(part.Brief))
 			why := strings.TrimSpace(part.Why)
 			if !stageTakesParts(part.Stage) || !terminalproto.ValidTitle(name) || brief == "" || len(brief) > maxPartBriefBytes || !store.ValidWorkerText(brief) ||
 				part.Tier != "" && !validStageTier(part.Tier) || len(why) > 300 || why != "" && !store.ValidWorkerText(why) {

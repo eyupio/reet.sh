@@ -40,7 +40,7 @@ func TestFactoryMCPToolsReadForWritersAndControlOnlyWithManagementScope(t *testi
 	ctx := context.Background()
 	for _, access := range []mcpAccess{read, write} {
 		out, err := s.executeMCPFactory(ctx, access, "reet_list_factory", map[string]any{})
-		if err != nil || len(out["outcomes"].([]map[string]any)) != 0 {
+		if err != nil || len(out["items"].([]any)) != 0 {
 			t.Fatalf("list as %s: %v %v", access.Connection.Name, out, err)
 		}
 	}

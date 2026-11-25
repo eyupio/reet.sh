@@ -1,11 +1,9 @@
 package gaffer
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"strconv"
 	"strings"
 	"time"
@@ -192,6 +190,23 @@ func (s *Service) autoDecisions(ctx context.Context) {
 func (s *Service) decidePipeline(parent context.Context, p Principal, id string, piece store.GafferOutcomeSession, stop pipelineStop) {
 	d := store.GafferOutcomeDecision{Key: piece.Key, Title: piece.Title, Stage: piece.Stages[piece.Stage].Kind, About: stop.about}
 	answers, err := s.askDecision(parent, p, id, piece, stop, &d)
+	if errors.Is(err, ErrBusy) {
+		// The provider's gate refused before any request was made: nothing was
+		// decided. The claim is given back, so the next look puts the stop again
+		// without having spent one of the stage's decisions.
+		key, at, sign := piece.Key, piece.Stage, stop.sign
+		_, _ = s.outcomeStep(p.UserID, id, func(o *store.GafferOutcome) bool {
+			for i := range o.Sessions {
+				if row := &o.Sessions[i]; row.Key == key && at < len(row.Stages) && row.Stages[at].DecidedFor == sign {
+					stage := &row.Stages[at]
+					stage.Decided, stage.DecidedFor, stage.DecidingSince = max(stage.Decided-1, 0), "", 0
+					return true
+				}
+			}
+			return false
+		})
+		return
+	}
 	if err == nil {
 		err = s.applyDecision(parent, p.UserID, id, piece, stop, d, answers)
 	}
@@ -247,13 +262,7 @@ func decision(raw json.RawMessage, choices []string) (choice, why, text string, 
 		Why         string `json:"why"`
 		Instruction string `json:"instruction"`
 	}
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	dec.DisallowUnknownFields()
-	if len(raw) > 16<<10 || dec.Decode(&in) != nil {
-		return "", "", "", bad
-	}
-	var extra any
-	if dec.Decode(&extra) != io.EOF {
+	if len(raw) > 16<<10 || !strictJSON(raw, &in) {
 		return "", "", "", bad
 	}
 	allowed := false

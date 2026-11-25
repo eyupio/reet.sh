@@ -82,6 +82,8 @@ func newProviderClient(local bool) *http.Client {
 	transport.ResponseHeaderTimeout = 15 * time.Second
 	transport.TLSHandshakeTimeout = 10 * time.Second
 	if local {
+		// A local model server often sends a streamed reply's headers only with its first token, after loading the model.
+		transport.ResponseHeaderTimeout = 2 * time.Minute
 		transport.Proxy = nil
 	}
 	transport.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {

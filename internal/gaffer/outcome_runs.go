@@ -157,8 +157,9 @@ type OutcomeInput struct {
 	BalanceBelow int `json:"balanceBelow"`
 	// RequestID, when given, names this request: asking again under the same
 	// one answers the outcome it already started instead of starting another.
-	// It is for a client that may not hear back; the browser sends none.
-	RequestID string `json:"-"`
+	// It is for a client that may not hear back: the browser keeps one per
+	// approval, so a second click after a lost answer is the same request.
+	RequestID string `json:"requestId"`
 	// Template is the template version this plan was built from, set only by
 	// a template launch and recorded on the outcome.
 	Template *store.GafferTemplateRef `json:"-"`
@@ -522,6 +523,9 @@ func (s *Service) CreateOutcome(uid int64, in OutcomeInput) (store.GafferOutcome
 	if err != nil {
 		return o, err
 	}
+	if err = s.goalRoom(uid, len(sessions)); err != nil {
+		return o, err
+	}
 	for _, piece := range sessions {
 		if len(piece.Stages) == 0 && len(OutcomePromptImages(piece.Prompt, in.Images)) > MaxOutcomePromptBytes {
 			return o, invalid("images", "The brief and its attached images must fit in "+strconv.Itoa(MaxOutcomePromptBytes)+" bytes together. Shorten the brief or attach fewer images.")
@@ -559,6 +563,20 @@ func (s *Service) CreateOutcome(uid int64, in OutcomeInput) (store.GafferOutcome
 	}
 	s.wakeOutcomes()
 	return o, nil
+}
+
+// goalRoom refuses a plan of n more pipelines when Gaffer could not follow them
+// all: each pipeline is followed by a goal of its own, and an account has room
+// for MaxActiveGafferGoals of them.
+func (s *Service) goalRoom(uid int64, n int) error {
+	active, err := s.store.ActiveGafferGoalsFor(uid)
+	if err != nil {
+		return err
+	}
+	if active+n > store.MaxActiveGafferGoals {
+		return invalid("sessions", "Gaffer follows at most "+strconv.Itoa(store.MaxActiveGafferGoals)+" sessions at once and "+strconv.Itoa(active)+" are active, so there is no room for "+strconv.Itoa(n)+" more. Stop or finish some first, or plan fewer pipelines.")
+	}
+	return nil
 }
 
 // outcomePieces turns approved sessions into pipeline records. taken holds
@@ -991,7 +1009,17 @@ func (s *Service) autoReports(ctx context.Context) {
 		s.wg.Add(1)
 		go func(id string) {
 			defer s.wg.Done()
-			_, _ = s.reviewOutcome(ctx, p, id, true)
+			if _, err := s.reviewOutcome(ctx, p, id, true); errors.Is(err, ErrBusy) {
+				// The provider's gate refused it before any request: the claim is given
+				// back, so the report is asked for again and not lost.
+				_, _ = s.outcomeStep(p.UserID, id, func(o *store.GafferOutcome) bool {
+					if o.AutoReportedFor != event {
+						return false
+					}
+					o.AutoReportedFor, o.AutoReports = "", max(o.AutoReports-1, 0)
+					return true
+				})
+			}
 		}(o.ID)
 	}
 }
@@ -1383,7 +1411,8 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 		if stage.Part != "" {
 			// One part of a split stage: Gaffer follows it against the part's own brief.
 			launch.Title = partTitle(item.Title, stage.Kind, stage.Part)
-			goal += "\nThis session does one part of the stage only, “" + clipBytes(stage.Part, 80) + "”: " + clipBytes(stage.Brief, 600) + " Hand over when this part is done; the stage's other parts are done in sessions of their own."
+			// The brief is clipped hard here so a long title, objective and part name cannot take the goal past the 2,000 bytes a goal may hold.
+			goal += "\nThis session does one part of the stage only, “" + clipBytes(stage.Part, 80) + "”: " + clipBytes(stage.Brief, 400) + " Hand over when this part is done; the stage's other parts are done in sessions of their own."
 		}
 		// The merge gate holds on every path into the merge stage, not only on
 		// a hand-over: a pipeline tried again at its merge stage, or one whose
@@ -1455,6 +1484,24 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 	// write access after approving starts nothing more.
 	if _, err := s.chatPrincipal(uid); err != nil {
 		return fail("failed", "Not started: this account can no longer start sessions.")
+	}
+	// A session Gaffer has no room to follow is not started, or it would run
+	// with nobody looking after it. The pipeline waits for a goal to free a place.
+	if item.SessionID == "" && item.UnsureRequest == "" {
+		if active, err := s.store.ActiveGafferGoalsFor(uid); err == nil && active >= store.MaxActiveGafferGoals {
+			note := "Waiting for room: Gaffer follows at most " + strconv.Itoa(store.MaxActiveGafferGoals) + " sessions at once. This starts when one of them is finished, stopped or paused."
+			if item.Note != note {
+				if _, err := s.outcomeStep(uid, o.ID, setOutcomeSession(item.Key, item.State, note, &wrote, nil)); err != nil {
+					return false
+				}
+			}
+			select {
+			case <-ctx.Done():
+				return false
+			case <-time.After(outcomeFollowEvery):
+			}
+			return true
+		}
 	}
 	sessionID := item.SessionID
 	if sessionID == "" {
@@ -1786,6 +1833,9 @@ func outcomeReason(err error) string {
 	switch {
 	case errors.As(err, &bad):
 		return bad.Message
+	case errors.Is(err, store.ErrGafferGoalLimit):
+		// Reached only when another outcome took the last place after this one's check.
+		return err.Error() + "."
 	case errors.Is(err, store.ErrNotFound):
 		return "Its chat is not available to Gaffer."
 	case errors.Is(err, ErrUnavailable):

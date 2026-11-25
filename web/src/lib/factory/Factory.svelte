@@ -15,7 +15,7 @@
   import { sourceLabel } from '../clineSource'
   import { planEntries, type MachineAccounts } from '../agentAccounts'
   import { machinePlans, PLAN_REFRESH } from '../planLimits'
-  import { floorCandidates } from '../gafferFloor'
+  import { floorCandidates, floorRoom } from '../gafferFloor'
   import { formatWhen } from '../time'
   import GafferCompanionAvatar from '../GafferCompanionAvatar.svelte'
   import GafferOutcome from '../GafferOutcome.svelte'
@@ -624,7 +624,7 @@
 
 {#if templatesOpen}<Templates openId={templateWanted} {timeZone} {dateFormat} onuse={(id, version) => { templatesOpen = false; address({ template: null }); outcomeTemplate = { id, version }; openOutcome() }} onclose={() => { templatesOpen = false; address({ template: null }); void tick().then(() => templatesButton?.focus({ preventScroll: true })) }}/>{/if}
 {#if savingTemplate}<TemplateSave record={savingTemplate} onclose={() => (savingTemplate = null)} onsaved={saved => { savingTemplate = null; notice = `Saved as template “${saved.content.name}”, version ${saved.version}.`; savedTemplate = { id: saved.id, notice }; bad = false }}/>{/if}
-{#if outcomeOpen}<GafferOutcome template={outcomeTemplate} {timeZone} {dateFormat} projectId={outcomeProject} initialObjective={outcomeObjective} room={Math.max(0, 10 - goals.filter(row => row.goal.state === 'active').length)} {userId} onstarted={load} onclose={() => void closeOutcome()}/>{/if}
+{#if outcomeOpen}<GafferOutcome template={outcomeTemplate} {timeZone} {dateFormat} projectId={outcomeProject} initialObjective={outcomeObjective} room={floorRoom(goals.map(row => row.goal))} {userId} onstarted={load} onclose={() => void closeOutcome()}/>{/if}
 <PipelineChoices bind:this={choices} bind:busy {userId} {timeZone} {dateFormat} goals={byConversation} {latest} onchanged={load} onnotice={(text, failed = false) => { notice = text; bad = failed }} {onsignedout}/>
 {#if deleting}<ConfirmDialog title={`Delete “${short(deleting.objective)}”?`} body="This erases the outcome, its report and its totals from reet for good. The sessions and pull requests it started are not touched. To keep the record out of sight instead, archive it." confirmLabel="Delete outcome" danger oncancel={() => deleting = null} onconfirm={() => deleting && void putAway(deleting, 'delete')}/>{/if}
 {#if adding}<AddPipelines record={adding} proposals={chosenProposals(adding)} {busy} error={dialogError} oncancel={() => adding = null} onconfirm={pipelines => void add(pipelines)}/>{/if}

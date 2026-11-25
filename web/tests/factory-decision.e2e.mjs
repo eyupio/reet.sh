@@ -84,10 +84,10 @@ try{
    await expect(note.getByRole('textbox',{name:'Instruction',exact:true})).toHaveValue('')
    await note.getByRole('textbox',{name:'Instruction',exact:true}).fill('Add the missing error case.')
    await note.getByRole('button',{name:'Send to the agent',exact:true}).click()
-   await expect(page.getByRole('status').filter({hasText:'instruction'})).toHaveText('Your instruction is with the agent for its next turn.');expect(f.box.told).toEqual(['Add the missing error case.'])
+   await expect(page.getByRole('status').filter({hasText:'instruction'})).toHaveText('Your instruction is with the agent of “Export API” for its next turn.');expect(f.box.told).toEqual(['Add the missing error case.'])
    // Moving on asks first, then names the stage the person was shown. The decision then leaves this session with the stage.
    await decision.getByRole('button',{name:'Move to next stage Recommended',exact:true}).click()
-   await page.getByRole('dialog',{name:'Move “Export API” on?',exact:true}).getByRole('button',{name:'Move on',exact:true}).click()
+   await page.getByRole('dialog',{name:'Move “Export API” on to review?',exact:true}).getByRole('button',{name:'Move on',exact:true}).click()
    await expect.poll(()=>f.box.moved).toEqual([{confirmed:true,stage:'code'}])
    await expect(decision).toHaveCount(0)
    expect(w.state.unexpected).toEqual([])
@@ -101,7 +101,7 @@ try{
   const decision=w.page.getByRole('region',{name:'Decision for Export API',exact:true})
   await decision.getByRole('button',{name:'Have Gaffer look again',exact:true}).click()
   await expect.poll(()=>f.box.controls).toEqual([{revision:3,action:'resume',pins:{providerId:pid,providerRevision:1,model:'gaffer-model',contextRevision:1,workerRevision:1},confirmed:true}])
-  await expect(w.page.getByRole('status').filter({hasText:'reviewing'})).toHaveText('Gaffer is reviewing this stage again.')
+  await expect(w.page.getByRole('status').filter({hasText:'reviewing'})).toHaveText('Gaffer is reviewing “Export API” again.')
   await expect(decision).toHaveCount(0)
  }finally{await w.context.close()}
  // The working model fails after the review. Its usage limit replaces stale advice on both surfaces.
@@ -251,7 +251,7 @@ try{
    await ask.getByRole('button',{name:'Cancel',exact:true}).click();await expect(ask).toHaveCount(0);expect(tall.box.backup).toEqual([])
    await again.click();await ask.getByRole('button',{name:'Run again',exact:true}).click()
    await expect.poll(()=>tall.box.backup).toEqual([{revision:5,endSession:sid}])
-   await expect(page.getByRole('status').filter({hasText:'again'})).toHaveText('Running this stage again in a new session. This one is ending.')
+   await expect(page.getByRole('status').filter({hasText:'again'})).toHaveText('Running “Export API” again in a new session. The old one is ending.')
    await expect(decision).toHaveCount(0)
    expect(tw.state.unexpected).toEqual([])
   }finally{await tw.context.close()}

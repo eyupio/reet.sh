@@ -38,8 +38,13 @@ var handOverTool = elicore.Tool{Name: "hand_over", Description: "Say that this p
 
 var moveOnTool = elicore.Tool{Name: "move_on", Description: "Move this pipeline to its next stage because the user, in their current message, told you to. It closes the stage in hand and the controller starts the next one. It does not merge or approve anything.", Parameters: json.RawMessage(`{"type":"object","properties":{"note":{"type":"string","maxLength":600,"description":"One line for whoever does the next stage: what the user said and what was left unfinished, if anything."}}}`)}
 
+// validCallID reports whether a model's tool call ID is one reet will keep: some text, short, one line.
+func validCallID(id string) bool {
+	return strings.TrimSpace(id) != "" && len(id) <= 128 && utf8.ValidString(id) && !strings.ContainsAny(id, "\x00\r\n")
+}
+
 func moveOnNote(call elicore.ToolCall) (string, error) {
-	if call.Name != moveOnTool.Name || strings.TrimSpace(call.ID) == "" || len(call.ID) > 128 || !utf8.ValidString(call.ID) || strings.ContainsAny(call.ID, "\x00\r\n") || len(call.Arguments) > 16<<10 {
+	if call.Name != moveOnTool.Name || !validCallID(call.ID) || len(call.Arguments) > 16<<10 {
 		return "", errors.New("Gaffer returned an invalid move-on request. The pipeline was not moved.")
 	}
 	var in struct {
@@ -54,7 +59,7 @@ func moveOnNote(call elicore.ToolCall) (string, error) {
 }
 
 func goalQuestion(call elicore.ToolCall) (string, *store.GafferGoalAdvice, error) {
-	if (call.Name != goalQuestionTool.Name && call.Name != handOverTool.Name) || strings.TrimSpace(call.ID) == "" || len(call.ID) > 128 || !utf8.ValidString(call.ID) || strings.ContainsAny(call.ID, "\x00\r\n") || len(call.Arguments) > 16<<10 {
+	if (call.Name != goalQuestionTool.Name && call.Name != handOverTool.Name) || !validCallID(call.ID) || len(call.Arguments) > 16<<10 {
 		return "", nil, errors.New("The goal question was malformed; no worker instruction was queued.")
 	}
 	var in struct {
@@ -91,7 +96,7 @@ func goalQuestion(call elicore.ToolCall) (string, *store.GafferGoalAdvice, error
 }
 
 func workerInstruction(call elicore.ToolCall) (string, error) {
-	if call.Name != messageWorkerTool.Name || (len(call.ID) > 128 || !utf8.ValidString(call.ID) || strings.ContainsAny(call.ID, "\x00\r\n")) || strings.TrimSpace(call.ID) == "" || len(call.Arguments) > 64<<10 {
+	if call.Name != messageWorkerTool.Name || !validCallID(call.ID) || len(call.Arguments) > 64<<10 {
 		return "", errors.New("The provider requested an unsupported or invalid worker tool. No instruction was queued.")
 	}
 	var in struct {

@@ -3,21 +3,16 @@
   // stage in hand. The choices are the ones on the Factory card, recommended first; the ones that need the Factory's own
   // dialogs (a merge, a new budget, stopping the outcome) go to the pipeline's card there.
   import { onMount } from 'svelte'
-  import { controlGafferGoal, getGafferGoal, listGafferGoals, listGafferOutcomes, moveGafferPipelineOn, recoverGafferPipeline, restartGafferPipeline, retryGafferPipeline, tellGafferPipelineAgent, type GafferGoalOverview, type GafferOutcome, type GafferOutcomeSession } from '../api'
-  import { toolName } from '../agentLaunch'
-  import { heldStops, MAX_STAGE_DECISIONS, deliveryHref, waitingDecisions, type FactoryMember, type NeedChoice } from '../gafferOutcome'
-  import ConfirmDialog from '../ConfirmDialog.svelte'
+  import { listGafferGoals, listGafferOutcomes, type GafferGoalOverview, type GafferOutcome } from '../api'
+  import { MAX_STAGE_DECISIONS, deliveryHref, waitingDecisions, type FactoryMember, type NeedChoice } from '../gafferOutcome'
   import Decision from './Decision.svelte'
-  import { RESTART_BODY } from './PipelineChoices.svelte'
-  import PipelineNote from './PipelineNote.svelte'
-  import RecoverWorker from './RecoverWorker.svelte'
-  import { signalAttentionChanged } from '../attentionSignal'
+  import PipelineChoices from './PipelineChoices.svelte'
 
   let { member, sessionId }: { member: FactoryMember; sessionId: string } = $props()
   let record = $state<GafferOutcome | null>(null), goals = $state(new Map<string, GafferGoalOverview>())
-  let busy = $state(false), notice = $state(''), bad = $state(false), dialogError = $state('')
-  let replacing = $state(false), restarting = $state(false)
-  let moving = $state(false), telling = $state(false), tellStart = $state(''), tellRequest = ''
+  let busy = $state(false), notice = $state(''), bad = $state(false)
+  // Carries out the choices exactly as the Factory card does, so the bell and the title follow at once.
+  let pipeline = $state<PipelineChoices>()
   let disposed = false
   async function load() {
     try {
@@ -29,7 +24,7 @@
   }
   onMount(() => {
     void load()
-    const timer = setInterval(() => { if (!document.hidden && !busy && !moving && !telling && !replacing && !restarting) void load() }, 8000)
+    const timer = setInterval(() => { if (!document.hidden && !busy) void load() }, 8000)
     return () => { disposed = true; clearInterval(timer) }
   })
   // Only the session doing the stage in hand carries the pipeline's decision.
@@ -41,7 +36,6 @@
   const used = $derived(waiting?.piece.stages?.[waiting.piece.stage ?? 0]?.decided ?? 0)
   const taken = $derived(record?.decisions ?? [])
   const kind = $derived(waiting?.piece.stages?.[waiting.piece.stage ?? 0]?.kind ?? '')
-  const heldStage = $derived(waiting?.piece.stages?.[waiting.piece.stage ?? 0])
   // Why Gaffer is leaving this to the person, so the card answers "why is it not sending this itself?" and says what to
   // do about it. A lost session or a merge is the person's whatever the outcome's decisions setting is.
   const note = $derived(waiting?.kind !== 'goal' || !record ? '' : !record.automation
@@ -49,61 +43,13 @@
     : used >= MAX_STAGE_DECISIONS ? `Gaffer has taken its ${MAX_STAGE_DECISIONS} decisions on this stage, so this one is yours. Pick one below.`
     : used > 0 && taken.some(item => item.failed && item.key === waiting.piece.key && item.stage === kind) ? 'Gaffer left this one to you. Pick one below; its reason is on the Factory card.'
     : 'Gaffer is deciding this now. You can still choose first.')
-  const requestId = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, '0')).join('')
-  const fail = (e: unknown, fallback: string) => { bad = true; notice = e instanceof Error ? e.message : fallback }
-  async function act(run: () => Promise<string>, fallback: string) {
-    if (busy) return
-    busy = true; notice = ''; bad = false
-    try { notice = await run() } catch (e) { fail(e, fallback) }
-    busy = false
-    await load()
-  }
+  // A merge, a new budget and stopping the outcome have their reviews on the Factory page, as does the delivery review.
+  const own = ['retry', 'again', 'replace-worker', 'restart', 'backup', 'move', 'tell']
   function choose(choice: NeedChoice) {
-    const piece = waiting?.piece as GafferOutcomeSession | undefined
+    const piece = waiting?.piece
     if (!record || !piece) return
-    const current = record
-    if (choice.id === 'retry' || choice.id === 'again') void act(async () => {
-      const view = await getGafferGoal(piece.conversationId ?? '')
-      if (!view.goal) throw new Error('That goal is no longer there.')
-      if (!view.allowed) throw new Error(view.reason || 'Review this goal’s permissions before trying again.')
-      await controlGafferGoal(piece.conversationId ?? '', view.goal.revision, 'resume', view.pins, true)
-      return 'Gaffer is reviewing this stage again.'
-    }, 'The review was not tried again.')
-    else if (choice.id === 'replace-worker') replacing = true
-    else if (choice.id === 'backup') void act(async () => { await recoverGafferPipeline(current, piece.key, sessionId); signalAttentionChanged(); return 'Gaffer is continuing this stage on its backup.' }, 'The stage could not switch to its backup.')
-    // This session is still open, and running the stage again ends it: the person confirms first.
-    else if (choice.id === 'restart' && waiting?.kind === 'goal') restarting = true
-    else if (choice.id === 'restart') void act(async () => { await retryGafferPipeline(current, piece.key); return 'Running this stage again in a new session.' }, 'That pipeline was not tried again.')
-    else if (choice.id === 'move') moving = true
-    else if (choice.id === 'tell') { tellStart = choice.recommended && goal?.goal.advice?.choice === 'tell' ? goal.goal.advice.text ?? '' : ''; tellRequest = requestId(); dialogError = ''; telling = true }
-    // The delivery review is a card of its own on the Factory page, scrolled into view and focused.
-    else if (choice.id === 'review') location.href = deliveryHref(member.outcomeId, member.key)
-    // A merge, a new budget and stopping the outcome each have their own review on the Factory.
-    else location.href = card
-  }
-  async function restart() {
-    const piece = waiting?.piece, current = record
-    restarting = false
-    if (!piece || !current) return
-    await act(async () => { await restartGafferPipeline(current, piece.key, sessionId); signalAttentionChanged(); return 'Running this stage again in a new session. This one is ending.' }, 'The stage was not run again.')
-  }
-  async function moveOn() {
-    const piece = waiting?.piece, current = record
-    moving = false
-    if (!piece || !current) return
-    await act(async () => { await moveGafferPipelineOn(current, piece.key, piece.stages?.[piece.stage ?? 0]?.kind ?? ''); return 'Moved on. The controller is starting the next stage in a session of its own.' }, 'That pipeline was not moved on.')
-  }
-  async function tell(text: string) {
-    const piece = waiting?.piece, current = record
-    if (!piece || !current || busy) return
-    busy = true; dialogError = ''
-    try {
-      const sent = await tellGafferPipelineAgent(current, piece.key, tellRequest, text)
-      telling = false; bad = false
-      notice = ['sent', 'queued', 'sending'].includes(sent.message.state) ? 'Your instruction is with the agent for its next turn.' : `The instruction was not delivered: ${sent.message.note || sent.message.state}.`
-    } catch (e) { dialogError = e instanceof Error ? e.message : 'The instruction was not sent.' }
-    busy = false
-    await load()
+    if (own.includes(choice.id)) pipeline?.choose(choice, record, piece)
+    else location.href = choice.id === 'review' ? deliveryHref(member.outcomeId, member.key) : card
   }
 </script>
 
@@ -111,14 +57,8 @@
   <Decision title={waiting.piece.title} stage={waiting.stage} href={card} need={waiting.need} {choices} {busy} onchoose={choose} {note}
     review={waiting.kind === 'usage_limit' ? '' : goal?.goal.summary ?? ''}/>
 </div>{/if}
-{#if replacing && record && waiting}
-  <RecoverWorker {record} piece={waiting.piece} oncancel={() => replacing = false}
-    onstarted={async () => { replacing = false; bad = false; notice = 'Gaffer is continuing this stage with the model you chose.'; signalAttentionChanged(); await load() }}/>
-{/if}
 {#if notice}<p class="session-decision-note" class:bad role={bad ? 'alert' : 'status'}>{notice}</p>{/if}
-{#if moving && waiting}<ConfirmDialog title={`Move “${waiting.piece.title}” on?`} body={`${heldStage?.agentState === 'background' ? `${heldStops(toolName(heldStage.tool ?? ''), heldStage.agentHeldSince, Date.now())} ` : ''}This closes the stage in hand as it stands and starts the next stage in a session of its own. Gaffer’s review of this stage is not waited for.`} confirmLabel="Move on" onconfirm={() => void moveOn()} oncancel={() => moving = false}/>{/if}
-{#if restarting && waiting}<ConfirmDialog title={`Run “${waiting.piece.title}” again in a new session?`} body={RESTART_BODY} confirmLabel="Run again" onconfirm={() => void restart()} oncancel={() => restarting = false}/>{/if}
-{#if telling && waiting}<PipelineNote title={`Tell the agent of “${waiting.piece.title}”`} intro="Your words go to this pipeline’s working agent for its next turn, exactly as you write them. It cannot interrupt the agent or answer an approval." label="Instruction" initial={tellStart} confirmLabel="Send to the agent" {busy} error={dialogError} oncancel={() => telling = false} onconfirm={text => void tell(text)}/>{/if}
+<PipelineChoices bind:this={pipeline} bind:busy {goals} latest={item => record?.id === item.id ? record : item} onchanged={load} onnotice={(text, failed = false) => { notice = text; bad = failed }}/>
 
 <style>
   .session-decision{padding:8px 12px 0;min-width:0}

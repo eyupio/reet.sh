@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"strings"
 
 	"github.com/eyupio/reet.sh/internal/skillbuddy"
 )
@@ -458,6 +459,15 @@ func (s *Store) CreateGafferOutcomeFor(uid int64, o GafferOutcome) (GafferOutcom
 		return o, err
 	}
 	if _, err = tx.Exec(`INSERT INTO gaffer_outcomes(id,user_id,created_at,data) VALUES(?,?,?,?)`, o.ID, uid, o.CreatedAt, string(raw)); err != nil {
+		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
+			// The id is a request ID asked for twice at once, or one another account used: the account's own
+			// outcome under it is the answer to a repeat, and anything else is a conflict, not a database error.
+			tx.Rollback()
+			if mine, gerr := s.GafferOutcomeFor(uid, o.ID); gerr == nil {
+				return mine, nil
+			}
+			return o, ErrGafferConflict
+		}
 		return o, err
 	}
 	// Only an outcome with nothing still moving is dropped: one whose pipelines
@@ -667,10 +677,10 @@ func (s *Store) DeleteGafferOutcomeFor(uid int64, id string, revision int64) err
 	return tx.Commit()
 }
 
-// StartingGafferOutcomes lists every account's outcomes the controller still
-// has work for, oldest first.
-func (s *Store) StartingGafferOutcomes() ([]GafferOutcome, error) {
-	rows, err := s.db.Query(`SELECT user_id,data FROM gaffer_outcomes WHERE json_extract(data,'$.state')='starting' ORDER BY created_at,id`)
+// gafferOutcomesWhere reads every account's outcomes that match where (SQL written here, never taken from a
+// request), oldest first.
+func (s *Store) gafferOutcomesWhere(where string) ([]GafferOutcome, error) {
+	rows, err := s.db.Query(`SELECT user_id,data FROM gaffer_outcomes WHERE ` + where + ` ORDER BY created_at,id`)
 	if err != nil {
 		return nil, err
 	}
@@ -689,128 +699,51 @@ func (s *Store) StartingGafferOutcomes() ([]GafferOutcome, error) {
 		out = append(out, o)
 	}
 	return out, rows.Err()
+}
+
+const (
+	outcomeNotArchived = `COALESCE(json_extract(data,'$.archivedAt'),0)=0`
+	// A pipeline that is following a session is the only one the controller has decisions or a backup to take for.
+	outcomeHasFollowed = `EXISTS(SELECT 1 FROM json_each(gaffer_outcomes.data,'$.sessions') WHERE json_extract(value,'$.state')='following')`
+)
+
+// StartingGafferOutcomes lists every account's outcomes the controller still
+// has work for, oldest first.
+func (s *Store) StartingGafferOutcomes() ([]GafferOutcome, error) {
+	return s.gafferOutcomesWhere(`json_extract(data,'$.state')='starting'`)
 }
 
 // FollowedGafferOutcomes lists every account's outcomes that have a pipeline
 // following a session, oldest first. The controller checks each such session
 // still exists.
 func (s *Store) FollowedGafferOutcomes() ([]GafferOutcome, error) {
-	rows, err := s.db.Query(`SELECT user_id,data FROM gaffer_outcomes WHERE EXISTS(SELECT 1 FROM json_each(gaffer_outcomes.data,'$.sessions') WHERE json_extract(value,'$.state')='following' AND json_extract(value,'$.sessionId')<>'') ORDER BY created_at,id`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []GafferOutcome
-	for rows.Next() {
-		var uid int64
-		var raw string
-		if err = rows.Scan(&uid, &raw); err != nil {
-			return nil, err
-		}
-		o, err := scanOutcome(uid, raw)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, o)
-	}
-	return out, rows.Err()
+	return s.gafferOutcomesWhere(`EXISTS(SELECT 1 FROM json_each(gaffer_outcomes.data,'$.sessions') WHERE json_extract(value,'$.state')='following' AND json_extract(value,'$.sessionId')<>'')`)
 }
 
 // RetiredGafferOutcomes lists every account's outcomes, not archived, with a
 // pipeline that has left sessions behind and is followed, waits for the
 // person or is done: a session it left may still run.
 func (s *Store) RetiredGafferOutcomes() ([]GafferOutcome, error) {
-	rows, err := s.db.Query(`SELECT user_id,data FROM gaffer_outcomes WHERE COALESCE(json_extract(data,'$.archivedAt'),0)=0 AND EXISTS(SELECT 1 FROM json_each(gaffer_outcomes.data,'$.sessions') WHERE json_extract(value,'$.state') IN ('following','delivery_review','ready_to_merge','done') AND json_array_length(value,'$.retired')>0) ORDER BY created_at,id`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []GafferOutcome
-	for rows.Next() {
-		var uid int64
-		var raw string
-		if err = rows.Scan(&uid, &raw); err != nil {
-			return nil, err
-		}
-		o, err := scanOutcome(uid, raw)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, o)
-	}
-	return out, rows.Err()
+	return s.gafferOutcomesWhere(outcomeNotArchived + ` AND EXISTS(SELECT 1 FROM json_each(gaffer_outcomes.data,'$.sessions') WHERE json_extract(value,'$.state') IN ('following','delivery_review','ready_to_merge','done') AND json_array_length(value,'$.retired')>0)`)
 }
 
 // AutomatedGafferOutcomes lists the outcomes whose owner gave Gaffer the
-// decisions, and that are neither stopped nor archived.
+// decisions, that are neither stopped nor archived and have a pipeline it can
+// still decide for.
 func (s *Store) AutomatedGafferOutcomes() ([]GafferOutcome, error) {
-	rows, err := s.db.Query(`SELECT user_id,data FROM gaffer_outcomes WHERE json_extract(data,'$.automation') AND json_extract(data,'$.state')!='stopped' AND COALESCE(json_extract(data,'$.archivedAt'),0)=0 ORDER BY created_at,id`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []GafferOutcome
-	for rows.Next() {
-		var uid int64
-		var raw string
-		if err = rows.Scan(&uid, &raw); err != nil {
-			return nil, err
-		}
-		o, err := scanOutcome(uid, raw)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, o)
-	}
-	return out, rows.Err()
+	return s.gafferOutcomesWhere(`json_extract(data,'$.automation') AND json_extract(data,'$.state')!='stopped' AND ` + outcomeNotArchived + ` AND ` + outcomeHasFollowed)
 }
 
 // BackedGafferOutcomes lists the outcomes that are neither stopped nor
-// archived and have a stage with a backup.
+// archived and have a followed stage with a backup.
 func (s *Store) BackedGafferOutcomes() ([]GafferOutcome, error) {
-	rows, err := s.db.Query(`SELECT user_id,data FROM gaffer_outcomes WHERE data LIKE '%"backup":{%' AND json_extract(data,'$.state')!='stopped' AND COALESCE(json_extract(data,'$.archivedAt'),0)=0 ORDER BY created_at,id`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []GafferOutcome
-	for rows.Next() {
-		var uid int64
-		var raw string
-		if err = rows.Scan(&uid, &raw); err != nil {
-			return nil, err
-		}
-		o, err := scanOutcome(uid, raw)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, o)
-	}
-	return out, rows.Err()
+	return s.gafferOutcomesWhere(`data LIKE '%"backup":{%' AND json_extract(data,'$.state')!='stopped' AND ` + outcomeNotArchived + ` AND ` + outcomeHasFollowed)
 }
 
 // AutoReportGafferOutcomes lists the outcomes whose owner asked for reports
-// without being asked, and that were not stopped.
+// without being asked, that were not stopped and are not put away.
 func (s *Store) AutoReportGafferOutcomes() ([]GafferOutcome, error) {
-	rows, err := s.db.Query(`SELECT user_id,data FROM gaffer_outcomes WHERE json_extract(data,'$.autoReport') AND json_extract(data,'$.state')!='stopped' ORDER BY created_at,id`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []GafferOutcome
-	for rows.Next() {
-		var uid int64
-		var raw string
-		if err = rows.Scan(&uid, &raw); err != nil {
-			return nil, err
-		}
-		o, err := scanOutcome(uid, raw)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, o)
-	}
-	return out, rows.Err()
+	return s.gafferOutcomesWhere(`json_extract(data,'$.autoReport') AND json_extract(data,'$.state')!='stopped' AND ` + outcomeNotArchived)
 }
 
 // UpdateGafferOutcomeFor applies change to the saved outcome when it is still

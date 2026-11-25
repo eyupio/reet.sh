@@ -279,10 +279,13 @@ func (s *Service) latestReply(uid int64, session string) (*ContextReply, error) 
 	return r, nil
 }
 
-var contextKey = regexp.MustCompile(`(?i)\b(?:sk-(?:proj-|ant-)?|github_pat_|gh[pousr]_|xox[baprs]-)[a-z0-9_-]{8,}|\bAKIA[A-Z0-9]{16}\b`)
-var contextAssignment = regexp.MustCompile(`(?im)\b(authorization|api[_ -]?key|access[_ -]?token|password|secret|token)\b["' :=\t]+[^\s,\r\n]+`)
+var contextKey = regexp.MustCompile(`(?i)\b(?:sk-(?:proj-|ant-)?|[sr]k_(?:live|test)_|github_pat_|gh[pousr]_|xox[baprs]-)[a-z0-9_-]{8,}|\bAKIA[A-Z0-9]{16}\b`)
+
+// contextAssignment takes a name that holds a credential (DB_PASSWORD, refresh_token,
+// AWS_SECRET_ACCESS_KEY, authorization) and its value, past a Bearer, Basic or token word.
+var contextAssignment = regexp.MustCompile(`(?im)\b([a-z0-9_]*(?:authorization|api[_ -]?key|access[_ -]?token|password|secret|token)(?:_[a-z0-9_]+)?)\b["' :=\t]+(?:(?:bearer|basic|token) +)?[^\s,\r\n]+`)
 var contextPrivateKey = regexp.MustCompile(`(?s)-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)`)
-var contextURLCredential = regexp.MustCompile(`https?://[^\s/@]+:[^\s/@]+@`)
+var contextURLCredential = regexp.MustCompile(`(?i)\b([a-z][a-z0-9+.-]*)://[^\s/@]+:[^\s/@]+@`)
 
 // Best effort only: text sharing is an explicit code/logs disclosure, not a
 // promise to detect every secret or distinguish prose from embedded code.
@@ -291,7 +294,7 @@ func contextText(text string, limit int) (string, bool) {
 	text = contextPrivateKey.ReplaceAllString(text, "[private key omitted]")
 	text = contextKey.ReplaceAllString(text, "[credential omitted]")
 	text = contextAssignment.ReplaceAllString(text, "$1: [credential omitted]")
-	text = contextURLCredential.ReplaceAllString(text, "https://[credential omitted]@")
+	text = contextURLCredential.ReplaceAllString(text, "${1}://[credential omitted]@")
 	if len(text) <= limit {
 		return text, false
 	}
@@ -335,7 +338,10 @@ func (s *Service) contextSnapshot(uid int64, session string, flags store.Context
 		}
 		x.Session = &ContextSession{ID: row.ID, State: string(row.State), Worker: worker, UpdatedAt: row.UpdatedAt}
 	}
-	x.Pipeline = s.contextPipeline(uid, session, flags)
+	if flags.Status {
+		// The stages and their states are status, whatever else is shared.
+		x.Pipeline = s.contextPipeline(uid, session, flags)
+	}
 	if flags.Text {
 		if x.Session == nil {
 			x.Session = &ContextSession{ID: session}

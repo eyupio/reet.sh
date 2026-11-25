@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
+	"slices"
 	"strings"
 	"time"
 
@@ -123,18 +125,14 @@ const hostToolsGuidance = "\nAn exception to anything above that says you have n
 
 func hostToolDefs(tools map[string]HostTool) []elicore.Tool {
 	out := make([]elicore.Tool, 0, len(tools))
-	for _, tool := range tools {
+	// Providers see tools in a stable order.
+	for _, name := range slices.Sorted(maps.Keys(tools)) {
+		tool := tools[name]
 		description := tool.Description
 		if tool.Mode == "ask" {
 			description += " The user is asked to approve each call before it runs."
 		}
 		out = append(out, elicore.Tool{Name: tool.Name, Description: description, Parameters: tool.Parameters, Live: true})
-	}
-	// Providers see tools in a stable order.
-	for i := 1; i < len(out); i++ {
-		for j := i; j > 0 && out[j-1].Name > out[j].Name; j-- {
-			out[j-1], out[j] = out[j], out[j-1]
-		}
 	}
 	return out
 }
@@ -145,7 +143,7 @@ const maxHostToolArgs = 64 << 10
 
 // hostToolArgs checks a model's call and returns its arguments as canonical JSON.
 func hostToolArgs(call elicore.ToolCall) (string, error) {
-	if strings.TrimSpace(call.ID) == "" || len(call.ID) > 128 || strings.ContainsAny(call.ID, "\x00\r\n") || len(call.Arguments) > maxHostToolArgs {
+	if !validCallID(call.ID) || len(call.Arguments) > maxHostToolArgs {
 		return "", errors.New("Gaffer returned an invalid tool request. Nothing was run.")
 	}
 	raw := call.Arguments
@@ -279,8 +277,11 @@ func toolHistory(tools []store.GafferTurnTool, sessionText bool) string {
 			b.WriteString("failed: " + clipBytes(tool.Result, 600))
 		case "declined":
 			b.WriteString("the user declined it; it was not run.")
-		case "pending", "approved":
+		case "pending":
 			b.WriteString("still waiting for the user's approval; it has not run.")
+		case "approved":
+			// Left so only when the result was never saved: the call was started.
+			b.WriteString("the user approved it and it was started, but what came of it was not recorded; it may have run.")
 		default:
 			b.WriteString(tool.State)
 		}

@@ -192,3 +192,13 @@ func TestGafferProviderCancelledDialDoesNotAttemptAnotherAddress(t *testing.T) {
 		t.Fatalf("cancel: %v calls=%d", err, calls.Load())
 	}
 }
+
+// A local model server may take a while to load before it sends a first token,
+// so it is waited for longer than a hosted provider.
+func TestLocalProvidersAreWaitedForLongerThanHostedOnes(t *testing.T) {
+	local := newProviderClient(true).Transport.(*guardedTransport).transport.ResponseHeaderTimeout
+	hosted := newProviderClient(false).Transport.(*guardedTransport).transport.ResponseHeaderTimeout
+	if local != 2*time.Minute || hosted != 15*time.Second {
+		t.Fatalf("response header timeouts: local %v, hosted %v", local, hosted)
+	}
+}

@@ -86,6 +86,13 @@ type GoalSetupInput struct {
 	Action               string `json:"action"`
 }
 
+// newGoal is a goal set going on the pins the person reviewed. The store gives it
+// its session and its revision.
+func newGoal(cid string, pins GoalPins, in GoalInput) (store.GafferGoal, error) {
+	id, err := newChatID()
+	return store.GafferGoal{ID: id, ConversationID: cid, Text: in.Text, ProviderID: pins.ProviderID, ProviderRevision: pins.ProviderRevision, Model: pins.Model, ContextRevision: pins.ContextRevision, WorkerRevision: pins.WorkerRevision, MaxReviews: in.MaxReviews, ExpiresAt: time.Now().Add(time.Duration(in.Hours) * time.Hour).UnixMilli(), LastSeq: -1}, err
+}
+
 func (s *Service) SetupGoal(uid int64, cid string, in GoalSetupInput) (GoalView, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -108,11 +115,10 @@ func (s *Service) SetupGoal(uid int64, cid string, in GoalSetupInput) (GoalView,
 	if in.Action == "start" && (in.Hours < 1 || in.Hours > 168) {
 		return v, invalid("goal", "Choose between 1 and 168 hours of follow-up.")
 	}
-	id, err := newChatID()
+	g, err := newGoal(cid, v.Pins, in.GoalInput)
 	if err != nil {
 		return v, err
 	}
-	g := store.GafferGoal{ID: id, ConversationID: cid, Text: in.Text, ProviderID: v.Pins.ProviderID, ProviderRevision: v.Pins.ProviderRevision, Model: v.Pins.Model, ContextRevision: v.Pins.ContextRevision, WorkerRevision: v.Pins.WorkerRevision, MaxReviews: in.MaxReviews, ExpiresAt: time.Now().Add(time.Duration(in.Hours) * time.Hour).UnixMilli(), LastSeq: -1}
 	if _, err = s.store.SetupGafferGoal(uid, in.ConversationRevision, in.Revision, g, in.Action == "resume"); err != nil {
 		return v, err
 	}
@@ -140,15 +146,10 @@ func (s *Service) SaveGoal(uid int64, cid string, in GoalInput) (GoalView, error
 	if in.Hours < 1 || in.Hours > 168 {
 		return v, invalid("goal", "Choose between 1 and 168 hours of follow-up.")
 	}
-	c, err := s.conversation(uid, cid)
+	g, err := newGoal(cid, v.Pins, in)
 	if err != nil {
 		return v, err
 	}
-	id, err := newChatID()
-	if err != nil {
-		return v, err
-	}
-	g := store.GafferGoal{ID: id, ConversationID: cid, SessionID: c.SessionID, Text: in.Text, ProviderID: v.Pins.ProviderID, ProviderRevision: v.Pins.ProviderRevision, Model: v.Pins.Model, ContextRevision: v.Pins.ContextRevision, WorkerRevision: v.Pins.WorkerRevision, MaxReviews: in.MaxReviews, ExpiresAt: time.Now().Add(time.Duration(in.Hours) * time.Hour).UnixMilli(), LastSeq: -1}
 	if _, err = s.store.SaveGafferGoal(uid, in.Revision, g); err != nil {
 		return v, err
 	}
@@ -354,17 +355,11 @@ func (s *Service) reviewHeldGoal(ctx context.Context, g store.GafferGoal) {
 		end("The working session has ended or is unavailable. Review its outcome before choosing further work.")
 		return
 	}
-	if s.worker == nil || s.workerEnabled != nil && !s.workerEnabled() {
-		hold(g.Note)
-		return
-	}
-	probe, cancel := context.WithTimeout(ctx, 3*time.Second)
-	status, err := s.worker.ChatControl(probe, g.OwnerID, g.SessionID, terminalproto.ACPControl{Action: "get"})
-	cancel()
+	controls, ok := s.workerControls(ctx, g)
 	if ctx.Err() != nil {
 		return
 	}
-	if err != nil || status.Controls.Waiting {
+	if !ok || controls.Waiting {
 		hold(g.Note)
 		return
 	}
@@ -580,25 +575,23 @@ func (s *Service) reviewGoal(ctx context.Context, g store.GafferGoal) {
 		observe("active", "Waiting for the controller's worker channel.", time.Minute)
 		return
 	}
-	probe, cancel := context.WithTimeout(ctx, 3*time.Second)
-	status, err := s.worker.ChatControl(probe, g.OwnerID, g.SessionID, terminalproto.ACPControl{Action: "get"})
-	cancel()
+	controls, ok := s.workerControls(ctx, g)
 	if ctx.Err() != nil {
 		return
 	}
-	if err != nil {
+	if !ok {
 		observe("active", "The worker is unavailable. Gaffer will resume when its verified channel is available.", time.Minute)
 		return
 	}
-	if status.Controls.Waiting {
+	if controls.Waiting {
 		hold()
 		return
 	}
-	if status.Controls.Working || status.Controls.Configuring || status.Controls.Compacting {
+	if controls.Working || controls.Configuring || controls.Compacting {
 		observe("active", "The working model is busy. Gaffer is waiting for its next turn.", 15*time.Second)
 		return
 	}
-	if status.Controls.Background > 0 {
+	if controls.Background > 0 {
 		// A review now could hand the stage over and end the session, and the
 		// work with it. The machine stops holding at its limit, so this ends.
 		observe("active", workerBackgroundNote, 15*time.Second)

@@ -44,9 +44,10 @@ func gafferToolGroup(name string, readOnly bool) string {
 func gafferToolOffered(name string) bool { return !mcpWorkerTool(name) && !mcpContextTool(name) }
 
 // gafferToolReturnsSessionText reports whether a tool's answer can carry
-// words a working agent wrote. The Factory's one-outcome read and every
-// Factory control answer with the outcome in full, handover notes and report
-// included; the two lists carry states and names only.
+// words a working agent wrote. The Factory's one-outcome read answers with
+// handover notes and report; the two lists carry states and names only. Every
+// Factory control is marked too, as when it answered with the outcome in full,
+// though it now answers in short: a change after one still waits for the person.
 func gafferToolReturnsSessionText(name string) bool {
 	return mcpFactoryTool(name) && name != "reet_list_factory" && name != "reet_list_factory_projects"
 }

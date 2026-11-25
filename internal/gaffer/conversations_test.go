@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -296,5 +297,56 @@ func TestGafferChatSendsTheConversationAsPromptCacheKey(t *testing.T) {
 	}
 	if req := <-requests; !strings.Contains(req, `"prompt_cache_key":"`+v.Conversation.ID+`"`) {
 		t.Fatalf("request %s", req)
+	}
+}
+
+// Goal reviews leave room for the person's own chat: with two reviews running
+// for an account a message is still taken, and a third review is not.
+func TestGoalReviewsDoNotCrowdOutTheChat(t *testing.T) {
+	s, _, p := settingsFixture(t)
+	fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"Fine.\"}}]}\n\ndata: [DONE]\n\n")
+	}))
+	defer func() { s.Close(); fake.Close() }()
+	v := conversationFixture(t, s, p, fake.URL)
+	s.mu.Lock()
+	for _, id := range []string{"review-1", "review-2"} {
+		s.chatJobs[id] = &chatJob{uid: p.UserID, goalID: id, cancel: func(error) {}}
+	}
+	s.mu.Unlock()
+	review := TurnInput{ID: strings.Repeat("a", 32), Revision: v.Conversation.Revision, Text: "Review the goal"}
+	if _, err := s.startTurn(p.UserID, v.Conversation.ID, review, &store.GafferGoal{ID: "goal", Revision: 1}); !errors.Is(err, ErrBusy) {
+		t.Fatalf("a third goal review: %v", err)
+	}
+	chat := TurnInput{ID: strings.Repeat("b", 32), Revision: v.Conversation.Revision, Text: "How are things?"}
+	if _, err := s.StartTurn(p.UserID, v.Conversation.ID, chat); err != nil {
+		t.Fatalf("a message with two reviews running: %v", err)
+	}
+	waitTurn(t, s, p.UserID, v.Conversation.ID, chat.ID)
+	s.mu.Lock()
+	delete(s.chatJobs, "review-1")
+	delete(s.chatJobs, "review-2")
+	s.mu.Unlock()
+}
+
+// A provider that does not answer in time ends the turn with words the person
+// can act on, not the bare "context deadline exceeded".
+func TestATurnThatRunsOutOfTimeSaysSo(t *testing.T) {
+	turnDeadline = 100 * time.Millisecond
+	t.Cleanup(func() { turnDeadline = 3 * time.Minute })
+	s, _, p := settingsFixture(t)
+	fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body) // the server notices a closed connection only once the request is read
+		<-r.Context().Done()
+	}))
+	defer func() { s.Close(); fake.Close() }()
+	v := conversationFixture(t, s, p, fake.URL)
+	in := TurnInput{ID: strings.Repeat("a", 32), Revision: v.Conversation.Revision, Text: "Anyone there?"}
+	if _, err := s.StartTurn(p.UserID, v.Conversation.ID, in); err != nil {
+		t.Fatal(err)
+	}
+	turn := waitTurn(t, s, p.UserID, v.Conversation.ID, in.ID)
+	if turn.State != "failed" || turn.Error != "The provider took more than three minutes to answer. Try again or choose a faster model." {
+		t.Fatalf("turn: %+v", turn)
 	}
 }

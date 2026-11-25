@@ -470,12 +470,12 @@ or deleting a template never changes an outcome that has started.
 A connected AI client can read and steer the Factory through [MCP](mcp.md#read-and-steer-the-factory). The three
 reads need a writer account; the rest also need a management connection.
 
-- `reet_list_factory` lists the outcomes with their pipelines, stages and states.
-- `reet_get_factory_outcome` reads one outcome; a management connection also receives handovers and Gaffer's report.
+- `reet_list_factory` lists the outcomes as short rows, with each pipeline's state and the stage in hand, a page at a time.
+- `reet_get_factory_outcome` reads one outcome in full, or one of its pipelines; a management connection also receives handovers and Gaffer's report.
 - `reet_list_factory_projects` lists the projects an outcome can run in.
 - `reet_start_outcome` starts an outcome in a project, with ordinary approvals.
 - `reet_add_pipelines` adds up to five pipelines to an outcome.
-- `reet_move_pipeline_on` closes the stage in hand and starts the next.
+- `reet_move_pipeline_on` closes the stage in hand, which you name, and starts the next.
 - `reet_tell_pipeline_agent` queues your instruction for the working agent of the stage in hand.
 - `reet_send_pipeline_back` has the stage in hand, or an earlier one, done again with your reason.
 - `reet_retry_pipeline` tries a pipeline that did not start, or stopped, again.

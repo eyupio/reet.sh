@@ -49,6 +49,14 @@ type ConversationView struct {
 	Messages     []store.WorkerMessage    `json:"messages,omitempty"`
 	Context      *ContextState            `json:"context,omitempty"`
 }
+
+// How many chat jobs may run at once, in all and for one account: a person's own
+// message may take more of them than a goal review, so reviews cannot crowd out the chat.
+const (
+	chatJobsPerAccount, chatJobsControllerWide     = 3, 16
+	reviewJobsPerAccount, reviewJobsControllerWide = 2, 12
+)
+
 type chatJob struct {
 	goalID string
 	// stage marks a review of a pipeline stage's goal; handover is the
@@ -325,8 +333,10 @@ func (s *Service) startTurn(uid int64, id string, in TurnInput, goal *store.Gaff
 	if err != nil {
 		return store.GafferTurn{}, err
 	}
+	pipelineChat := goal == nil && c.SessionID != "" && s.pipelineStage(uid, id)
 	if old, err := s.store.GafferTurnFor(uid, id, in.ID); err == nil {
-		if old.Prompt != in.Text || old.RequestRevision != in.Revision || (old.WorkerGrantRevision > 0) != in.Relay || (goal == nil && old.GoalID != "") || (goal != nil && (old.GoalID != goal.ID || old.GoalRevision != goal.Revision)) {
+		// A pipeline's own chat is given its messaging grant without a relay, so its turns keep the grant's revision either way.
+		if old.Prompt != in.Text || old.RequestRevision != in.Revision || (old.WorkerGrantRevision > 0) != in.Relay && (in.Relay || !pipelineChat) || (goal == nil && old.GoalID != "") || (goal != nil && (old.GoalID != goal.ID || old.GoalRevision != goal.Revision)) {
 			return old, store.ErrGafferConflict
 		}
 		return old, nil
@@ -346,7 +356,12 @@ func (s *Service) startTurn(uid int64, id string, in TurnInput, goal *store.Gaff
 			count++
 		}
 	}
-	if count >= 2 || len(s.chatJobs) >= 4 || !s.chatLimiter.Allow(key) {
+	perAccount, controllerWide := chatJobsPerAccount, chatJobsControllerWide
+	if goal != nil {
+		// A goal review leaves room for the person's own chat: one with many goals due can still talk to Gaffer.
+		perAccount, controllerWide = reviewJobsPerAccount, reviewJobsControllerWide
+	}
+	if count >= perAccount || len(s.chatJobs) >= controllerWide || !s.chatLimiter.Allow(key) {
 		return store.GafferTurn{}, ErrBusy
 	}
 	s.chatLimiter.Hit(key)
@@ -381,7 +396,6 @@ func (s *Service) startTurn(uid int64, id string, in TurnInput, goal *store.Gaff
 	// when they say so. The messaging grant was given when they approved the
 	// outcome, so it is used here without the per-request switch; without it
 	// the chat can still move the pipeline on.
-	pipelineChat := goal == nil && c.SessionID != "" && s.pipelineStage(uid, id)
 	if pipelineChat && workerRevision == 0 {
 		if messaging, err := s.WorkerSettings(uid, "gaffer", c.ID, c.SessionID); err == nil && messaging.Grant.Enabled && messaging.Allowed && !messaging.NeedsReview {
 			workerRevision = messaging.Grant.Revision
@@ -429,10 +443,14 @@ func (s *Service) startTurn(uid int64, id string, in TurnInput, goal *store.Gaff
 	go s.runTurn(ctx, job, c, row, backend, client, turn)
 	return turn, nil
 }
+
+// turnDeadline is how long one answer may take.
+var turnDeadline = 3 * time.Minute
+
 func (s *Service) runTurn(parent context.Context, job *chatJob, c store.GafferConversation, row store.GafferProvider, backend elicore.Provider, client *http.Client, turn store.GafferTurn) {
 	defer s.wg.Done()
 	defer client.CloseIdleConnections()
-	ctx, stop := context.WithTimeout(parent, 3*time.Minute)
+	ctx, stop := context.WithTimeout(parent, turnDeadline)
 	defer stop()
 	watched := make(chan struct{})
 	go func() {
@@ -472,6 +490,9 @@ func (s *Service) runTurn(parent context.Context, job *chatJob, c store.GafferCo
 		err = s.contextTurnAccess(job, c)
 	}
 	cause := context.Cause(parent)
+	if errors.Is(err, context.DeadlineExceeded) {
+		err = errors.New("The provider took more than three minutes to answer. Try again or choose a faster model.")
+	}
 	switch {
 	case errors.Is(cause, errGafferCancelled):
 		turn.State = "cancelled"

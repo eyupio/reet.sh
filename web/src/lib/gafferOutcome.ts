@@ -5,9 +5,7 @@ export const MAX_OUTCOME_SESSIONS = 5
 export const MAX_OBJECTIVE_BYTES = 4000
 export const MAX_PLAN_PROMPT_BYTES = 8000
 export const MAX_PLAN_TITLE = 80
-const MAX_GOAL_BYTES = 2000
 const OUTCOME_PREFIX = 'Outcome: '
-const OUTCOME_LINE_BYTES = 600
 
 export type PlanSession = { key: string; title: string; prompt: string; stages?: string[]; /** The acceptance criteria the person agrees for this pipeline; empty rows are dropped when sent. */ criteria?: string[]; /** The tier of each stage that is not on its default, and Gaffer's reasons. */ tiers?: Record<string, 'heavy' | 'standard' | 'light'>; whys?: Record<string, string>; /** The parts a stage is split into, by stage kind, in the order they run. */ parts?: Record<string, StagePart[]> }
 /** One part of a split stage: a short name, what it does, and how demanding it is. `why` is Gaffer's reason for the tier. */
@@ -23,29 +21,6 @@ export type OutcomeRecord = { id: string; objective: string; state: string; sess
 const encoder = new TextEncoder()
 const bytes = (text: string) => encoder.encode(text).length
 const oneLine = (text: string) => text.replace(/\s+/g, ' ').trim()
-
-/** Cuts on a character boundary so a multi-byte letter is never split. */
-function clip(text: string, limit: number): string {
-  if (bytes(text) <= limit) return text
-  let out = ''
-  for (const char of text) {
-    if (bytes(out + char) > limit - 3) break
-    out += char
-  }
-  return `${out.trimEnd()}…`
-}
-
-/** The outcome's name on a goal: the objective on one line, short enough to leave room for the rest of the goal. */
-export function outcomeLine(objective: string): string {
-  return clip(oneLine(objective), OUTCOME_LINE_BYTES)
-}
-
-/** The saved goal for one session of an outcome. It always fits the goal limit and always ends "Do not merge." */
-export function outcomeGoal(objective: string, title: string): string {
-  // The line and part are clipped first, so the whole goal is far inside the limit and its last sentence survives.
-  const text = `${OUTCOME_PREFIX}${outcomeLine(objective)}\nThis session’s part: ${clip(oneLine(title), 240)}\nKeep this session moving on its part of the outcome and nothing beyond it. Make sure a pull request is raised and its description is accurate, fix failing checks and resolve straightforward conflicts. Bring scope changes, decisions and anything that belongs to another session back to me. Do not merge.`
-  return clip(text, MAX_GOAL_BYTES)
-}
 
 /** The outcome a saved goal belongs to, or '' for an ordinary goal. */
 export function outcomeOf(goalText: string): string {
@@ -484,21 +459,6 @@ export const SESSION_ENDED_WHY = 'This stage’s session was ended, so nothing i
 /** An outcome is finished when it is not starting sessions and no pipeline is moving. Only a finished one can be put away. */
 export function outcomeFinished(record: { state: string; sessions: { state: string }[] }): boolean {
   return record.state !== 'starting' && !record.sessions.some(piece => ['following', 'starting', 'advancing', 'waiting', 'delivery_review', 'ready_to_merge'].includes(piece.state))
-}
-
-/** The page's headline numbers across every outcome. */
-export function factoryTally(records: { sessions: { state: string; conversationId?: string; sessionState?: string }[] }[], attention: ReadonlySet<string>): { running: number; needYou: number; ready: number; done: number } {
-  const out = { running: 0, needYou: 0, ready: 0, done: 0 }
-  for (const record of records) for (const piece of record.sessions) {
-    if (piece.state === 'delivery_review') out.needYou++
-    else if (piece.state === 'ready_to_merge') out.ready++
-    else if (piece.state === 'done') out.done++
-    else if (['following', 'starting', 'advancing', 'waiting'].includes(piece.state)) {
-      if (sessionLost(piece) || piece.conversationId && attention.has(piece.conversationId)) out.needYou++
-      else out.running++
-    }
-  }
-  return out
 }
 
 // Usage. reet knows what Gaffer's own model used: each finished stage keeps its count, and the stage in hand reads its

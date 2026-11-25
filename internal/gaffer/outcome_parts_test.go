@@ -163,3 +163,26 @@ func TestAPartsSessionTitleFitsTheLimit(t *testing.T) {
 		t.Fatalf("accents: %d", len([]rune(got)))
 	}
 }
+
+// A goal holds 2,000 bytes. The longest title, objective, part name and brief a
+// part can have still leave a goal Gaffer can save, or the session would start
+// and never be followed.
+func TestTheGoalOfAPartWithTheLongestTextsIsStillSaved(t *testing.T) {
+	r := outcomeFixture(t)
+	r.s.StartGoalSupervisor()
+	in := r.in
+	in.Objective = strings.Repeat("o", 600)
+	in.Sessions = []OutcomeSession{{Title: strings.Repeat("漢", 80), Prompt: "Review it. Do not merge.", Stages: []OutcomeStageInput{
+		{Kind: "review", Tool: "opencode", Part: strings.Repeat("漢", 80), Brief: strings.Repeat("漢", 400)},
+		{Kind: "review", Tool: "opencode", Part: "Tests", Brief: "Check the tests."},
+	}}}
+	created, err := r.s.CreateOutcome(r.p.UserID, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	piece := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
+	g, err := r.st.GafferGoalFor(r.p.UserID, piece.ConversationID)
+	if err != nil || len(g.Text) > 2000 || !strings.Contains(g.Text, "This session does one part of the stage only") {
+		t.Fatalf("the part's goal is %d bytes: %v", len(g.Text), err)
+	}
+}

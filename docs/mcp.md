@@ -171,9 +171,16 @@ background supervision or grant themselves that authority.
 
 Two tools read the Factory for any connection on a writer account:
 
-- `reet_list_factory` lists the outcomes with their pipelines: each pipeline's
-  state, the stage in hand, every stage's state and agent, how its merge is
-  decided, and the state of the goal Gaffer follows it with.
+- `reet_list_factory` lists the outcomes, newest first, as short rows: `id`,
+  `state`, `objective` (clipped to 200 characters), `project` and, for each
+  pipeline, its `key`, `title`, `state`, `updated_at` and `stage_in_hand`. It
+  is paged with `limit` and `offset`; follow `next_offset` until `has_more` is
+  false. Archived outcomes are left out unless `include_archived` is true, and
+  then carry `archived_at`. Each page also carries `controller` and `machines`,
+  the builds of the controller and of each machine.
+- `reet_get_factory_outcome` reads one outcome in full: each pipeline's state,
+  the stage in hand, every stage's state and agent, how its merge is decided,
+  and the state of the goal Gaffer follows it with.
   A stage that was split appears once for each part, with the part's name in
   `part`; the entries share a `kind` and run in order.
   A stage's `tier` (`light`, `standard` or `heavy`) is how demanding it was
@@ -197,15 +204,17 @@ Two tools read the Factory for any connection on a writer account:
   connection. The switch itself is not an MCP tool.
   A pipeline with no stages carries `choice`, `applied_model`, `applied_effort`
   and `choice_note` on itself, against the outcome's own agent and model.
-- `reet_get_factory_outcome` reads one outcome. A management connection also
-  receives each finished stage's handover note and Gaffer's latest report, which
-  are derived from session text; a read-only connection receives states only.
+  A management connection also receives each finished stage's `handover` note,
+  clipped to 600 characters, and Gaffer's latest report, which are derived from
+  session text; a read-only connection receives states only. An outcome with
+  many pipelines can be too long to read whole (replies are capped at 25,000
+  characters): `pipeline`, a key from `reet_list_factory`, reads one of them.
 
 Six more are the person's own controls and need management scope:
 
 | Tool | What it does |
 | --- | --- |
-| `reet_move_pipeline_on` | Closes the stage in hand as it stands and starts the next, without waiting for Gaffer's review. Needs `confirm: true`. |
+| `reet_move_pipeline_on` | Closes the stage in hand as it stands and starts the next, without waiting for Gaffer's review. Needs `confirm: true` and `stage`, the stage you read as in hand: a pipeline that has moved on since is not moved again. |
 | `reet_retry_pipeline` | Tries a pipeline that did not start, or stopped, again. |
 | `reet_set_pipeline_merge` | Makes a pipeline wait for your approval before merging. It cannot switch one to merge by itself; that is set on the Factory page. |
 | `reet_approve_pipeline_merge` | Records approval for a pipeline that is Ready to merge; its agent merges once checks pass. Needs `confirm: true` and `seen_updated_at`, the pipeline's `updated_at` from the read the approval is made on: a pipeline that has changed since is not approved. The connection also needs **May approve Factory merges** switched on under Account → MCP access; without it the call is refused. |
@@ -217,6 +226,8 @@ Six more are the person's own controls and need management scope:
 | `reet_add_pipelines` | Adds up to five pipelines to an outcome. Needs `confirm: true`. |
 
 `reet_list_factory_projects` (a read) lists the projects an outcome can run in.
+
+Each control answers with the outcome in short, as `reet_list_factory` gives it, with `applied` and a `note`. Call `reet_get_factory_outcome` for every stage.
 
 An outcome you started on the Factory page with YOLO has agents that act
 without approvals. Over MCP it can be read, made to wait for approval before

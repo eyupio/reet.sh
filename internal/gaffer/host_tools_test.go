@@ -371,6 +371,15 @@ func TestStoredSessionTextIsNotReplayedToAProviderThatLostIt(t *testing.T) {
 	}
 }
 
+// A call approved and started whose result was never saved is not described as
+// one still waiting: it may have run.
+func TestAnApprovedCallWithNoRecordedResultMayHaveRun(t *testing.T) {
+	got := toolHistory([]store.GafferTurnTool{{Name: "reet_stop_outcome", Args: `{}`, State: "approved"}, {Name: "reet_list_factory", Args: `{}`, State: "pending"}}, true)
+	if !strings.Contains(got, "it may have run") || strings.Count(got, "it has not run") != 1 {
+		t.Fatalf("history: %s", got)
+	}
+}
+
 // Starting an outcome carries up to five briefs of 8,000 bytes: a call that
 // size is a valid request, not a malformed one.
 func TestAToolCallMayCarryAFullOutcome(t *testing.T) {

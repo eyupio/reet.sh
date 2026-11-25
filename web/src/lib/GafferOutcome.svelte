@@ -4,7 +4,7 @@
   // controller start each session through the ordinary launch and put it in Gaffer's care. This dialog only watches:
   // the work carries on if it is closed. Nothing starts on the model's say-so: a proposed session is text until Approve.
   import { onMount, tick, untrack } from 'svelte'
-  import { ApiError, createGafferOutcome, diffGafferTemplate, getGafferCrew, getGafferTemplate, launchGafferTemplate, type Template, type TemplateDiff, type TemplateLaunchInput, saveGafferCrew, type GafferCrew, getGafferOutcome, getGafferSettings, getProfile, getYoloSetting, listModelFavourites, planGafferOutcome, type GafferPlanPhase, stopGafferOutcome, type GafferOutcome, type GafferProvider, type YoloSetting } from './api'
+  import { ApiError, createGafferOutcome, diffGafferTemplate, getGafferCrew, getGafferTemplate, launchGafferTemplate, type Template, type TemplateDiff, type TemplateLaunchInput, type GafferOutcomeInput, saveGafferCrew, type GafferCrew, getGafferOutcome, getGafferSettings, getProfile, getYoloSetting, listModelFavourites, planGafferOutcome, type GafferPlanPhase, stopGafferOutcome, type GafferOutcome, type GafferProvider, type YoloSetting } from './api'
   import { chatToolName, launchUpload, listFolderProjects, machineAccounts, machineModels, structuredAgent, terminalMachines, type FolderProject, type TerminalMachine } from './terminal/api'
   import { imageFiles } from './terminal/upload'
   import ImageAttachment from './ImageAttachment.svelte'
@@ -53,7 +53,7 @@
   // the person agreed to start without are exactly the gaps they were shown.
   let template = $state<{ id: string; version: number } | null>(untrack(() => initialTemplate ?? null))
   let tpl = $state<Template | null>(null), tplDiff = $state<TemplateDiff | null>(null), tplReading = $state(false), tplError = $state(''), skipOk = $state(false), picking = $state(false), pickingId = $state('')
-  const launchIds = attemptIds()
+  const launchIds = attemptIds(), createIds = attemptIds()
   const gaps = $derived(tpl?.skillGaps ?? [])
   // Only the newest read is shown: the version list stays usable while one is read, so the focus stays on it.
   let reads = 0
@@ -469,15 +469,17 @@
   const hasMerge = $derived(sessions.some(item => item.stages?.includes('merge')))
   const removeSession = (id: string) => { sessions = sessions.filter(item => item.key !== id) }
   // The controller owns the start from here. This only reads its record until every session has an answer.
-  let watching: ReturnType<typeof setInterval> | undefined
+  let watching: ReturnType<typeof setInterval> | undefined, polling = false
   function watch(id: string) {
     clearInterval(watching)
     watching = setInterval(() => {
-      if (document.hidden) return
+      // One read at a time: a slow older answer must not land after a newer one and put the dialog back to Starting.
+      if (document.hidden || polling) return
+      polling = true
       void getGafferOutcome(id, life.signal).then(next => {
         record = next; watchError = ''
         if (next.state !== 'starting') { clearInterval(watching); void onstarted() }
-      }).catch(e => { if (!life.signal.aborted) watchError = e instanceof Error ? e.message : 'The outcome could not be read.' })
+      }).catch(e => { if (!life.signal.aborted) watchError = e instanceof Error ? e.message : 'The outcome could not be read.' }).finally(() => { polling = false })
     }, 1500)
   }
   // Uploads every selected image by itself. One that fails keeps the others:
@@ -515,20 +517,24 @@
     const upload = await uploadImages()
     if (upload === null) { busy = false; return }
     writeFloorDefaults(userId, { ...readFloorDefaults(userId, BUILT_IN_GOAL_PROMPTS[0].text), maxReviews, hours })
+    const body: Omit<GafferOutcomeInput, 'requestId'> = {
+      objective: objective.trim(), projectId: project.id, tool, model: model.trim(), provider: sourceShown ? chosenSource : '', trust, yolo: yolo && !yoloWhy, autoReport, automation, balanceBelow: balancePercent(balanceBelow), autoMerge: autoMerge && hasMerge, maxReviews, hours, confirmed: true, ...(upload.paths.length ? { images: upload.paths } : {}),
+      sessions: sessions.map(item => ({ title: item.title.trim(), prompt: cleanPrompt(item.prompt), ...(cleanCriteria(item.criteria).length ? { criteria: cleanCriteria(item.criteria) } : {}), stages: withReportedEfforts(stagePlan(item.stages ?? DEFAULT_STAGES, crewSent, machine?.capabilities?.acpProvider === true, item), machine?.capabilities ? efforts : null) })),
+      ...(latestOverride === null ? {} : { pullLatest: latestOverride ? 'yes' as const : 'no' as const }),
+    }
     try {
-      record = await createGafferOutcome({
-        objective: objective.trim(), projectId: project.id, tool, model: model.trim(), provider: sourceShown ? chosenSource : '', trust, yolo: yolo && !yoloWhy, autoReport, automation, balanceBelow: balancePercent(balanceBelow), autoMerge: autoMerge && hasMerge, maxReviews, hours, confirmed: true, ...(upload.paths.length ? { images: upload.paths } : {}),
-        sessions: sessions.map(item => ({ title: item.title.trim(), prompt: cleanPrompt(item.prompt), ...(cleanCriteria(item.criteria).length ? { criteria: cleanCriteria(item.criteria) } : {}), stages: withReportedEfforts(stagePlan(item.stages ?? DEFAULT_STAGES, crewSent, machine?.capabilities?.acpProvider === true, item), machine?.capabilities ? efforts : null) })),
-        ...(latestOverride === null ? {} : { pullLatest: latestOverride ? 'yes' as const : 'no' as const }),
-      }, life.signal)
-      step = 'results'
+      record = await createGafferOutcome({ ...body, requestId: createIds.idFor(JSON.stringify(body)) }, life.signal)
+      createIds.clear(); step = 'results'
       const failed = upload.failed.length ? `${upload.failed.join(', ')} could not be uploaded; ${upload.paths.length === 1 ? 'the other image was' : `the other ${upload.paths.length} images were`} attached.` : ''
       clearImages()
       imageError = failed
       watch(record.id)
       await onstarted()
-    } catch (e) { if (!life.signal.aborted) startError = e instanceof Error ? e.message : 'The outcome was not saved. Nothing was started.' }
-    finally { busy = false }
+    } catch (e) {
+      if (life.signal.aborted) return
+      if (!mayHaveArrived(e)) createIds.clear()
+      startError = e instanceof Error ? e.message + (mayHaveArrived(e) ? ' It may not have arrived. Trying again is safe: it starts once.' : '') : 'The outcome was not saved. Nothing was started.'
+    } finally { busy = false }
   }
   async function startFromTemplate() {
     const one = tpl

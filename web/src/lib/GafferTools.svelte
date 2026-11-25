@@ -37,7 +37,8 @@
   let closed = $state<Record<string, boolean>>({})
   const setGroup = (group: string, mode: GafferToolMode) => void save(tools.map(tool => tool.group === group ? { ...tool, mode } : tool), `${group}: all set to ${label(mode)}.`)
   const label = (mode: GafferToolMode) => mode === 'ask' ? 'Ask me' : mode === 'allow' ? 'Allow' : 'Off'
-  const groupMode = (items: GafferToolChoice[]): GafferToolMode | '' => items.length && items.every(tool => tool.mode === items[0].mode) ? items[0].mode : ''
+  // Allow is chosen tool by tool, where the risky ones are named, so a bulk select never offers it: all allowed reads Custom.
+  const groupMode = (items: GafferToolChoice[]): GafferToolMode | '' => items.length && items.every(tool => tool.mode === items[0].mode && tool.mode !== 'allow') ? items[0].mode : ''
   onMount(() => { void load() })
 </script>
 
@@ -47,13 +48,13 @@
   {#if loading}<p role="status">Reading Gaffer’s tools…</p>
   {:else}
     <div class="every"><p class="summary" role="status">{counts.allow} allowed · {counts.ask} ask first · {tools.length - counts.allow - counts.ask} off{#if notice} · {notice}{/if}</p>
-      <label class="set">All tools<select aria-label="Set every tool" disabled={busy} value={groupMode(tools)} onchange={event => { const mode = event.currentTarget.value as GafferToolMode; if (mode) setAll(mode) }}><option value="" disabled>Custom</option><option value="allow">Allow</option><option value="ask">Ask me</option><option value="off">Off</option></select></label></div>
+      <label class="set">All tools<select aria-label="Set every tool" disabled={busy} value={groupMode(tools)} onchange={event => { const mode = event.currentTarget.value as GafferToolMode; if (mode) setAll(mode) }}><option value="" disabled>Custom</option><option value="ask">Ask me</option><option value="off">Off</option></select></label></div>
     {#if error}<p class="feedback bad" role="alert">{error}</p>{/if}
     {#if risky.length}<p class="feedback warn" role="status">Allowed without asking: {risky.map(tool => tool.title).join(', ')}. Gaffer can do {risky.length === 1 ? 'this' : 'these'} on your word in a chat with no further click, including starting agents, deleting, or approving a merge. Choose Ask me if you want to see each one first.</p>{/if}
     {#each groups as group (group.name)}<div class="group">
       <div class="group-head">
         <button class="fold" type="button" aria-expanded={!closed[group.name]} aria-label={`${closed[group.name] ? 'Show' : 'Hide'} the tools in ${group.name}`} onclick={() => closed = { ...closed, [group.name]: !closed[group.name] }}><span class="chevron" class:shut={closed[group.name]} aria-hidden="true">⌄</span><span class="group-name">{group.name}</span><span class="group-count">{group.tools.length}</span></button>
-        <select aria-label={`Set all tools in ${group.name}`} disabled={busy} value={groupMode(group.tools)} onchange={event => { const mode = event.currentTarget.value as GafferToolMode; if (mode) setGroup(group.name, mode) }}><option value="" disabled>Custom</option><option value="allow">Allow</option><option value="ask">Ask me</option><option value="off">Off</option></select>
+        <select aria-label={`Set all tools in ${group.name}`} disabled={busy} value={groupMode(group.tools)} onchange={event => { const mode = event.currentTarget.value as GafferToolMode; if (mode) setGroup(group.name, mode) }}><option value="" disabled>Custom</option><option value="ask">Ask me</option><option value="off">Off</option></select>
       </div>
       {#if !closed[group.name]}<ul>{#each group.tools as tool (tool.name)}<li>
         <details class="about"><summary>{tool.title}</summary><code>{tool.name}</code><p>{tool.description}</p></details>

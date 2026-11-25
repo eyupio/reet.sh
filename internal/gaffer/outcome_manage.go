@@ -1,11 +1,9 @@
 package gaffer
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"strconv"
 	"strings"
 	"time"
@@ -228,6 +226,9 @@ func (s *Service) addPipelinesOnce(uid int64, id string, in AddPipelinesInput) (
 	}
 	pieces, err := outcomePieces(in.Sessions, current.Tool, current.Model, current.Provider, crew, false, taken, len(current.Sessions))
 	if err != nil {
+		return current, err
+	}
+	if err = s.goalRoom(uid, len(pieces)); err != nil {
 		return current, err
 	}
 	for _, piece := range pieces {
@@ -461,20 +462,17 @@ func outcomeReport(raw json.RawMessage, taken map[string]bool) (string, []store.
 			Stages []string `json:"stages"`
 		} `json:"proposals"`
 	}
-	d := json.NewDecoder(bytes.NewReader(raw))
-	d.DisallowUnknownFields()
-	if err := d.Decode(&in); err != nil {
+	if !strictJSON(raw, &in) {
 		return "", nil, malformed
 	}
-	var extra any
 	summary := strings.TrimSpace(in.Summary)
-	if d.Decode(&extra) != io.EOF || summary == "" || len(summary) > 4000 || !store.ValidWorkerText(summary) || len(in.Proposals) > 3 {
+	if summary == "" || len(summary) > 4000 || !store.ValidWorkerText(summary) || len(in.Proposals) > 3 {
 		return "", nil, malformed
 	}
 	seen := map[string]bool{}
 	var out []store.GafferOutcomeProposal
 	for _, item := range in.Proposals {
-		prompt := strings.TrimSpace(strings.NewReplacer("\r\n", "\n", "\r", "\n", "\t", "    ").Replace(item.Prompt))
+		prompt := strings.TrimSpace(pipelineText.Replace(item.Prompt))
 		title := strings.TrimSpace(item.Title)
 		if !terminalproto.ValidTitle(title) {
 			title = terminalproto.PromptTitle(prompt)

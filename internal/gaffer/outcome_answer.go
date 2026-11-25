@@ -1,11 +1,9 @@
 package gaffer
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"strings"
 
 	"github.com/eyupio/reet.sh/internal/elicore"
@@ -155,13 +153,7 @@ func questionAnswer(raw json.RawMessage, q terminalproto.ACPQuestion) (answers j
 		Answers map[string]json.RawMessage `json:"answers"`
 		Why     string                     `json:"why"`
 	}
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	dec.DisallowUnknownFields()
-	if len(raw) > 16<<10 || dec.Decode(&in) != nil {
-		return nil, "", "", bad
-	}
-	var extra any
-	if dec.Decode(&extra) != io.EOF {
+	if len(raw) > 16<<10 || !strictJSON(raw, &in) {
 		return nil, "", "", bad
 	}
 	why = strings.TrimSpace(in.Why)

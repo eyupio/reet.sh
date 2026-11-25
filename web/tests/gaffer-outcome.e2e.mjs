@@ -69,8 +69,9 @@ function fixture({planFails=false,settles=true,crew=null,crewFails=false,crewEmp
     '/api/v2/gaffer/goals':()=>({goals:box.goals,readAt:now}),
     '/api/v2/gaffer/conversations':request=>new URL(request.url()).searchParams.get('all')==='true'?{conversations:[general.conversation]}:general,
     '/api/v2/terminal/sessions':request=>{expect(request.method()).toBe('GET');return {sessions:(box.record?.sessions??[]).filter(s=>s.sessionId).map(s=>({id:s.sessionId,agentId:'a1',title:s.title,state:'running',structured:true,tool:'claude',dir:'/work/billing',createdAt:now,updatedAt:now,exitCode:null}))}},
-    [`/api/v2/gaffer/providers/${pid}/plan`]:request=>{
+    [`/api/v2/gaffer/providers/${pid}/plan`]:async request=>{
       expect(request.method()).toBe('POST');const input=request.postDataJSON();box.plans.push(input)
+      await box.planHold
       if(input.reply)box.replies.push(input)
       if(box.planFails)return{status:502,json:{error:'This model did not return a plan. Choose a model that supports tools, or write the plan yourself.'}}
       planAnswer=input.reply?revised:proposed
@@ -1028,6 +1029,10 @@ try {
       await stop.click()
       await expect(progress).toHaveCount(0);await expect(ask).toBeEnabled();await expect(outcome.getByRole('alert')).toHaveCount(0)
       await expect.poll(()=>f.box.writes).toEqual([`POST /api/v2/gaffer/providers/${pid}/plan`,`DELETE /api/v2/gaffer/providers/${pid}/plan/${planId}`])
+      // Stopped while the start is still on its way back: the job that start made is stopped all the same.
+      let release;f.box.planHold=new Promise(done=>{release=done});await ask.click();await stop.click();release();f.box.planHold=null
+      await expect.poll(()=>f.box.writes).toEqual([`POST /api/v2/gaffer/providers/${pid}/plan`,`DELETE /api/v2/gaffer/providers/${pid}/plan/${planId}`,`POST /api/v2/gaffer/providers/${pid}/plan`,`DELETE /api/v2/gaffer/providers/${pid}/plan/${planId}`])
+      await expect(progress).toHaveCount(0);await expect(ask).toBeEnabled();await expect(outcome.getByRole('alert')).toHaveCount(0)
       f.box.planBreaks=true;await ask.click()
       await expect(steps).toHaveText(['✕Sending to Workshop Gaffer, failed','·gaffer-model is writing the plan','·Checking the plan'])
       await expect(outcome.getByRole('alert')).toHaveText('The provider could not plan this outcome: 503 from the provider.')

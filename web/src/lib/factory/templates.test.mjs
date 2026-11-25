@@ -109,6 +109,7 @@ test('an outcome is offered as a template only where the server would keep it', 
   assert.equal(t.canSaveAsTemplate({ state: 'settled', sessions: [{ state: 'done' }] }), false)
   assert.equal(t.canSaveAsTemplate({ state: 'starting', sessions: [done] }), false)
   assert.equal(t.canSaveAsTemplate({ state: 'settled', sessions: [] }), false)
+  assert.equal(t.canSaveAsTemplate({ state: 'settled', sessions: [done, { ...done, pathwayId: 'p1' }] }), false)
 })
 
 test('pipelines put in another order say so', () => {

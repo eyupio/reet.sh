@@ -1,6 +1,6 @@
 // The Factory page's list: every pipeline of every outcome, sorted into what waits for the person, what is working and
 // what is finished. Pure, so the page only draws it.
-import { track, waitingDecisions } from '../gafferOutcome'
+import { stageKey, track, waitingDecisions } from '../gafferOutcome'
 import type { Need, TrackNode } from '../gafferOutcome'
 
 export type FactorySection = 'waiting' | 'working' | 'finished'
@@ -61,7 +61,7 @@ export function factoryItems(records: ListRecord[], goals: ReadonlyMap<string, L
       const inHand = stages[Math.min(piece.stage ?? 0, stages.length - 1)]
       if (kind === 'running' && piece.state === 'following' && inHand?.agentState === 'finished') kind = 'checking'
       const why = decision ? decision.need.why
-        : kind === 'checking' ? `The ${inHand.part ? `“${inHand.part}” part of the ` : ''}${inHand.kind} stage’s agent finished its turn. Gaffer is checking the work before it moves on.`
+        : kind === 'checking' ? `The ${inHand.part ? `“${inHand.part}” part of the ` : ''}${stageKey(inHand)} stage’s agent finished its turn. Gaffer is checking the work before it moves on.`
         : piece.note ?? ''
       items.push({
         id: `${record.id}.${piece.key}`, sessionId: piece.sessionId ?? '', outcomeId: record.id, key: piece.key, title: piece.title, objective: record.objective, projectId: record.projectId,

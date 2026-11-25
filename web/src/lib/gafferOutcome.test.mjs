@@ -128,6 +128,17 @@ test('stages keep pipeline order and take the agent and model of their tier', ()
   assert.equal(o.stageLabel('babysit'), 'Babysit')
 })
 
+test('a custom stage is shown by its name and identified by it', () => {
+  assert.equal(o.stageName({ kind: 'custom', name: 'Audit' }), 'Audit')
+  assert.equal(o.stageName({ kind: 'pr' }), 'PR')
+  assert.equal(o.stageName({ kind: 'custom' }), 'custom')
+  assert.equal(o.stageKey({ kind: 'custom', name: 'Audit' }), 'Audit')
+  assert.equal(o.stageKey({ kind: 'pr' }), 'pr')
+  assert.equal(o.stageKey({ kind: 'custom' }), 'custom')
+  // A label the server returns as a plain string shows as itself.
+  assert.equal(o.stageLabel('Audit'), 'Audit')
+})
+
 test('a pipeline track shows what is done, in hand, waiting on the person or failed', () => {
   const stages = [{ kind: 'code', tool: 'codex', state: 'done', summary: 'Committed.' }, { kind: 'review', tool: 'claude', model: 'opus', state: 'running' }, { kind: 'merge', tool: 'claude', state: 'pending' }]
   assert.deepEqual(o.track({ state: 'following', stage: 1, stages }).map(n => n.state), ['done', 'running', 'pending'])

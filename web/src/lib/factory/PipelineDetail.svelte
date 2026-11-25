@@ -51,7 +51,7 @@
 <script lang="ts">
   // One pipeline, all of it: where it stands, what waits on the person, the facts of the stage they pick, the rest in
   // rows that open, and one bar of what can be done. Every action is the page's own; this only draws and asks.
-  import { changedAfterAccept, DEFAULT_STAGES, MAX_STAGE_DECISIONS, agentActivity, agentTokensText, ago, contextLeft, decisionText, outcomeAgentUsage, outcomeFinished, outcomeUsage, pipelineAgentUsage, pipelineStatus, pipelineUsage, sessionLost, stageChoice, stageLabel, timeLeft, tokensText } from '../gafferOutcome'
+  import { changedAfterAccept, DEFAULT_STAGES, MAX_STAGE_DECISIONS, agentActivity, agentTokensText, ago, contextLeft, decisionText, outcomeAgentUsage, outcomeFinished, outcomeUsage, pipelineAgentUsage, pipelineStatus, pipelineUsage, sessionLost, stageChoice, stageKey, stageLabel, timeLeft, tokensText } from '../gafferOutcome'
   import { chatToolName } from '../terminal/api'
   import { sourceLabel } from '../clineSource'
   import { eventLabel } from '../events'
@@ -146,7 +146,7 @@
   const used = $derived(inHand?.decided ?? 0)
   // A decision Gaffer could not take, or chose to leave, keeps this stop with the person; saying it is deciding would be
   // a promise nothing is going to keep.
-  const leftToYou = $derived(used > 0 && taken.some(d => d.failed && d.key === piece.key && d.stage === inHand?.kind))
+  const leftToYou = $derived(used > 0 && taken.some(d => d.failed && d.key === piece.key && !!inHand && d.stage === stageKey(inHand)))
   const gafferNote = $derived(record.archivedAt || !record.automation || item.kind === 'merge' || item.kind === 'delivery' || usageLimited ? '' : leftToYou ? 'Gaffer left this one to you. See what it decided, below.' : goal?.goal.waitingOnWorker ? (used >= MAX_STAGE_DECISIONS ? '' : 'If the agent is asking a multiple-choice question and nothing else, Gaffer answers it. You can still answer first.') : used >= MAX_STAGE_DECISIONS ? `Gaffer has taken its ${MAX_STAGE_DECISIONS} decisions on this stage, so this one is yours.` : 'Gaffer is deciding this. You can still choose first.')
 
   // One bar: the choices of what waits, then the buttons a pipeline has today, each only once. A choice and a button
@@ -420,6 +420,7 @@
         <dl class="facts">
           <div><dt>Approvals</dt><dd><span class:yolo={record.yolo}>{record.yolo ? 'YOLO' : 'Ask me'}</span>{#if !record.archivedAt && !finished}{' '}<button class="inline" type="button" disabled={busy} aria-label={record.yolo ? 'Make this outcome’s agents ask me' : 'Put this outcome on YOLO'} onclick={() => actions.setYolo(record, !record.yolo)}>{record.yolo ? 'Make them ask me' : 'Switch to YOLO…'}</button>{/if}</dd></div>
           {#if hasMerge}<div><dt>Merge</dt><dd>{auto ? 'By itself when green' : piece.mergeApproved ? 'You approved it' : record.yolo && piece.autoMerge ? 'Waits for you (YOLO)' : 'Waits for you'}{#if !archived && !['done', 'ready_to_merge', 'unfollowed', 'cancelled', 'failed'].includes(piece.state) && !piece.mergeApproved}{' '}<button class="inline" type="button" disabled={busy} aria-label={`${auto ? 'Make' : 'Let'} ${piece.title} ${auto ? 'wait for you before merging' : 'merge by itself'}`} onclick={() => actions.mergeMode(record, piece, !auto)}>{auto ? 'Make it wait for me' : 'Let it merge by itself'}</button>{/if}</dd></div>{/if}
+          {#if piece.pathwayName}<div><dt>Pathway</dt><dd>{piece.pathwayName}</dd></div>{/if}
           <div><dt>Reports</dt><dd>{record.autoReport ? 'By itself and on request' : 'On request'}</dd></div>
         </dl>
       </div>

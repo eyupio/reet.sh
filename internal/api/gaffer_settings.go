@@ -28,6 +28,7 @@ func (s *server) registerGafferRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v2/gaffer/providers/{id}/test", access(s.gafferAction))
 	mux.HandleFunc("POST /api/v2/gaffer/providers/{id}/plan", access(s.gafferPlan))
 	mux.HandleFunc("GET /api/v2/gaffer/providers/{id}/plan/{job}", access(s.gafferPlanResult))
+	mux.HandleFunc("DELETE /api/v2/gaffer/providers/{id}/plan/{job}", access(s.gafferPlanStop))
 	mux.HandleFunc("POST /api/v2/gaffer/providers/{id}/default", access(s.gafferAction))
 	mux.HandleFunc("POST /api/v2/gaffer/providers/{id}/enabled", access(s.gafferAction))
 	mux.HandleFunc("DELETE /api/v2/gaffer/providers/{id}", access(s.gafferAction))
@@ -216,6 +217,7 @@ func (s *server) gafferPlan(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) gafferPlanResult(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	phase := s.gafferProviders.PlanPhase(s.gafferPrincipal(r), id, r.PathValue("job"))
 	plan, ready, err := s.gafferProviders.PlanResult(s.gafferPrincipal(r), id, r.PathValue("job"))
 	if err != nil {
 		gafferError(w, err)
@@ -223,11 +225,20 @@ func (s *server) gafferPlanResult(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	if !ready {
-		writeJSON(w, http.StatusOK, map[string]string{"state": "running"})
+		writeJSON(w, http.StatusOK, map[string]string{"state": "running", "phase": phase})
 		return
 	}
 	s.eventRequest(r, "gaffer-outcome-planned", "", map[string]any{"provider": id, "sessions": len(plan.Sessions)})
 	writeJSON(w, http.StatusOK, plan)
+}
+
+// gafferPlanStop cancels a plan the person stopped waiting for, so the provider request ends and its place is free.
+func (s *server) gafferPlanStop(w http.ResponseWriter, r *http.Request) {
+	if err := s.gafferProviders.StopPlan(s.gafferPrincipal(r), r.PathValue("id"), r.PathValue("job")); err != nil {
+		gafferError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func gafferError(w http.ResponseWriter, err error) {
@@ -250,7 +261,8 @@ func gafferError(w http.ResponseWriter, err error) {
 		}
 		writeErrCode(w, 422, code, invalid.Field, invalid.Message, "")
 	case errors.As(err, &probe):
-		writeErr(w, 502, probe.Message)
+		// Not 502: a proxy in front of reet replaces a 502's body with its own page, and the sentence is lost.
+		writeErr(w, 500, probe.Message)
 	case errors.Is(err, gaffer.ErrForbidden), errors.Is(err, gaffer.ErrContextForbidden):
 		writeErr(w, 403, err.Error())
 	case errors.Is(err, gaffer.ErrBusy), errors.Is(err, gaffer.ErrContextBusy):

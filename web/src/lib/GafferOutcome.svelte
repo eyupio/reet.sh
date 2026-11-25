@@ -4,7 +4,7 @@
   // controller start each session through the ordinary launch and put it in Gaffer's care. This dialog only watches:
   // the work carries on if it is closed. Nothing starts on the model's say-so: a proposed session is text until Approve.
   import { onMount, tick, untrack } from 'svelte'
-  import { ApiError, createGafferOutcome, diffGafferTemplate, getGafferCrew, getGafferTemplate, launchGafferTemplate, type Template, type TemplateDiff, type TemplateLaunchInput, type GafferOutcomeInput, saveGafferCrew, type GafferCrew, getGafferOutcome, getGafferSettings, getProfile, getYoloSetting, listModelFavourites, planGafferOutcome, stopGafferOutcome, type GafferOutcome, type GafferProvider, type YoloSetting } from './api'
+  import { ApiError, createGafferOutcome, diffGafferTemplate, getGafferCrew, getGafferTemplate, launchGafferTemplate, type Template, type TemplateDiff, type TemplateLaunchInput, type GafferOutcomeInput, saveGafferCrew, type GafferCrew, getGafferOutcome, getGafferSettings, getProfile, getYoloSetting, listModelFavourites, planGafferOutcome, type GafferPlanPhase, stopGafferOutcome, type GafferOutcome, type GafferProvider, type YoloSetting } from './api'
   import { chatToolName, launchUpload, listFolderProjects, machineAccounts, machineModels, structuredAgent, terminalMachines, type FolderProject, type TerminalMachine } from './terminal/api'
   import { imageFiles } from './terminal/upload'
   import ImageAttachment from './ImageAttachment.svelte'
@@ -76,6 +76,23 @@
   let loading = $state(true), loadError = $state('')
   let provider = $state<GafferProvider | null>(null), projects = $state<FolderProject[]>([]), machines = $state<TerminalMachine[]>([])
   let objective = $state(untrack(() => initialObjective)), projectId = $state(''), tool = $state(''), wanted = $state(3)
+  // Where a plan has got to, as the controller reports it, and how long it has been. A failed plan keeps its step, so the
+  // list shows which one failed.
+  const PLAN_STEPS: GafferPlanPhase[] = ['sending', 'writing', 'checking']
+  let planPhase = $state<GafferPlanPhase | ''>(''), planSeconds = $state(0), planStop: AbortController | undefined, planDone = () => {}
+  function planBegin(): AbortSignal {
+    planPhase = 'sending'; planSeconds = 0
+    planStop = new AbortController()
+    const tick = setInterval(() => { planSeconds++ }, 1000)
+    planDone = () => clearInterval(tick)
+    const signal = AbortSignal.any([life.signal, planStop.signal])
+    signal.addEventListener('abort', planDone, { once: true })
+    return signal
+  }
+  const stopPlanning = () => { planStop?.abort(); planPhase = '' }
+  const planMark = (at: number) => { const now = PLAN_STEPS.indexOf(planPhase as GafferPlanPhase); return at < now ? '✓' : at > now ? '·' : planning ? '…' : '✕' }
+  const planStepText = (step: GafferPlanPhase) => step === 'sending' ? `${planPhase === 'sending' ? 'Sending' : 'Sent'} to ${provider?.name ?? 'the provider'}` : step === 'writing' ? `${provider?.model || 'The model'} is writing the plan` : 'Checking the plan'
+  const clock = (seconds: number) => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
   let planning = $state(false), planError = $state(''), summary = $state(''), sessions = $state<PlanSession[]>([])
   // The reply a person sends to a proposal, and the exchange it belongs to. A declined proposal starts nothing.
   let reply = $state(''), planThread = $state<PlanTurn[]>([]), declined = $state(false), declining = $state(false)
@@ -402,13 +419,14 @@
     if (planning || cloning || blocker || !provider) return
     if (!(await ensureProject()) || !project) return
     planning = true; planError = ''; reply = ''; planThread = []; declined = false
+    const signal = planBegin()
     try {
-      const plan = await planGafferOutcome(provider, { objective: objective.trim(), project: project.name, sessions: wanted }, life.signal)
+      const plan = await planGafferOutcome(provider, { objective: objective.trim(), project: project.name, sessions: wanted }, signal, phase => { planPhase = phase })
       summary = plan.summary
       sessions = plan.sessions.map(item => ({ key: key(), title: item.title, prompt: item.prompt, stages: item.stages?.length ? orderStages([...new Set(item.stages.map(stage => stage.kind))]) : [...DEFAULT_STAGES], ...planRatings(item.stages) }))
-      step = 'plan'
-    } catch (e) { if (!life.signal.aborted) planError = e instanceof Error ? e.message : 'Gaffer could not plan this outcome.' }
-    finally { planning = false }
+      step = 'plan'; planPhase = ''
+    } catch (e) { if (!signal.aborted) planError = e instanceof Error ? e.message : 'Gaffer could not plan this outcome.' }
+    finally { planning = false; planDone() }
   }
   // Without a tool-capable model, or by choice, the person writes the plan; the rest of the flow is the same.
   async function writeOwn() {
@@ -424,19 +442,20 @@
     const thread: PlanTurn[] = planThread.length ? planThread : summary ? [{ from: 'gaffer', text: summary }] : []
     planThread = [...thread, { from: 'you', text }]
     planning = true; planError = ''; reply = ''
+    const signal = planBegin()
     try {
-      const plan = await planGafferOutcome(provider, { objective: objective.trim(), project: project.name, sessions: wanted, reply: text, previous: previousPlan(summary, sessions) }, life.signal)
+      const plan = await planGafferOutcome(provider, { objective: objective.trim(), project: project.name, sessions: wanted, reply: text, previous: previousPlan(summary, sessions) }, signal, phase => { planPhase = phase })
       summary = plan.summary
       // Criteria the person typed are theirs, not Gaffer's: they stay with the pipeline of the same title, else the one in the same place.
       const typed = sessions.map(old => ({ title: old.title.trim(), criteria: old.criteria }))
       sessions = plan.sessions.map((item, at) => ({ key: key(), title: item.title, prompt: item.prompt, stages: item.stages?.length ? orderStages([...new Set(item.stages.map(stage => stage.kind))]) : [...DEFAULT_STAGES], ...planRatings(item.stages), ...carryCriteria(typed, item.title, at) }))
       planThread = [...planThread, { from: 'gaffer', text: plan.summary }]
-      declined = false
+      declined = false; planPhase = ''
     } catch (e) {
       planThread = planThread.slice(0, -1)
       reply = text
-      if (!life.signal.aborted) planError = e instanceof Error ? e.message : 'Gaffer could not answer your reply.'
-    } finally { planning = false }
+      if (!signal.aborted) planError = e instanceof Error ? e.message : 'Gaffer could not answer your reply.'
+    } finally { planning = false; planDone() }
   }
   const addSession = () => { sessions = [...sessions, { key: key(), title: '', prompt: '', stages: [...DEFAULT_STAGES] }] }
   const setTier = (item: PlanSession, kind: string, tier: string) => { const next = withTier(item, kind, tier); item.tiers = next.tiers; item.whys = next.whys }
@@ -576,6 +595,7 @@
           {#if project && !project.isRepo}<p class="hint">This folder is not a git repository, so several sessions would share the same files. One session is safest.</p>{/if}
           {#if provider}<p class="hint">Gaffer plans with {provider.name} · {provider.model || 'model not chosen'}. It is sent only what you type here and the project’s name, and may use provider credits.</p>{/if}
           {#if blocker}<p class={provider&&!objective.trim()?'hint':'warning'} role="status">{blocker}{#if !provider}{' '}<a href="/account/gaffer">Open Gaffer settings</a>{/if}</p>{/if}
+          {@render planProgress()}
           {#if planError}<p class="warning" role="alert">{planError}</p>{/if}
           <div class="actions"><button class="btn primary" type="submit" disabled={planning || cloning || !!blocker}>{cloning ? 'Cloning…' : planning ? 'Gaffer is planning…' : 'Ask Gaffer for a plan'}</button><button class="btn quiet" type="button" disabled={planning || cloning || !!blocker} onclick={() => void writeOwn()}>Write the plan myself</button></div>
         </form>
@@ -658,6 +678,7 @@
         <p class="hint">Gaffer reads this as an answer to the proposal above. Use it when the split or the scope is wrong; the rows are still yours to edit. Up to {MAX_OUTCOME_REPLY_BYTES.toLocaleString('en-GB')} bytes, sent only when you choose.</p>
         {#if replyProblem && reply.trim()}<p class="warning" role="status">{replyProblem}</p>{/if}
         <div class="actions"><button class="btn" type="button" disabled={planning || !!replyProblem} onclick={() => void sendReply()}>{planning ? 'Gaffer is reading your reply…' : 'Send reply'}</button></div>
+        {@render planProgress()}
         {#if planError}<p class="warning" role="alert">{planError}</p>{/if}
       </section>
       <div class="actions">
@@ -690,6 +711,19 @@
 {#if declining}<ConfirmDialog title="Decline this proposal?" body="Nothing has started. This plan will not be approved or started, and stays here so you can tell Gaffer what you want instead or go back to the outcome." confirmLabel="Decline proposal" oncancel={() => declining = false} onconfirm={() => { declined = true; declining = false }}/>{/if}
 
 <!-- Where the work runs and which agent starts it. A template's launch has no session count, and no repository to clone first. -->
+{#snippet planProgress()}
+  {#if planPhase}
+    <div class="plan-progress">
+      <ol role="status" aria-label="Gaffer’s progress on the plan">
+        {#each PLAN_STEPS as item, at (item)}
+          {@const mark = planMark(at)}
+          <li class:done={mark === '✓'} class:failed={mark === '✕'} aria-current={mark === '…' ? 'step' : undefined}><span class="mark" aria-hidden="true">{mark}</span><span>{planStepText(item)}{#if mark === '✓'}<span class="sr-only">, done</span>{:else if mark === '✕'}<span class="sr-only">, failed</span>{/if}</span></li>
+        {/each}
+      </ol>
+      {#if planning}<div class="plan-foot"><span>{clock(planSeconds)} · at most 1:30</span><button class="btn quiet" type="button" onclick={stopPlanning}>Stop</button></div>{/if}
+    </div>
+  {/if}
+{/snippet}
 {#snippet where()}
           <div class="pair">
             <label>Project<select aria-label="Project" bind:value={projectId} disabled={planning || cloning}>
@@ -876,6 +910,8 @@
   .hint.warn{color:var(--warn)}
   .result-line{font-weight:600}.merging{margin:0;font-weight:600;color:var(--ink);overflow-wrap:anywhere}.trust{display:flex;align-items:flex-start;gap:10px;font-weight:400;min-height:44px}.trust input{width:20px;height:20px;min-height:0;margin:2px 0 0;flex:none;padding:0;accent-color:var(--accent)}
   .outcome-images{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:6px}.outcome-images li{padding:4px 10px;border:1px solid var(--line);border-radius:999px;color:var(--muted);font-size:0.875rem;overflow-wrap:anywhere}.results{list-style:none;margin:0;padding:0;border:1px solid var(--line);border-radius:12px}.results li{display:grid;gap:2px;padding:10px 14px;min-width:0;overflow-wrap:anywhere}.results li+li{border-top:1px solid var(--line)}.results span{font-size:0.875rem;color:var(--muted)}.results li.failed span{color:var(--bad)}.results a{color:var(--accent-text);font-weight:600;min-height:44px;display:inline-flex;align-items:center;justify-self:start}
+  .plan-progress{display:grid;gap:10px;padding:12px 14px;border:1px solid var(--line);border-radius:12px}.plan-progress ol{list-style:none;margin:0;padding:0;display:grid;gap:6px}.plan-progress li{display:grid;grid-template-columns:20px minmax(0,1fr);gap:8px;color:var(--muted);overflow-wrap:anywhere}.plan-progress li.done{color:var(--ink)}.plan-progress li[aria-current]{color:var(--ink);font-weight:600}.plan-progress li.failed{color:var(--bad);font-weight:600}.plan-progress .mark{text-align:center}.plan-progress li[aria-current] .mark{animation:plan-wait 1.2s ease-in-out infinite}.plan-foot{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;color:var(--muted);font-variant-numeric:tabular-nums}
+  @keyframes plan-wait{50%{opacity:.35}}@media(prefers-reduced-motion:reduce){.plan-progress li[aria-current] .mark{animation:none}}
   .actions{display:flex;flex-wrap:wrap;gap:8px}.btn{min-height:44px}
   button:focus-visible,a:focus-visible,summary:focus-visible,select:focus-visible,textarea:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
   @media(max-width:559px){.pair,.pair.two{grid-template-columns:1fr}}

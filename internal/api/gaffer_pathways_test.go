@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,8 @@ import (
 	"github.com/eyupio/reet.sh/internal/gaffer"
 	"github.com/eyupio/reet.sh/internal/meta"
 	"github.com/eyupio/reet.sh/internal/sealed"
+	"github.com/eyupio/reet.sh/internal/skillbuddy"
+	"github.com/eyupio/reet.sh/internal/skillbundle"
 	"github.com/eyupio/reet.sh/internal/store"
 )
 
@@ -270,5 +273,82 @@ func TestAFullSizePathwayIsAccepted(t *testing.T) {
 	}
 	if code, got := gafferClient(t, owner, srv, "POST", "/api/v2/gaffer/pathways", string(body)); code != 201 {
 		t.Fatalf("full-size pathway: %d %s", code, got)
+	}
+}
+
+func TestPathwaySkillsListsWhatAStageCanLoad(t *testing.T) {
+	st, srv, owner := templateServer(t)
+	save := func(uid int64, name string) store.PrivateSkillResult {
+		t.Helper()
+		base := ""
+		res, err := st.SaveLibraryContentFor(uid, "", store.PrivateSkillWrite{RequestID: hex.EncodeToString([]byte(name + strings.Repeat("-", 16)))[:32], ExpectedBase: &base, Name: name, Files: []skillbundle.ContentFile{{Path: "SKILL.md", Data: []byte("---\nname: " + name + "\ndescription: About " + name + "\n---\nDo " + name + ".\n")}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res
+	}
+	save(1, "zeta-kept")
+	save(1, "shelved")
+	other, err := st.CreateUser("other@example.test", "Other", "member", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	save(other.ID, "theirs")
+	items, err := st.LibraryFor(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var it store.LibraryItem
+	for _, x := range items {
+		if x.Name == "shelved" {
+			it = x
+		}
+	}
+	if err := st.SetLibraryStatusFor(1, it.ID, store.SkillArchived, it.Version); err != nil {
+		t.Fatal(err)
+	}
+	code, got := gafferClient(t, owner, srv, "GET", "/api/v2/gaffer/pathways/skills", "")
+	if code != 200 {
+		t.Fatalf("skills: %d %s", code, got)
+	}
+	var out struct {
+		Skills []struct {
+			ID, Name, Description string
+			Bytes                 int
+		}
+	}
+	if err := json.Unmarshal([]byte(got), &out); err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for i, sk := range out.Skills {
+		names = append(names, sk.Name)
+		if i > 0 && strings.ToLower(out.Skills[i-1].Name) > strings.ToLower(sk.Name) {
+			t.Errorf("not sorted by name: %v", names)
+		}
+		if sk.ID == "builtin:review" {
+			for _, b := range skillbuddy.Builtins() {
+				if b.ID == sk.ID && sk.Bytes != len(skillbuddy.Prompt(b)) {
+					t.Errorf("built-in bytes %d, want %d", sk.Bytes, len(skillbuddy.Prompt(b)))
+				}
+			}
+		}
+		if sk.Name == "zeta-kept" && sk.Bytes <= len("Do zeta-kept.") {
+			t.Errorf("library skill bytes: %+v", sk)
+		}
+	}
+	has := func(name string) bool {
+		for _, n := range names {
+			if n == name {
+				return true
+			}
+		}
+		return false
+	}
+	if !has("zeta-kept") || has("shelved") || has("theirs") || !strings.Contains(got, `"builtin:review"`) {
+		t.Fatalf("listed %v", names)
+	}
+	if code, _ := gafferClient(t, &http.Client{}, srv, "GET", "/api/v2/gaffer/pathways/skills", ""); code != 401 {
+		t.Fatalf("signed out: %d", code)
 	}
 }

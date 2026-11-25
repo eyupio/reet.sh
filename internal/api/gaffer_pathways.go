@@ -3,7 +3,10 @@ package api
 import (
 	"errors"
 	"net/http"
+	"sort"
+	"strings"
 
+	"github.com/eyupio/reet.sh/internal/skillbuddy"
 	"github.com/eyupio/reet.sh/internal/store"
 )
 
@@ -17,6 +20,7 @@ func (s *server) registerGafferPathwayRoutes(mux *http.ServeMux) {
 	}
 	mux.HandleFunc("GET /api/v2/gaffer/pathways", access(s.gafferPathways))
 	mux.HandleFunc("POST /api/v2/gaffer/pathways", access(s.gafferPathwayCreate))
+	mux.HandleFunc("GET /api/v2/gaffer/pathways/skills", access(s.gafferPathwaySkills))
 	mux.HandleFunc("GET /api/v2/gaffer/pathways/{id}", access(s.gafferPathway))
 	mux.HandleFunc("PUT /api/v2/gaffer/pathways/{id}", access(s.gafferPathwayEdit))
 	mux.HandleFunc("DELETE /api/v2/gaffer/pathways/{id}", access(s.gafferPathwayDelete))
@@ -120,4 +124,33 @@ func (s *server) gafferPathwayDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	s.eventRequest(r, "gaffer-pathway-deleted", "", map[string]any{"pathway": id})
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// gafferPathwaySkills lists what a pathway stage can load for the account: the
+// built-ins that are on and its Active library skills, each with the bytes it
+// adds to a stage's guidance. A skill that cannot be loaded is left out.
+func (s *server) gafferPathwaySkills(w http.ResponseWriter, r *http.Request) {
+	uid := s.uid(r)
+	catalogue, err := s.buddyCatalogue(uid)
+	if err != nil {
+		writeErr(w, 500, "Skills could not be read.")
+		return
+	}
+	type row struct {
+		ID          string `json:"id"`
+		Name        string `json:"name"`
+		Description string `json:"description"`
+		Bytes       int    `json:"bytes"`
+	}
+	out := []row{}
+	for _, c := range catalogue {
+		if c.Source == "community" {
+			continue
+		}
+		if sk, err := s.buddyLoad(uid, c.ID); err == nil {
+			out = append(out, row{c.ID, c.Name, c.Description, len(skillbuddy.Prompt(sk))})
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name) })
+	writeJSON(w, 200, map[string]any{"skills": out})
 }

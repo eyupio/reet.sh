@@ -136,7 +136,7 @@ func TestCrawlerTextFilesArePlainText(t *testing.T) {
 func TestUnknownRouteIsAReal404(t *testing.T) {
 	requireBuilt(t)
 	h := Handler("https://reet.sh")
-	for _, path := range []string{"/does-not-exist-xyz", "/docs/mcp", "/assets/missing.js", "/sitemap-index.xml", "/desks/a/b"} {
+	for _, path := range []string{"/does-not-exist-xyz", "/docs/mcp", "/assets/missing.js", "/sitemap-index.xml", "/desks/a/b", "/factory/pathways/a/b"} {
 		rec := get(t, h, path)
 		if rec.Code != http.StatusNotFound {
 			t.Errorf("%s: status = %d, want 404", path, rec.Code)
@@ -156,7 +156,7 @@ func TestPrivateRoutesAreNoindexAndPublicRoutesAreNot(t *testing.T) {
 		}
 		return PublicPage{}, false
 	}))
-	private := []string{"/", "/welcome", "/signin", "/signup", "/setup", "/reset", "/join?token=t", "/admin/overview", "/account", "/lists/1", "/sessions", "/machines", "/skills", "/library", "/activity", "/sync", "/sync/advanced", "/hosting", "/notifications", "/support", "/shared", "/spaces", "/profiles", "/setups", "/prompts", "/prompts/", "/usage", "/usage/", "/factory", "/desks", "/desks/", "/desks/0123456789abcdef0123456789abcdef"}
+	private := []string{"/", "/welcome", "/signin", "/signup", "/setup", "/reset", "/join?token=t", "/admin/overview", "/account", "/lists/1", "/sessions", "/machines", "/skills", "/library", "/activity", "/sync", "/sync/advanced", "/hosting", "/notifications", "/support", "/shared", "/spaces", "/profiles", "/setups", "/prompts", "/prompts/", "/usage", "/usage/", "/factory", "/desks", "/desks/", "/desks/0123456789abcdef0123456789abcdef", "/factory/pathways", "/factory/pathways/new", "/factory/pathways/0123456789abcdef"}
 	for _, path := range private {
 		rec := get(t, h, path)
 		if rec.Code != http.StatusOK {
@@ -236,7 +236,7 @@ func TestEveryAppPageIsServed(t *testing.T) {
 	for _, path := range []string{
 		"/admin/overview", "/account/mcp/authorize", "/lists/1", "/l/example",
 		"/desks", "/desks/0123456789abcdef0123456789abcdef", "/desks/0123456789abcdef0123456789abcdef/",
-		"/support/12", "/sync/advanced",
+		"/support/12", "/sync/advanced", "/factory/pathways", "/factory/pathways/new", "/factory/pathways/0123456789abcdef",
 	} {
 		pages[path] = true
 	}

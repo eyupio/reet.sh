@@ -132,6 +132,10 @@ func templateFromOutcome(o store.GafferOutcome) (store.GafferTemplateContent, er
 		return c, templateConflict("template_not_successful", rule)
 	}
 	for _, p := range o.Sessions {
+		if p.PathwayID != "" {
+			// A template holds built-in stages only, so a pathway's custom stages would be lost.
+			return c, templateConflict("template_pathway", "“"+p.Title+"” was started on a pathway, so this plan cannot be saved as a template. Start the pathway again instead.")
+		}
 		if !successfulPipeline(p) {
 			return c, templateConflict("template_not_successful", "“"+p.Title+"” did not finish well, so this plan cannot be saved. "+rule)
 		}

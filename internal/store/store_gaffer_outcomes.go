@@ -41,10 +41,14 @@ var (
 type GafferOutcomeStage struct {
 	SkillGuidance []skillbuddy.Skill `json:"skillGuidance,omitempty"`
 	Kind          string             `json:"kind"`
-	Tool          string             `json:"tool"`
-	Model         string             `json:"model,omitempty"`
-	Effort        string             `json:"effort,omitempty"`
-	Provider      string             `json:"provider,omitempty"`
+	// Name is a custom stage's name. Prompt is a custom stage's work, or
+	// extra instructions for a built-in one. Only a pathway sets them.
+	Name     string `json:"name,omitempty"`
+	Prompt   string `json:"prompt,omitempty"`
+	Tool     string `json:"tool"`
+	Model    string `json:"model,omitempty"`
+	Effort   string `json:"effort,omitempty"`
+	Provider string `json:"provider,omitempty"`
 	// Tier is how demanding the stage was judged to be (light, standard or
 	// heavy), which is what chose its agent and model from the person's crew.
 	// TierWhy is Gaffer's reason where the tier is its own assessment.
@@ -173,6 +177,15 @@ type GafferOutcomeProposal struct {
 	Why    string   `json:"why,omitempty"`
 }
 
+// Label is how a stage is named to people and agents: a custom stage's own
+// name, else its kind.
+func (g GafferOutcomeStage) Label() string {
+	if g.Kind == "custom" && g.Name != "" {
+		return g.Name
+	}
+	return g.Kind
+}
+
 type GafferOutcomeSession struct {
 	Key            string `json:"key"`
 	Title          string `json:"title"`
@@ -183,6 +196,10 @@ type GafferOutcomeSession struct {
 	SessionID      string `json:"sessionId,omitempty"`
 	ConversationID string `json:"conversationId,omitempty"`
 	UpdatedAt      int64  `json:"updatedAt"`
+	// PathwayID and PathwayName are the pathway the pipeline's stages came
+	// from, whose own order it keeps. Empty for a standard pipeline.
+	PathwayID   string `json:"pathwayId,omitempty"`
+	PathwayName string `json:"pathwayName,omitempty"`
 	// Stages is empty for a plain followed session. Stage is the index of the
 	// stage in hand. WorkDir is where the first stage's session works, which
 	// later stages share. AutoMerge and MergeApproved are the person's own

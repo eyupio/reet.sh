@@ -186,7 +186,7 @@ func (s *Service) contextPipeline(uid int64, session string, flags store.Context
 			}
 			out := &ContextPipeline{State: piece.State, Stages: []ContextPipelineStage{}, HowItMovesOn: pipelineMovesOn}
 			if piece.Stage < len(piece.Stages) {
-				out.StageInHand = piece.Stages[piece.Stage].Kind
+				out.StageInHand = piece.Stages[piece.Stage].Label()
 			}
 			for _, stage := range piece.Stages {
 				if stage.Kind != "merge" {

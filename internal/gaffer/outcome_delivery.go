@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -427,14 +428,15 @@ func deliveryView(o store.GafferOutcome, item store.GafferOutcomeSession, head d
 		at = len(item.Stages) - 1
 	}
 	for i := 0; i <= at; i++ {
-		kind := item.Stages[i].Kind
+		kind, label := item.Stages[i].Kind, item.Stages[i].Label()
 		// The merge is not work to do again: sent back to it, a pipeline
 		// would come straight back for review with nothing changed.
 		if kind == "merge" {
 			continue
 		}
-		if len(view.Stages) == 0 || view.Stages[len(view.Stages)-1] != kind {
-			view.Stages = append(view.Stages, kind)
+		// Parts of a split stage share its label and are offered once.
+		if len(view.Stages) == 0 || view.Stages[len(view.Stages)-1] != label {
+			view.Stages = append(view.Stages, label)
 		}
 		if kind == "code" {
 			view.DefaultStage = kind
@@ -909,7 +911,7 @@ func (s *Service) DecideDelivery(ctx context.Context, uid int64, id, key string,
 	if notes != "" && (len(notes) > maxDeliveryNotesBytes || !store.ValidWorkerText(notes)) {
 		return o, DeliveryReviewView{}, none, false, invalid("notes", "Write the notes in up to 2,000 UTF-8 bytes of plain text.")
 	}
-	if in.Commit != "" && !terminalproto.ValidCommit(in.Commit) || in.Stage != "" && stageIndex(in.Stage) < 0 || len(in.Statuses) > store.MaxGafferCriteria {
+	if in.Commit != "" && !terminalproto.ValidCommit(in.Commit) || in.Stage != "" && stageIndex(in.Stage) < 0 && !slices.ContainsFunc(item.Stages, func(st store.GafferOutcomeStage) bool { return st.Label() == in.Stage }) || len(in.Statuses) > store.MaxGafferCriteria {
 		return o, DeliveryReviewView{}, none, false, invalid("decision", "Reload this delivery review and decide again.")
 	}
 	replay := func() (store.GafferOutcome, DeliveryReviewView, store.GafferDeliveryDecision, bool, error) {

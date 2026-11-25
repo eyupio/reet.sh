@@ -36,7 +36,7 @@ func (s *Service) pipelineOf(uid int64, conversation string) (outcome, pipeline,
 				continue
 			}
 			if piece.Stage < len(piece.Stages) {
-				stage = piece.Stages[piece.Stage].Kind
+				stage = piece.Stages[piece.Stage].Label()
 			}
 			return o.ID, piece.Key, stage, true
 		}
@@ -92,7 +92,7 @@ func (s *Service) auditPipeline(o store.GafferOutcome, key string) {
 		}
 		detail := map[string]any{"outcome": o.ID, "pipeline": key, "state": row.State, "reason": row.Note}
 		if row.Stage < len(row.Stages) {
-			detail["stage"] = row.Stages[row.Stage].Kind
+			detail["stage"] = row.Stages[row.Stage].Label()
 		}
 		if row.SessionID != "" && row.State != "done" {
 			detail["session"] = row.SessionID

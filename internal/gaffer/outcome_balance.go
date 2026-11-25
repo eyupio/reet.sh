@@ -289,7 +289,7 @@ func (s *Service) recoverPipelineWorker(uid int64, id, key, session string, revi
 			return outcomeView(updated), err
 		}
 		s.endFinishedSession(context.Background(), updated, key, session, "The pipeline switched workers after the model reached its usage limit.")
-		s.audit(uid, "gaffer-stage-rebalanced", map[string]any{"outcome": id, "pipeline": key, "stage": stage.Kind, "from": stage.Tool, "to": replacement.Tool, "reason": why, "automatic": automatic})
+		s.audit(uid, "gaffer-stage-rebalanced", map[string]any{"outcome": id, "pipeline": key, "stage": stage.Label(), "from": stage.Tool, "to": replacement.Tool, "reason": why, "automatic": automatic})
 		s.wakeOutcomes()
 		return outcomeView(updated), nil
 	}
@@ -396,7 +396,7 @@ func (s *Service) rebalanceStopped(ctx context.Context) {
 			}, ""); err != nil {
 				continue
 			}
-			s.audit(o.OwnerID, "gaffer-stage-rebalanced", map[string]any{"outcome": o.ID, "pipeline": key, "stage": stage.Kind, "from": stage.Tool, "to": next.Tool, "reason": next.Balanced})
+			s.audit(o.OwnerID, "gaffer-stage-rebalanced", map[string]any{"outcome": o.ID, "pipeline": key, "stage": stage.Label(), "from": stage.Tool, "to": next.Tool, "reason": next.Balanced})
 		}
 	}
 }

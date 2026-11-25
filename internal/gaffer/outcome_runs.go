@@ -196,6 +196,10 @@ type OutcomeStageInput struct {
 	// Skills are the skill guidance a template launch loaded for the stage at
 	// the revision the template names. No request body can set them.
 	Skills []skillbuddy.Skill `json:"-"`
+	// Name and Prompt are a custom stage's name and work, or a built-in
+	// stage's extra instructions. Only a pathway sets them.
+	Name   string `json:"-"`
+	Prompt string `json:"-"`
 }
 
 // MaxStageParts is how many parts one stage can be split into, and
@@ -247,7 +251,7 @@ func DefaultStageTier(kind string) string {
 	switch kind {
 	case "plan", "design", "review":
 		return "heavy"
-	case "code", "test":
+	case "code", "test", "custom":
 		return "standard"
 	}
 	return "light"
@@ -279,15 +283,21 @@ func stageIndex(kind string) int {
 
 // StageGoal is the saved goal for one stage of a pipeline. Every stage but
 // merge ends "Do not merge."
-func StageGoal(objective, title, kind string) string {
-	text := "Outcome: " + clipBytes(objective, outcomeLineBytes) + "\nThis session’s part: " + clipBytes(title, 240) + "\nStage: " + kind + "\n" + stageWork[kind] + " Stay inside this stage and this part of the outcome. Bring scope changes and decisions back to me."
+func StageGoal(objective, title string, stage store.GafferOutcomeStage) string {
+	kind, work := stage.Kind, stageWork[stage.Kind]
+	head := "Outcome: " + clipBytes(objective, outcomeLineBytes) + "\nThis session’s part: " + clipBytes(title, 240) + "\nStage: " + stage.Label() + "\n"
+	tail := " Stay inside this stage and this part of the outcome. Bring scope changes and decisions back to me."
 	if kind != "merge" {
 		// Merging is the merge stage's work, decided by the pipeline's own
 		// merge setting when it gets there. Said this way so a review does not
 		// read the setting as a conflict with this stage.
-		text += " Nothing is merged in this stage."
+		tail += " Nothing is merged in this stage."
 	}
-	return text
+	if kind == CustomStage {
+		// The prompt takes what the goal has left, so the store never refuses it.
+		work = clipBytes(stage.Prompt, min(1200, store.MaxGafferGoalBytes-len(head)-len(tail)))
+	}
+	return head + work + tail
 }
 
 // stageDeliverable is what a stage must leave behind before it is done, said
@@ -301,6 +311,7 @@ var stageDeliverable = map[string]string{
 	"pr":      "the pull request raised, with its link",
 	"babysit": "a pull request with passing checks, no open review thread and no conflict",
 	"merge":   "the pull request merged",
+	"custom":  "what this stage’s instructions ask for",
 }
 
 // stagePrompt is what the working agent is told at the start of a stage. The
@@ -310,9 +321,14 @@ func stagePrompt(o store.GafferOutcome, item store.GafferOutcomeSession, n int) 
 	stage := item.Stages[n]
 	var later []string
 	for _, next := range item.Stages[n+1:] {
-		later = append(later, next.Kind)
+		later = append(later, next.Label())
 	}
 	text := "You are doing ONE stage of a staged piece of work: the " + stage.Kind + " stage. " + stageWork[stage.Kind]
+	if stage.Kind == CustomStage {
+		text = "You are doing ONE stage of a staged piece of work: the “" + stage.Label() + "” stage. " + stage.Prompt
+	} else if stage.Prompt != "" {
+		text += "\n\nExtra instructions for this stage:\n" + stage.Prompt
+	}
 	if stage.Part != "" {
 		// A split stage: this session does one named part of it and no other.
 		var others []string
@@ -330,7 +346,7 @@ func stagePrompt(o store.GafferOutcome, item store.GafferOutcomeSession, n int) 
 		text += "\n\nThe work is already under way in this folder and branch."
 		for i := n - 1; i >= 0; i-- {
 			if item.Stages[i].Summary != "" {
-				from := "the " + item.Stages[i].Kind + " stage"
+				from := "the " + item.Stages[i].Label() + " stage"
 				if item.Stages[i].Part != "" {
 					from = "the “" + item.Stages[i].Part + "” part of " + from
 				}
@@ -363,9 +379,9 @@ func stagePrompt(o store.GafferOutcome, item store.GafferOutcomeSession, n int) 
 	if len(later) > 0 {
 		// Named once each: the later parts of this stage are the same kind.
 		var names []string
-		for _, kind := range later {
-			if kind != stage.Kind && (len(names) == 0 || names[len(names)-1] != kind) {
-				names = append(names, kind)
+		for _, label := range later {
+			if label != stage.Label() && (len(names) == 0 || names[len(names)-1] != label) {
+				names = append(names, label)
 			}
 		}
 		if len(names) > 0 {
@@ -605,12 +621,26 @@ func outcomePieces(items []OutcomeSession, tool, model, provider string, crew st
 		if len(item.Stages) > MaxPipelineStages {
 			return nil, invalid("sessions", "“"+title+"” has too many stages and parts. Keep it to "+strconv.Itoa(MaxPipelineStages)+".")
 		}
+		if item.Pathway != nil {
+			// A pathway's line keeps its own order and may hold custom stages; its stages are never split.
+			kinds := make([]string, len(item.Stages))
+			for n, stage := range item.Stages {
+				kinds[n] = stage.Kind
+				if stage.Kind == CustomStage && (strings.TrimSpace(stage.Name) == "" || strings.TrimSpace(stage.Prompt) == "") || stage.Kind != CustomStage && stageIndex(stage.Kind) < 0 || stage.Part != "" || stage.Brief != "" {
+					return nil, invalid("sessions", "The stages of “"+title+"” are built-in stages or named custom stages with a prompt, and are not split into parts.")
+				}
+			}
+			if why := validPathwayOrder(kinds); why != "" {
+				return nil, invalid("sessions", "“"+title+"”: "+why)
+			}
+			piece.PathwayID, piece.PathwayName = item.Pathway.ID, item.Pathway.Name
+		}
 		for n, stage := range item.Stages {
 			at := stageIndex(stage.Kind)
 			// A kind appears once, or as parts of one split stage sitting together.
 			part, brief := strings.TrimSpace(stage.Part), strings.TrimSpace(stage.Brief)
 			again := at == last && at >= 0
-			if at < 0 || at < last || again && (part == "" || strings.TrimSpace(item.Stages[n-1].Part) == "") {
+			if item.Pathway == nil && (at < 0 || at < last || again && (part == "" || strings.TrimSpace(item.Stages[n-1].Part) == "")) {
 				return nil, invalid("sessions", "Keep the stages of “"+title+"” in pipeline order, each at most once unless it is split into named parts.")
 			}
 			if !again {
@@ -671,7 +701,7 @@ func outcomePieces(items []OutcomeSession, tool, model, provider string, crew st
 			if err != nil {
 				return nil, err
 			}
-			piece.Stages = append(piece.Stages, store.GafferOutcomeStage{Kind: stage.Kind, Tool: stageTool, Model: stageModel, Effort: stageEffort, Provider: stageProvider, Backup: backup, More: more, Tier: tier, TierWhy: why, Part: part, Brief: brief, SkillGuidance: stage.Skills, RequestID: id})
+			piece.Stages = append(piece.Stages, store.GafferOutcomeStage{Kind: stage.Kind, Name: stage.Name, Prompt: stage.Prompt, Tool: stageTool, Model: stageModel, Effort: stageEffort, Provider: stageProvider, Backup: backup, More: more, Tier: tier, TierWhy: why, Part: part, Brief: brief, SkillGuidance: stage.Skills, RequestID: id})
 		}
 		if len(piece.Stages) > 0 {
 			piece.Stages[0].RequestID = request
@@ -1155,7 +1185,7 @@ func (s *Service) stageHandedOver(uid int64, conversation, summary, by string) {
 			}
 			key, kind := piece.Key, ""
 			if piece.Stage < len(piece.Stages) {
-				kind = piece.Stages[piece.Stage].Kind
+				kind = piece.Stages[piece.Stage].Label()
 			}
 			used, _ := s.store.GafferGoalFor(uid, conversation)
 			// What the stage's agent reported using is kept with the stage, like Gaffer's own figures.
@@ -1180,7 +1210,7 @@ func (s *Service) stageHandedOver(uid int64, conversation, summary, by string) {
 						settleStoppedOutcome(o)
 						o.State = "starting"
 					}
-					row.State, row.Note, row.UpdatedAt = "advancing", "The "+row.Stages[row.Stage].Kind+" stage is done. Starting the next.", time.Now().UnixMilli()
+					row.State, row.Note, row.UpdatedAt = "advancing", "The "+row.Stages[row.Stage].Label()+" stage is done. Starting the next.", time.Now().UnixMilli()
 					handed = true
 					return true
 				}
@@ -1288,13 +1318,13 @@ func (s *Service) advancePipeline(ctx context.Context, o store.GafferOutcome, it
 		return set("ready_to_merge", mergeWaitNote(item), func(row *store.GafferOutcomeSession) { row.Stage = next })
 	}
 	if _, err := s.chatPrincipal(uid); err != nil {
-		return set("unfollowed", "Stopped before the "+stage.Kind+" stage: this account can no longer start sessions.", nil)
+		return set("unfollowed", "Stopped before the "+stage.Label()+" stage: this account can no longer start sessions.", nil)
 	}
 	// Every stage is a session of its own, whatever agent and model do it: it
 	// starts with that stage's instruction and the handover and nothing else,
 	// in the pipeline's folder. The session of the stage before is finished
 	// with and is ended once this one is followed.
-	if !set("starting", "Starting the "+stage.Kind+" stage…", func(row *store.GafferOutcomeSession) {
+	if !set("starting", "Starting the "+stage.Label()+" stage…", func(row *store.GafferOutcomeSession) {
 		row.Stage = next
 		row.SessionID, row.ConversationID = row.Stages[next].SessionID, ""
 	}) {
@@ -1318,9 +1348,9 @@ func (s *Service) advancePipeline(ctx context.Context, o store.GafferOutcome, it
 			if after, err := s.store.GafferOutcomeFor(uid, o.ID); ok && err == nil {
 				for _, now := range after.Sessions {
 					if now.Key == item.Key && now.SessionID != item.SessionID {
-						reason := "The " + stage.Kind + " stage started in a session of its own."
+						reason := "The " + stage.Label() + " stage started in a session of its own."
 						if now.SessionID == "" {
-							reason = "Its stage is done, and the " + stage.Kind + " stage starts in a session of its own when it is tried again."
+							reason = "Its stage is done, and the " + stage.Label() + " stage starts in a session of its own when it is tried again."
 						}
 						s.endFinishedSession(ctx, o, item.Key, item.SessionID, reason)
 					}
@@ -1406,11 +1436,12 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 		launch.RequestID, launch.Tool, launch.Model, launch.Provider, launch.Prompt = stage.RequestID, stage.Tool, stage.Model, stage.Provider, stagePrompt(o, item, item.Stage)
 		launch.Effort = stage.Effort
 		launch.Trust = o.Trust && (stage.Tool == "opencode" || stage.Tool == "antigravity")
-		launch.Title = clipBytes(item.Title, 60) + " · " + stage.Kind
-		goal = StageGoal(o.Objective, item.Title, stage.Kind)
+		// A custom stage's name can be long: the pipeline's title gives way so the whole stays a valid title.
+		launch.Title = clipBytes(item.Title, min(60, terminalproto.MaxTitleRunes-3-utf8.RuneCountInString(stage.Label()))) + " · " + stage.Label()
+		goal = StageGoal(o.Objective, item.Title, stage)
 		if stage.Part != "" {
 			// One part of a split stage: Gaffer follows it against the part's own brief.
-			launch.Title = partTitle(item.Title, stage.Kind, stage.Part)
+			launch.Title = partTitle(item.Title, stage.Label(), stage.Part)
 			// The brief is clipped hard here so a long title, objective and part name cannot take the goal past the 2,000 bytes a goal may hold.
 			goal += "\nThis session does one part of the stage only, “" + clipBytes(stage.Part, 80) + "”: " + clipBytes(stage.Brief, 400) + " Hand over when this part is done; the stage's other parts are done in sessions of their own."
 		}
@@ -1464,12 +1495,12 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 				launch.Tool, launch.Model, launch.Provider, launch.Effort = stage.Tool, stage.Model, stage.Provider, stage.Effort
 				launch.Trust = o.Trust && (stage.Tool == "opencode" || stage.Tool == "antigravity")
 				if stage.Balanced != "" {
-					s.audit(uid, "gaffer-stage-balanced", map[string]any{"outcome": o.ID, "pipeline": item.Key, "stage": stage.Kind, "tool": stage.Tool, "reason": stage.Balanced})
+					s.audit(uid, "gaffer-stage-balanced", map[string]any{"outcome": o.ID, "pipeline": item.Key, "stage": stage.Label(), "tool": stage.Tool, "reason": stage.Balanced})
 				}
 			}
 			// An effort the machine's last report says the agent does not offer
 			// is not asked for: the stage starts on the agent's default effort.
-			if item.SessionID == "" && item.UnsureRequest == "" && s.effortNotReported(uid, o.AgentID, launch.Tool, launch.Effort) && s.dropStageEffort(o, item.Key, item.Stage, stage.Kind, launch, "", "reported") {
+			if item.SessionID == "" && item.UnsureRequest == "" && s.effortNotReported(uid, o.AgentID, launch.Tool, launch.Effort) && s.dropStageEffort(o, item.Key, item.Stage, stage.Label(), launch, "", "reported") {
 				launch.Effort, stage.EffortNotOffered = "", launch.Effort
 			}
 			droppedEffort = launch.Effort == "" && stage.EffortNotOffered != ""
@@ -1595,7 +1626,7 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 			// effort was dropped already: the refusal is then the one recorded
 			// for its old request, answered again.
 			if err != nil && !unknown && staged && (launch.Effort != "" || droppedEffort) && errors.Is(err, ErrEffortNotOffered) && ctx.Err() == nil {
-				if fresh, idErr := newChatID(); idErr == nil && s.dropStageEffort(o, item.Key, item.Stage, item.Stages[item.Stage].Kind, launch, fresh, "refused") {
+				if fresh, idErr := newChatID(); idErr == nil && s.dropStageEffort(o, item.Key, item.Stage, item.Stages[item.Stage].Label(), launch, fresh, "refused") {
 					launch.RequestID, launch.Effort = fresh, ""
 					started, workDir, err, unknown = ask(launch.RequestID)
 				}
@@ -1612,11 +1643,11 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 		if err != nil {
 			state, note := "failed", "Not started: "+clipBytes(err.Error(), 400)
 			if staged && item.Stage > 0 {
-				state, note = "unfollowed", "The "+item.Stages[item.Stage].Kind+" stage was not started: "+clipBytes(err.Error(), 400)
+				state, note = "unfollowed", "The "+item.Stages[item.Stage].Label()+" stage was not started: "+clipBytes(err.Error(), 400)
 			}
 			asked := "The session"
 			if staged && item.Stage > 0 {
-				asked = "The " + item.Stages[item.Stage].Kind + " stage"
+				asked = "The " + item.Stages[item.Stage].Label() + " stage"
 			}
 			switch {
 			case unsure == launch.RequestID:
@@ -1727,7 +1758,7 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 	followed := func() bool {
 		note := "Started and followed. Gaffer waits for its first progress."
 		if staged {
-			note = "The " + item.Stages[item.Stage].Kind + " stage is under way."
+			note = "The " + item.Stages[item.Stage].Label() + " stage is under way."
 		}
 		after, err := s.outcomeStep(uid, o.ID, setOutcomeSession(item.Key, "following", note, &wrote, func(row *store.GafferOutcomeSession) {
 			row.ConversationID = cid
@@ -1745,7 +1776,7 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 				// the stage was moved on, so a controller that restarted in
 				// between does not leave it running.
 				if before := item.Stages[item.Stage-1].SessionID; before != "" && before != sessionID {
-					s.endFinishedSession(ctx, o, item.Key, before, "The "+item.Stages[item.Stage].Kind+" stage started in a session of its own.")
+					s.endFinishedSession(ctx, o, item.Key, before, "The "+item.Stages[item.Stage].Label()+" stage started in a session of its own.")
 				}
 			}
 		}

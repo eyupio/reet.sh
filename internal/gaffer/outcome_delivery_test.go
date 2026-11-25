@@ -944,3 +944,28 @@ func TestOnlyAProjectThatIsNotARepositoryIsDecidedWithoutACommit(t *testing.T) {
 		t.Fatalf("decision with no commit: %+v %v", decision, err)
 	}
 }
+
+// A delivery is sent back to a custom stage by its name, and a name that is
+// neither a built-in kind nor one of the pipeline's stages is refused.
+func TestADeliveryIsSentBackToACustomStageByItsName(t *testing.T) {
+	r := outcomeFixture(t)
+	r.s.StartGoalSupervisor()
+	in := deliveryInput(r, false)
+	in.Sessions[0].Pathway = &store.GafferPathwayRef{ID: "pathway-1", Name: "Careful"}
+	in.Sessions[0].Stages = []OutcomeStageInput{{Kind: "code", Tool: "opencode"}, {Kind: CustomStage, Name: "Audit", Prompt: "Audit the logging.", Tool: "opencode"}, {Kind: "pr", Tool: "opencode"}, {Kind: "merge", Tool: "opencode"}}
+	created, err := r.s.CreateOutcome(r.p.UserID, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	toReview(t, r, created.ID)
+	back := decisionFor(r.review(t, created.ID), "send_back", 1)
+	back.Notes, back.Stage = "Audit the error paths too.", "Zed"
+	if _, _, _, _, err := r.s.DecideDelivery(context.Background(), r.p.UserID, created.ID, "a", back); err == nil {
+		t.Fatal("a delivery was sent back to a stage the pipeline does not have")
+	}
+	back.Stage = "Audit"
+	_, _, decision, _, err := r.s.DecideDelivery(context.Background(), r.p.UserID, created.ID, "a", back)
+	if err != nil || decision.Stage != "Audit" {
+		t.Fatalf("send back to the custom stage: %+v %v", decision, err)
+	}
+}

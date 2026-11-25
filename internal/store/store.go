@@ -452,6 +452,10 @@ func Open(dir string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	if err := st.migrateGafferPathways(); err != nil {
+		db.Close()
+		return nil, err
+	}
 	if err := st.migrateMachineModels(); err != nil {
 		db.Close()
 		return nil, err

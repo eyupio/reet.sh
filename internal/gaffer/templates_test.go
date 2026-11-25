@@ -663,3 +663,20 @@ func TestANotSuccessfulRefusalNamesThePipeline(t *testing.T) {
 		t.Fatalf("refusal: %v", err)
 	}
 }
+
+// A plan with a pipeline started on a pathway is not saved as a template,
+// which holds no custom stages.
+func TestAPathwayOutcomeIsNotSavedAsATemplate(t *testing.T) {
+	r := outcomeFixture(t)
+	o := finishedOutcome(t, r)
+	if _, err := r.st.UpdateGafferOutcomeFor(r.p.UserID, o.ID, o.Revision, func(o *store.GafferOutcome) bool {
+		o.Sessions[1].PathwayID, o.Sessions[1].PathwayName = "pathway-1", "Careful"
+		return true
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, err := r.s.SaveTemplate(r.p.UserID, TemplateSaveInput{RequestID: request(1), OutcomeID: o.ID, Name: "CSV export"})
+	if conflictCode(err) != "template_pathway" || !strings.Contains(err.Error(), "“"+o.Sessions[1].Title+"”") {
+		t.Fatalf("refusal: %v", err)
+	}
+}

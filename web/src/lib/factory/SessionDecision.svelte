@@ -4,7 +4,7 @@
   // dialogs (a merge, a new budget, stopping the outcome) go to the pipeline's card there.
   import { onMount } from 'svelte'
   import { listGafferGoals, listGafferOutcomes, type GafferGoalOverview, type GafferOutcome } from '../api'
-  import { MAX_STAGE_DECISIONS, deliveryHref, waitingDecisions, type FactoryMember, type NeedChoice } from '../gafferOutcome'
+  import { MAX_STAGE_DECISIONS, deliveryHref, stageKey, waitingDecisions, type FactoryMember, type NeedChoice } from '../gafferOutcome'
   import Decision from './Decision.svelte'
   import PipelineChoices from './PipelineChoices.svelte'
 
@@ -35,7 +35,8 @@
   const goal = $derived(waiting?.piece.conversationId ? goals.get(waiting.piece.conversationId) : undefined)
   const used = $derived(waiting?.piece.stages?.[waiting.piece.stage ?? 0]?.decided ?? 0)
   const taken = $derived(record?.decisions ?? [])
-  const kind = $derived(waiting?.piece.stages?.[waiting.piece.stage ?? 0]?.kind ?? '')
+  const inHand = $derived(waiting?.piece.stages?.[waiting.piece.stage ?? 0])
+  const kind = $derived(inHand ? stageKey(inHand) : '')
   // Why Gaffer is leaving this to the person, so the card answers "why is it not sending this itself?" and says what to
   // do about it. A lost session or a merge is the person's whatever the outcome's decisions setting is.
   const note = $derived(waiting?.kind !== 'goal' || !record ? '' : !record.automation

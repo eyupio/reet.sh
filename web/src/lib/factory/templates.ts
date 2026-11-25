@@ -88,8 +88,10 @@ export function pipelineLine(p: { title: string; autoMerge: boolean; stages: { k
 }
 
 /** Whether the server would save this outcome as a template: it has started, and every pipeline finished, or had its delivery accepted and did not then fail. */
-export function canSaveAsTemplate(o: { state: string; sessions: { state: string; stages?: unknown[]; deliveryAccepted?: boolean }[] }): boolean {
+export function canSaveAsTemplate(o: { state: string; sessions: { state: string; stages?: unknown[]; deliveryAccepted?: boolean; pathwayId?: string }[] }): boolean {
+  // A pipeline from a pathway has stages a template cannot hold.
   return o.state !== 'starting' && o.sessions.length > 0 && o.sessions.every(p => {
+    if (p.pathwayId) return false
     const ended = p.state === 'failed' || p.state === 'unfollowed' || p.state === 'cancelled'
     return (p.stages?.length ?? 0) > 0 && (p.state === 'done' || (!!p.deliveryAccepted && !ended))
   })

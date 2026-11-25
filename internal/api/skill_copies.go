@@ -14,7 +14,6 @@ import (
 	"github.com/eyupio/reet.sh/internal/skillbundle"
 	"github.com/eyupio/reet.sh/internal/skillfetch"
 	"github.com/eyupio/reet.sh/internal/store"
-	"gopkg.in/yaml.v3"
 )
 
 // skillFetchTimeout bounds one public skill's download.
@@ -256,6 +255,10 @@ func (s *server) fetchSkillCopies(uid int64, needs []store.SkillCopyNeed) {
 		if !ok {
 			continue
 		}
+		if r.SourceType == "hosted" {
+			s.copyHostedSkill(uid, n, r)
+			continue
+		}
 		g := repos[r.Source]
 		if g == nil || r.SourceType != "github" {
 			g = &group{}
@@ -284,6 +287,15 @@ func (s *server) fetchSkillCopies(uid int64, needs []store.SkillCopyNeed) {
 	}
 }
 
+// copyHostedSkill saves the files of the page a skill someone else published
+// here was added from. The page is on this server, so nothing is downloaded and
+// no slot is taken; its link is the skill's origin, as a site's is.
+func (s *server) copyHostedSkill(uid int64, n store.SkillCopyNeed, r ref.Ref) {
+	_, username, _ := strings.Cut(r.Source, "/")
+	files, err := s.st.PublishedHostedFiles(username, r.Slug)
+	s.saveSkillCopy(uid, n, skillfetch.Result{Files: files, Origin: r.URL}, err)
+}
+
 // fetchSkills fetches refs, which are one skill or several of one repository.
 func (s *server) fetchSkills(refs []ref.Ref) []skillfetch.Outcome {
 	if many, ok := s.skillFetcher.(skillManyFetcher); ok && len(refs) > 1 {
@@ -307,7 +319,14 @@ func (s *server) saveSkillCopy(uid int64, n store.SkillCopyNeed, res skillfetch.
 	if err == nil {
 		// The fetch picked the folder by a loose match of the name, so the
 		// SKILL.md is compared the same way.
-		if got := skillMDName(res.Files); got != "" && !skillfetch.SameName(got, n.Name) {
+		got := ""
+		for _, f := range res.Files {
+			if f.Path == "SKILL.md" {
+				got = skillfetch.SkillName(f.Data)
+				break
+			}
+		}
+		if got != "" && !skillfetch.SameName(got, n.Name) {
 			problem = fmt.Sprintf("The original's SKILL.md is named %q, but this skill is named %q", truncate(got, 64), truncate(n.Name, 64))
 		} else {
 			_, err = s.st.SetSkillContentFor(uid, n.Item, res.Files, store.PrivateSkillOrigin{Kind: "original", Reference: res.Origin})
@@ -327,32 +346,6 @@ func (s *server) saveSkillCopy(uid int64, n store.SkillCopyNeed, res skillfetch.
 	}
 }
 
-// skillMDName is the name in the front matter of the SKILL.md in files, or ""
-// when there is none to read.
-func skillMDName(files []skillbundle.ContentFile) string {
-	for _, f := range files {
-		if f.Path != "SKILL.md" {
-			continue
-		}
-		md := strings.ReplaceAll(string(f.Data), "\r\n", "\n")
-		if !strings.HasPrefix(md, "---\n") {
-			return ""
-		}
-		end := strings.Index(md[4:], "\n---\n")
-		if end < 0 {
-			return ""
-		}
-		var header struct {
-			Name string `yaml:"name"`
-		}
-		if yaml.Unmarshal([]byte(md[4:4+end]), &header) != nil {
-			return ""
-		}
-		return header.Name
-	}
-	return ""
-}
-
 func truncate(s string, n int) string {
 	if len(s) > n {
 		return strings.ToValidUTF8(s[:n], "") + "..."
@@ -365,6 +358,8 @@ func skillCopyProblem(err error) string {
 	switch {
 	case errors.Is(err, skillfetch.ErrNotFound):
 		return "The skill is no longer at its original link"
+	case errors.Is(err, store.ErrNotFound):
+		return "The skill is no longer published"
 	case errors.Is(err, skillfetch.ErrTooLarge):
 		return "The skill is over 8 MiB or 256 files"
 	case errors.Is(err, skillfetch.ErrArchiveTooLarge):
@@ -423,7 +418,9 @@ func (s *server) fetchOriginal(ctx context.Context, uid int64, item string, cach
 	if err != nil {
 		return none, nil, "", err
 	}
-	if !ok || li.ItemType != store.LibrarySkill {
+	// A skill published here is copied from its page, not downloaded, so it has
+	// no original to update from.
+	if !ok || r.SourceType == "hosted" || li.ItemType != store.LibrarySkill {
 		return none, nil, "", errNoOriginal
 	}
 	var current *skillbundle.Manifest
@@ -445,6 +442,14 @@ func (s *server) fetchOriginal(ctx context.Context, uid int64, item string, cach
 		return none, nil, "", errOriginalBusy
 	}
 	defer release()
+	// The download holds as much memory as a background one, so it takes one of
+	// the server's download slots too, and is told to wait when none is free.
+	select {
+	case skillCopySlots <- struct{}{}:
+		defer func() { <-skillCopySlots }()
+	default:
+		return none, nil, "", errOriginalBusy
+	}
 	ctx, cancel := context.WithTimeout(ctx, skillFetchTimeout)
 	defer cancel()
 	res, err := s.skillFetcher.Fetch(ctx, r)

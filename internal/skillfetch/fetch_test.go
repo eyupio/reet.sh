@@ -215,8 +215,8 @@ func TestFetchRefusesUnsafePaths(t *testing.T) {
 	}
 	f = githubServer(t, buildTar(t, []entry{
 		{name: "r-abc/skills/pdf/SKILL.md", body: "x"},
-		{name: "r-abc/skills/pdf/link", typeflag: tar.TypeSymlink, link: "/etc/passwd"},
-		{name: "r-abc/skills/pdf/hard", typeflag: tar.TypeLink, link: "SKILL.md"},
+		{name: "r-abc/docs/link", typeflag: tar.TypeSymlink, link: "/etc/passwd"},
+		{name: "r-abc/docs/hard", typeflag: tar.TypeLink, link: "skills/pdf/SKILL.md"},
 	}))
 	res, err := f.Fetch(context.Background(), ghRef("pdf"))
 	if err != nil || len(res.Files) != 1 || res.Files[0].Path != "SKILL.md" {

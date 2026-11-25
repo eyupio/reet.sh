@@ -88,9 +88,12 @@ func (s *Store) migrateSkillContent() error {
 
 // SkillSourceFor is the public source an imported skill came from, read from
 // the shelf row it was added by. ok is false when it has none to fetch from.
+// A skill published on this server by someone else is a "hosted" source, whose
+// files come from PublishedHostedFiles and which has no original to download;
+// the account's own written skills are not, they are already in its library.
 func (s *Store) SkillSourceFor(uid int64, item string) (r ref.Ref, ok bool, err error) {
 	err = s.db.QueryRow(`SELECT k.id,k.source,k.slug,k.source_type,k.url FROM library_items i JOIN library_aliases a ON a.user_id=i.user_id AND a.item_id=i.id AND a.kind='shelf' JOIN skills k ON k.id=a.reference
- WHERE i.user_id=? AND i.id=? AND i.item_type=? AND i.deleted_at=0 AND k.source_type IN ('github','well-known') ORDER BY a.reference LIMIT 1`, uid, item, LibrarySkill).Scan(&r.ID, &r.Source, &r.Slug, &r.SourceType, &r.URL)
+ WHERE i.user_id=? AND i.id=? AND i.item_type=? AND i.deleted_at=0 AND (k.source_type IN ('github','well-known') OR k.source_type='hosted' AND NOT EXISTS(SELECT 1 FROM library_aliases h WHERE h.user_id=i.user_id AND h.item_id=i.id AND h.kind='hosted')) ORDER BY a.reference LIMIT 1`, uid, item, LibrarySkill).Scan(&r.ID, &r.Source, &r.Slug, &r.SourceType, &r.URL)
 	if errors.Is(err, sql.ErrNoRows) {
 		return r, false, nil
 	}

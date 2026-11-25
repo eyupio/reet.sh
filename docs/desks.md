@@ -101,6 +101,12 @@ command…, Open in Sessions (when the pane has a session) and Close, with the c
   it will take.
 - **Theatre view** (the last toolbar button) folds the top bar and the desk header away, leaving the tab bar, the toolbar
   and the panes. It is not saved.
+- **The command bar** under the panes runs a command in the focused pane's shell. Empty, it offers what you might do
+  next: `cd` into each folder of the folder the shell is in, then the commands you ran lately and the ones you saved.
+  As you type it completes the command, and the last word to a folder (`cd w` offers `web/`, and `cd web/` then offers
+  that folder's own folders). The arrow keys choose a suggestion and Tab or a press takes it; that only fills the field.
+  Enter or **Run** types the line into the shell and presses Enter. Esc goes back to the terminal. It is for shell
+  panes: an agent's pane has Compose. A line with a quote or a backslash is not completed.
 
 The layout of every tab, its zoomed pane and its focused pane are saved with the desk.
 
@@ -150,6 +156,7 @@ open. None of them is a key a shell uses by default. Held down, only the focus a
 | Alt+Shift+T | New tab |
 | Alt+Shift+[ and ] | Previous and next tab |
 | Alt+Shift+1…9 | Tab by number |
+| Alt+Shift+K | Command bar |
 
 **Keys** in the desk menu lists them. Alt+Shift+M, the Sessions terminal's maximise, is not a desk key: a desk pane zooms
 instead.

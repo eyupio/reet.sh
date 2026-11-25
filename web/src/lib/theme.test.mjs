@@ -59,6 +59,14 @@ test('checkbox edges meet 3:1 in both palettes', () => {
     assert.ok(contrast(TOKENS[p]['--line-deep'], TOKENS[p][bg]) >= 3, p + ' checkbox boundary on ' + bg)
 })
 
+// The focus ring is the accent text tone (--focus in app.css): a focus indicator needs 3:1 against what it sits on.
+test('the focus ring meets 3:1 on every surface in both palettes', () => {
+  assert.match(css, /--focus:\s*var\(--accent-text\)/, '--focus is the accent text tone')
+  assert.match(css, /:focus-visible\s*\{\s*outline:\s*2px solid var\(--focus\)/, 'the global ring uses --focus, not the plain accent')
+  for (const p of Object.keys(TOKENS)) for (const bg of ['--bg', '--card', '--card-raised', '--bg-sunk', '--dock-bg'])
+    assert.ok(contrast(TOKENS[p]['--accent-text'], TOKENS[p][bg]) >= 3, `${p}: focus ring on ${bg} is ${contrast(TOKENS[p]['--accent-text'], TOKENS[p][bg]).toFixed(2)}`)
+})
+
 test('the pressed Liked filter uses token contrast, not a literal white', () => {
   const page = readFileSync(join(web, 'src/lib/skills/SkillsPage.svelte'), 'utf8')
   assert.match(page, /\.toggle\.liked\[aria-pressed='true'\] \{ background: var\(--tint\); color: var\(--ink\); border-color: var\(--heart\); \}/)

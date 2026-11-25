@@ -13,13 +13,16 @@
   import type { TerminalPrompt } from '../../terminal/api'
   import { chatToolName } from '../../terminal/api'
   import { MAX_PATHWAY_STAGES, stageTitle, type PathwaySkill, type PathwayStage } from '../pathways'
+  import { draggable, type DragHooks, type DragItem } from './drag'
 
   // What can go on a pathway, in four tabs. Every item is a button: a stage is added at the end (before Merge), and a
-  // model, skill or prompt is applied to the selected stage. Items carry data-palette-item for the drag layer.
-  let { tab = $bindable('stages'), stages, stage, shelf, shelfFailed, onretryshelf, prompts, promptsFailed, favourites, crew, onadd, onmodel, onskill, onprompt, canskill }: {
+  // model, skill or prompt is applied to the selected stage. With `drag` (not in the phone's sheet) every item can also be
+  // dragged: a stage on to the line, the rest on to a stage, so a model, skill or prompt that cannot be pressed for the
+  // selected stage is aria-disabled rather than disabled, and can still be picked up.
+  let { tab = $bindable('stages'), stages, stage, shelf, shelfFailed, onretryshelf, prompts, promptsFailed, favourites, crew, drag, onadd, onmodel, onskill, onprompt, canskill }: {
     tab?: PaletteTab; stages: PathwayStage[]; stage: PathwayStage | null
     shelf: PathwaySkill[] | null; shelfFailed: boolean; onretryshelf: () => void; prompts: TerminalPrompt[] | null; promptsFailed: boolean
-    favourites: ModelFavourite[]; crew: GafferCrew | null
+    favourites: ModelFavourite[]; crew: GafferCrew | null; drag: DragHooks | null
     onadd: (kind: string) => string; onmodel: (choice: ModelChoice) => void; onskill: (id: string) => void; onprompt: (text: string) => void; canskill: (id: string) => string
   } = $props()
 
@@ -34,6 +37,7 @@
   const full = $derived(stages.length >= MAX_PATHWAY_STAGES)
   const builtIns = $derived(STAGES.filter(s => matches(s.label)))
   const showOwn = $derived(matches('Your own stage'))
+  const agentOf = (f: ModelFavourite): ModelChoice => ({ agent: { tool: f.tool, ...(f.model ? { model: f.model } : {}) } })
   const who = (tool?: string, model?: string) => tool ? [chatToolName(tool), model].filter(Boolean).join(' · ') : 'The outcome’s own agent'
   const tiers = $derived(CREW_TIERS.filter(t => matches(t.label, 'crew')))
   const favs = $derived(favourites.filter(f => matches(f.model || 'default', chatToolName(f.tool))))
@@ -43,6 +47,11 @@
   const target = $derived(stage ? stageTitle(stage).trim() || 'this stage' : '')
 
   function press(kind: string) { refused = onadd(kind) }
+  const grab = (item: () => DragItem | null) => drag && { item, ...drag }
+  // Pressing applies to the selected stage; an item that cannot is still focusable and draggable, and pressing it does nothing.
+  const unless = (off: boolean, run: () => void) => () => { if (!off) run() }
+  const coarse = matchMedia('(pointer: coarse)').matches
+  const Drag = coarse ? 'Hold and drag' : 'Drag'
   function arrows(event: KeyboardEvent) {
     const at = TABS.findIndex(t => t.id === tab)
     const next = event.key === 'ArrowRight' ? at + 1 : event.key === 'ArrowLeft' ? at - 1 : event.key === 'Home' ? 0 : event.key === 'End' ? TABS.length - 1 : null
@@ -69,26 +78,28 @@
       {#if builtIns.length}<p class="group">Built in</p>{/if}
       {#each builtIns as s (s.kind)}
         {@const used = stages.some(one => one.kind === s.kind)}
-        <button type="button" class="item" class:used data-palette-item={`stage:${s.kind}`} disabled={used || full} title={full && !used ? `A pathway can have up to ${MAX_PATHWAY_STAGES} stages.` : undefined} onclick={() => press(s.kind)}>
+        <button type="button" class="item" class:used data-palette-item={`stage:${s.kind}`} disabled={used || full} title={full && !used ? `A pathway can have up to ${MAX_PATHWAY_STAGES} stages.` : undefined} onclick={() => press(s.kind)}
+          use:draggable={grab(() => used || full ? null : { type: 'stage', kind: s.kind })}>
           <span class="grip" aria-hidden="true">⠿</span><span class="name">{s.label}</span>{#if used}<span class="aside">in use</span>{/if}
         </button>
       {/each}
       {#if showOwn}
         <p class="group">Yours</p>
-        <button type="button" class="item own" data-palette-item="stage:custom" disabled={full} onclick={() => press('custom')}>
+        <button type="button" class="item own" data-palette-item="stage:custom" disabled={full} onclick={() => press('custom')} use:draggable={grab(() => full ? null : { type: 'stage', kind: 'custom' })}>
           <span class="grip" aria-hidden="true">⠿</span><span class="name">Your own stage</span>
           {#if full}<span class="why">A pathway can have up to {MAX_PATHWAY_STAGES} stages.</span>{/if}
         </button>
       {/if}
       {#if !builtIns.length && !showOwn}<p class="quiet">No stage matches “{query.trim()}”.</p>{/if}
       <p class="status" role="status">{refused}</p>
-      <p class="hint">Press a stage to add it at the end.</p>
+      <p class="hint">{drag ? `${Drag} on to the line, or press to add at the end.` : 'Press a stage to add it at the end.'}</p>
 
     {:else if tab === 'models'}
       {#if tiers.length}<p class="group">Crew tiers</p>{/if}
       {#each tiers as t (t.tier)}
         {@const on = !!stage && !stage.agent && (stage.tier ?? defaultTier(stage.kind)) === t.tier}
-        <button type="button" class="item two" data-palette-item={`tier:${t.tier}`} disabled={!stage} onclick={() => onmodel({ tier: t.tier })}>
+        <button type="button" class="item two" data-palette-item={`tier:${t.tier}`} aria-disabled={!stage} onclick={unless(!stage, () => onmodel({ tier: t.tier }))}
+          use:draggable={grab(() => ({ type: 'model', choice: { tier: t.tier } }))}>
           <span class="grip" aria-hidden="true">⠿</span><span class="name">{t.label} · crew</span>{#if on}<span class="aside tick">✓</span>{/if}
           <span class="sub">{crew ? who(crew[t.tier]?.tool, crew[t.tier]?.model) : 'Your crew'}</span>
         </button>
@@ -96,12 +107,14 @@
       {#if favs.length}<p class="group">Favourites</p>{/if}
       {#each favs as f (`${f.tool}/${f.model}`)}
         {@const on = !!stage?.agent && stage.agent.tool === f.tool && (stage.agent.model ?? '') === f.model}
-        <button type="button" class="item two" data-palette-item={`model:${f.tool}/${f.model}`} disabled={!stage} onclick={() => onmodel({ agent: { tool: f.tool, ...(f.model ? { model: f.model } : {}) } })}>
+        <button type="button" class="item two" data-palette-item={`model:${f.tool}/${f.model}`} aria-disabled={!stage}
+          onclick={unless(!stage, () => onmodel(agentOf(f)))} use:draggable={grab(() => ({ type: 'model', choice: agentOf(f) }))}>
           <span class="grip" aria-hidden="true">⠿</span><span class="name mono">{f.model || 'Agent’s default model'}</span>{#if on}<span class="aside tick">✓</span>{/if}
           <span class="sub">{chatToolName(f.tool)}</span>
         </button>
       {/each}
-      <button type="button" class="item" data-palette-item="model:other" disabled={!stage} onclick={() => onmodel('other')}><span class="grip" aria-hidden="true">⠿</span><span class="name">Other…</span></button>
+      <button type="button" class="item" data-palette-item="model:other" aria-disabled={!stage} onclick={unless(!stage, () => onmodel('other'))} use:draggable={grab(() => ({ type: 'model', choice: 'other' }))}><span class="grip" aria-hidden="true">⠿</span><span class="name">Other…</span></button>
+      {#if drag}<p class="hint">{Drag} a model on to a stage, or select a stage and press the model.</p>{/if}
 
     {:else if tab === 'skills'}
       {#if shelf === null && shelfFailed}<p class="quiet failed">Your skills could not be read. <button type="button" class="retry" onclick={onretryshelf}>Retry</button></p>
@@ -110,25 +123,27 @@
       {:else if !skills.length}<p class="quiet">No skill matches “{query.trim()}”.</p>{/if}
       {#each skills as s (s.id)}
         {@const why = stage ? canskill(s.id) : ''}
-        <button type="button" class="item two" data-palette-item={`skill:${s.id}`} disabled={!stage || !!why} onclick={() => onskill(s.id)}>
+        <button type="button" class="item two" data-palette-item={`skill:${s.id}`} aria-disabled={!stage || !!why} onclick={unless(!stage || !!why, () => onskill(s.id))}
+          use:draggable={grab(() => ({ type: 'skill', id: s.id }))}>
           <span class="grip" aria-hidden="true">⠿</span><span class="name">{s.name}</span>{#if stage?.skills?.includes(s.id)}<span class="aside tick">✓</span>{/if}
           <span class="sub">{s.description}</span>
           {#if why && !stage?.skills?.includes(s.id)}<span class="why">{why}</span>{/if}
         </button>
       {/each}
-      <p class="hint">Select a stage, then press a skill to add it. Up to 2 a stage.</p>
+      <p class="hint">{drag ? `${Drag} a skill on to a stage, or select a stage and press the skill.` : 'Select a stage, then press a skill to add it.'} Up to 2 a stage.</p>
 
     {:else}
       {#if prompts === null}<p class="quiet">{promptsFailed ? 'Your prompts could not be read.' : 'Reading your prompts…'}</p>
       {:else if !prompts.length}<p class="quiet">No saved prompts yet. Save one on the Prompts page.</p>
       {:else if !library.length}<p class="quiet">No prompt matches “{query.trim()}”.</p>{/if}
       {#each library as p (p.id)}
-        <button type="button" class="item two" data-palette-item={`prompt:${p.id}`} disabled={!stage} onclick={() => onprompt(p.body)}>
+        <button type="button" class="item two" data-palette-item={`prompt:${p.id}`} aria-disabled={!stage} onclick={unless(!stage, () => onprompt(p.body))}
+          use:draggable={grab(() => ({ type: 'prompt', text: p.body }))}>
           <span class="grip" aria-hidden="true">⠿</span><span class="name">{p.title}</span>
           <span class="sub">{firstLine(p.body)}</span>
         </button>
       {/each}
-      <p class="hint">A prompt is copied into the stage, after anything already there.</p>
+      <p class="hint">{drag ? `${Drag} a prompt on to a stage, or select a stage and press the prompt.` : 'A prompt is copied into the stage, after anything already there.'}</p>
     {/if}
   </div>
 </section>
@@ -154,11 +169,14 @@
     padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink); font: inherit; font-size: 14px; text-align: left; cursor: pointer;
   }
   .item.two { row-gap: 2px; }
-  .item:hover:not(:disabled) { border-color: var(--line-strong); background: var(--card-raised); }
-  .item:active:not(:disabled) { border-color: var(--muted); }
+  .item:hover:not(:disabled, [aria-disabled='true']) { border-color: var(--line-strong); background: var(--card-raised); }
+  .item:active:not(:disabled, [aria-disabled='true']) { border-color: var(--muted); }
   .item:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  .item:disabled { cursor: default; }
-  .item:disabled .name, .item:disabled .grip { color: var(--muted); }
+  .item:disabled, .item[aria-disabled='true'] { cursor: default; }
+  .item:is(:disabled, [aria-disabled='true']) .name, .item:is(:disabled, [aria-disabled='true']) .grip { color: var(--muted); }
+  /* Where an item was picked up from: dimmed, with a dashed border. */
+  .item:global([data-dragging]) { opacity: 0.5; border-style: dashed; background: transparent; }
+  .item:not(:disabled) .grip { cursor: grab; }
   .item.used { border-style: dashed; background: transparent; }
   .item.own { border-color: var(--accent); }
   .item.own:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-wash); }

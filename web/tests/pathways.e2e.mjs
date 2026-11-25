@@ -46,7 +46,7 @@ function fixture({list=three(),failList=0,shelf=SHELF}={}){
   },
  }
  // Each pathway's own path, for every id a test can reach (the three, and copies made by Duplicate).
- for(const id of ['p1','p2','p3','p4','p5','new1','new2','new3'])routes[`${LIST}/${id}`]=async r=>{
+ for(const id of ['p1','p2','p3','p4','p5','p6','new1','new2','new3'])routes[`${LIST}/${id}`]=async r=>{
   const m=r.method()
   // `hold`, when set, is a promise a PUT's answer waits for, so a test can act while a save is out.
   if(m==='PUT'&&box.hold)await box.hold
@@ -65,7 +65,8 @@ function fixture({list=three(),failList=0,shelf=SHELF}={}){
  return {box,routes}
 }
 const open=async(width,theme,over={},extra={})=>{
- const f=fixture(over),w=await openWorkspace(browser,{width,height:width<500?844:900,theme,touch:width<1000,routes:f.routes,...extra})
+ // REET_UI_SCALE=2 takes the screenshots at twice the pixels, for the docs.
+ const f=fixture(over),w=await openWorkspace(browser,{width,height:width<500?844:900,theme,touch:width<1000,routes:f.routes,scale:Number(process.env.REET_UI_SCALE)||undefined,...extra})
  return {f,w,page:w.page}
 }
 const noOverflow=async page=>expect(await page.evaluate(()=>document.documentElement.scrollWidth<=document.documentElement.clientWidth)).toBe(true)
@@ -76,6 +77,8 @@ async function targets(page,scope='main'){
 }
 // Taken once the boot shell has faded and any dialog has finished opening.
 const shot=async(page,name,width,theme)=>{await page.mouse.move(0,0);await page.waitForFunction(()=>{const b=document.getElementById('boot');return !b||getComputedStyle(b).opacity==='0'});await page.waitForTimeout(300);await page.screenshot({path:`${shots}/${name}-${width}-${theme}.png`})}
+// Taken mid-drag, with the pointer where it is.
+const held=async(page,name,width,theme)=>{await page.waitForTimeout(300);await page.screenshot({path:`${shots}/${name}-${width}-${theme}.png`})}
 const row=(page,name)=>page.getByRole('listitem').filter({has:page.getByRole('heading',{name,exact:true})})
 const actions=(page,name)=>page.getByRole('button',{name:`Actions for ${name}`,exact:true})
 const goList=async page=>{await page.goto(base+'/factory/pathways');await page.getByRole('heading',{name:'Pathways',level:1,exact:true}).waitFor()}
@@ -708,6 +711,159 @@ async function editorPhone(width,theme){
  }finally{await w.context.close()}
 }
 
+// Dragging, with real pointer input. `drag` presses on `from`, moves in steps to the point `to` and lets go, or with `hold` keeps
+// the button down for a look mid-drag. `between` is the point in the gap between two cards (null for either end of the line).
+// Both measure once the cards have finished sliding.
+const centre=box=>({x:box.x+box.width/2,y:box.y+box.height/2})
+const settled=page=>page.waitForFunction(()=>!document.querySelector('[data-pathway-line]').getAnimations({subtree:true}).length)
+const over=async(page,title)=>{await settled(page);return centre(await card(page,title).boundingBox())}
+async function between(page,a,b,vertical=false){
+ await settled(page)
+ const [l,r]=[a?await card(page,a).boundingBox():null,b?await card(page,b).boundingBox():null]
+ const one=l??r
+ if(vertical)return {x:one.x+one.width/2,y:((l?l.y+l.height:r.y-14)+(r?r.y:l.y+l.height+14))/2}
+ return {x:((l?l.x+l.width:r.x-40)+(r?r.x:l.x+l.width+40))/2,y:one.y+one.height/2}
+}
+async function drag(page,from,to,{hold=false}={}){
+ const a=centre(await from.boundingBox())
+ await page.mouse.move(a.x,a.y);await page.mouse.down()
+ await page.mouse.move(a.x+10,a.y+4,{steps:2})
+ await page.mouse.move(to.x,to.y,{steps:14})
+ if(!hold)await page.mouse.up()
+}
+const bar=page=>page.locator('[data-drag-bar]')
+const hint=page=>page.locator('[data-drag-hint]')
+const planFirst=()=>pathway('p6','Plan first',[st('plan'),st('code'),st('custom',{name:'Security audit',prompt:'Check every new endpoint for auth.',skills:['threat-model','deps-check']}),st('pr')])
+
+// A stage block on to the line, a card along it, and a skill, a model and a prompt on to a card; Escape puts everything back.
+async function editorDrag(width,theme){
+ const {w,page}=await open(width,theme,{list:[...three(),planFirst()]})
+ try{
+  await goEditor(page,'p6')
+  await drag(page,item(page,'stage:design'),await between(page,'Plan','Code'),{hold:true})
+  await expect(bar(page)).toBeVisible()
+  await expect(hint(page)).toHaveText('Drop to add Design at place 2.')
+  await held(page,'drag-stage',width,theme)
+  await page.mouse.up()
+  await expect.poll(()=>titles(page)).toEqual(['Plan','Design','Code','Security audit','PR'])
+  await expect(card(page,'Design')).toHaveAttribute('aria-pressed','true')
+  await expect(bar(page)).toHaveCount(0)
+  await expect(hint(page)).toHaveCount(0)
+  // A card two places later.
+  await drag(page,card(page,'Plan'),await between(page,'Code','Security audit'),{hold:true})
+  await expect(bar(page)).toBeVisible()
+  await expect(hint(page)).toHaveText('Drop to move Plan to place 3.')
+  await held(page,'drag-card',width,theme)
+  await page.mouse.up()
+  await expect.poll(()=>titles(page)).toEqual(['Design','Code','Plan','Security audit','PR'])
+  await expect(live(page)).toHaveText('Plan moved to place 3 of 5')
+  // A skill over a card that can take it: a ring and a preview; the full card is dimmed and says why.
+  await tab(page,'Skills').click()
+  await drag(page,item(page,'skill:test-first'),await over(page,'Code'),{hold:true})
+  await expect(card(page,'Code')).toHaveAttribute('data-drop','take')
+  await expect(card(page,'Code')).toContainText('+ test-first')
+  await expect(card(page,'Security audit')).toHaveAttribute('data-drop','refuse')
+  await expect(card(page,'Security audit')).toContainText('2 skills · full')
+  await expect(hint(page)).toHaveText('Drop to give Code the skill test-first. Security audit already has 2.')
+  await held(page,'drag-skill',width,theme)
+  await page.mouse.up()
+  await expect(card(page,'Code')).toContainText('1 skill')
+  await expect(card(page,'Code')).toHaveAttribute('aria-pressed','true')
+  await expect(card(page,'Security audit')).not.toHaveAttribute('data-drop')
+  // Over the full card: the reason, and the drop changes nothing.
+  await drag(page,item(page,'skill:test-first'),await over(page,'Security audit'),{hold:true})
+  await expect(hint(page)).toHaveText('Security audit cannot take test-first. A stage can have up to 2 skills.')
+  await page.mouse.up()
+  await expect(card(page,'Security audit')).toContainText('2 skills · prompt ✓')
+  await expect(card(page,'Code')).toHaveAttribute('aria-pressed','true')
+  // A model; then a prompt, which replaces the one a stage has and says so first.
+  await tab(page,'Models').click()
+  await drag(page,item(page,'tier:heavy'),await over(page,'Code'))
+  await expect(card(page,'Code')).toContainText('heavy · crew')
+  await tab(page,'Prompts').click()
+  await drag(page,item(page,'prompt:pr1'),await over(page,'Security audit'),{hold:true})
+  await expect(hint(page)).toHaveText('Drop to replace Security audit’s prompt.')
+  await page.mouse.up()
+  await expect(inspector(page).getByRole('textbox',{name:'Prompt'})).toHaveValue('Check every new endpoint for auth.\nList what you find.')
+  // Escape mid-drag: nothing moves, the press does not select, and the page can be selected again.
+  await drag(page,card(page,'Design'),await between(page,'Plan','Security audit'),{hold:true})
+  await expect(bar(page)).toBeVisible()
+  expect(await page.evaluate(()=>document.documentElement.style.userSelect)).toBe('none')
+  await page.keyboard.press('Escape')
+  await expect(bar(page)).toHaveCount(0)
+  await page.mouse.up()
+  await expect.poll(()=>titles(page)).toEqual(['Design','Code','Plan','Security audit','PR'])
+  await expect(card(page,'Security audit')).toHaveAttribute('aria-pressed','true')
+  expect(await page.evaluate(()=>document.documentElement.style.userSelect)).toBe('')
+  // A press that does not move is still a press.
+  await card(page,'Code').click()
+  await expect(card(page,'Code')).toHaveAttribute('aria-pressed','true')
+  await tab(page,'Stages').click()
+  await item(page,'stage:test').click()
+  await expect.poll(()=>titles(page)).toEqual(['Design','Code','Plan','Security audit','PR','Test'])
+  expect(w.errors).toEqual([])
+ }finally{await w.context.close()}
+}
+
+// An order rule is never offered: Merge is offered only after PR, and the Merge card cannot be dragged earlier.
+async function editorDragRules(width,theme){
+ const {w,page}=await open(width,theme)
+ try{
+  await goEditor(page,'p3')
+  await drag(page,item(page,'stage:merge'),await between(page,null,'Write docs'),{hold:true})
+  await expect(hint(page)).toHaveText('Merge is always the last stage.')
+  await expect(bar(page)).toHaveCount(0)
+  let to=await between(page,'Write docs','PR')
+  await page.mouse.move(to.x,to.y,{steps:6})
+  await expect(hint(page)).toHaveText('Merge is always the last stage.')
+  await expect(bar(page)).toHaveCount(0)
+  to=await between(page,'PR',null)
+  await page.mouse.move(to.x,to.y,{steps:6})
+  await expect(bar(page)).toBeVisible()
+  await expect(hint(page)).toHaveText('Drop to add Merge at place 3.')
+  await page.mouse.up()
+  await expect.poll(()=>titles(page)).toEqual(['Write docs','PR','Merge'])
+  await drag(page,card(page,'Merge'),await between(page,null,'Write docs'),{hold:true})
+  await expect(hint(page)).toHaveText('Merge is always the last stage.')
+  await expect(bar(page)).toHaveCount(0)
+  await page.mouse.up()
+  await expect.poll(()=>titles(page)).toEqual(['Write docs','PR','Merge'])
+  expect(w.errors).toEqual([])
+ }finally{await w.context.close()}
+}
+
+// Touch on a phone: hold a card and drag it down one place; a quick swipe scrolls and moves nothing.
+async function editorTouch(width,theme){
+ const {w,page}=await open(width,theme,{list:[...three(),everything()]})
+ try{
+  await goEditor(page,'p5')
+  await shot(page,'editor-phone',width,theme)
+  const cdp=await page.context().newCDPSession(page)
+  const touch=(type,p)=>cdp.send('Input.dispatchTouchEvent',{type,touchPoints:p?[{x:Math.round(p.x),y:Math.round(p.y)}]:[]})
+  const scrolled=()=>page.evaluate(()=>{let e=document.querySelector('[data-pathway-line]');while(e&&!(e.scrollHeight>e.clientHeight&&/auto|scroll/.test(getComputedStyle(e).overflowY)))e=e.parentElement;return (e??document.scrollingElement).scrollTop})
+  const from=await over(page,'Design'),to=await between(page,'Code','Review',true)
+  await touch('touchStart',from)
+  await page.waitForTimeout(400)
+  for(let n=1;n<=10;n++)await touch('touchMove',{x:from.x,y:from.y+(to.y-from.y)*n/10})
+  await expect(bar(page)).toBeVisible()
+  await expect(hint(page)).toHaveText('Drop to move Design to place 3.')
+  await held(page,'drag-phone',width,theme)
+  await touch('touchEnd')
+  await expect.poll(()=>titles(page)).toEqual(['Plan','Code','Design','Review','Test','Threat model','Security audit','Load test','Docs pass','PR','Babysit','Merge'])
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  expect(await page.evaluate(()=>document.documentElement.style.userSelect)).toBe('')
+  const top=await scrolled(),start=await over(page,'Load test')
+  await touch('touchStart',start)
+  for(let n=1;n<=8;n++)await touch('touchMove',{x:start.x,y:start.y-n*30})
+  await touch('touchEnd')
+  await expect.poll(scrolled).toBeGreaterThan(top)
+  await expect.poll(()=>titles(page)).toEqual(['Plan','Code','Design','Review','Test','Threat model','Security audit','Load test','Docs pass','PR','Babysit','Merge'])
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(bar(page)).toHaveCount(0)
+  expect(w.errors).toEqual([])
+ }finally{await w.context.close()}
+}
+
 try{
  for(const [width,theme] of [[1280,'light'],[1280,'dark'],[390,'light'],[390,'dark']]){
   await listRows(width,theme)
@@ -737,5 +893,7 @@ try{
  }
  await editorLong(390,'light')
  for(const theme of ['light','dark'])await editorPhone(390,theme)
- console.log('Pathways: the list, its switch, Duplicate and Delete, the empty, loading and failed states, the limit, and the way in from the Factory, and the editor (building by keyboard and buttons, saving, leaving, someone else\'s save, a missing skill, refusals, twelve stages and the phone sheets) pass at 1280 and 390, light and dark.')
+ for(const theme of ['light','dark']){await editorDrag(1280,theme);await editorTouch(390,theme)}
+ await editorDragRules(1280,'light')
+ console.log('Pathways: the list, its switch, Duplicate and Delete, the empty, loading and failed states, the limit, and the way in from the Factory, and the editor (building by keyboard and buttons, saving, leaving, someone else\'s save, a missing skill, refusals, twelve stages, the phone sheets, and dragging by mouse and touch) pass at 1280 and 390, light and dark.')
 }finally{await browser.close()}

@@ -2,7 +2,7 @@
   import { onMount, tick } from 'svelte'
   import { ApiError, createGafferPathway, getGafferCrew, getGafferPathway, listGafferPathwaySkills, listModelFavourites, saveGafferPathway, type GafferCrew } from '../../api'
   import { readPromptLibrary } from '../../prompts/library'
-  import { allModels, structuredAgent, terminalMachines, type TerminalMachine, type TerminalPrompt } from '../../terminal/api'
+  import { allModels, chatToolName, structuredAgent, terminalMachines, type TerminalMachine, type TerminalPrompt } from '../../terminal/api'
   import { reportedEfforts } from '../../terminal/launchOptions'
   import { effortUnion, mergeMachineModels } from '../../crewChoices'
   import type { MachineModels, ModelFavourite } from '../../models'
@@ -11,17 +11,18 @@
   import Skeleton from '../../Skeleton.svelte'
   import {
     addSkill, blankPathway, canAddSkill, canInsert, canMove, insertStage, moveStage, newStage, patchStage, pathwayProblems, removeSkill,
-    removeStage, sameEdit, stageTitle, standardPathway, type Pathway, type PathwaySkill, type PathwayStage,
+    removeStage, sameEdit, stageTitle, standardPathway, MAX_STAGE_SKILLS, type Pathway, type PathwaySkill, type PathwayStage,
   } from '../pathways'
-  import { defaultTier } from '../../gafferOutcome'
+  import { defaultTier, stageLabel, tierLabel } from '../../gafferOutcome'
+  import { targetAt, type DragHooks, type DragItem, type DragState } from './drag'
   import PathwayPalette, { type ModelChoice, type PaletteTab } from './PathwayPalette.svelte'
   import PathwayLine from './PathwayLine.svelte'
   import StageInspector from './StageInspector.svelte'
 
   // The pathway editor: a top bar (name, description, on or off, Save), the palette, the line of stages and the selected
   // stage's inspector. It owns the saved pathway and the draft; every edit goes through pathways.ts in the functions
-  // below (add, move, remove, patch and the palette's appliers), which a drag layer calls too. Below 700 px wide the
-  // palette and the inspector are bottom sheets.
+  // below (add, move, remove, patch and the palette's appliers), which a drop calls too. Below 700 px wide the palette and
+  // the inspector are bottom sheets, and dragging only moves cards along the line.
   let { id, start, onclose, onsaved, ontitle }: {
     id: string | null; start: 'blank' | 'standard'; onclose: () => void; onsaved: (p: Pathway) => void; ontitle?: (title: string) => void
   } = $props()
@@ -29,8 +30,15 @@
   const life = new AbortController()
   const signal = () => AbortSignal.any([life.signal, AbortSignal.timeout(15_000)])
   const fresh = () => start === 'standard' ? standardPathway() : blankPathway()
-  let saved = $state.raw<Pathway>(fresh())
-  let draft = $state.raw<Pathway>(fresh())
+  const first = fresh()
+  let saved = $state.raw<Pathway>(first)
+  let draft = $state.raw<Pathway>(first)
+  // An id for each stage on the line, in step with draft.stages, so a moved card keeps its element and slides. They live
+  // here rather than on the stages, so they never reach Save or the unsaved-changes test.
+  let serial = 0
+  const newKeys = (n: number) => Array.from({ length: n }, () => ++serial)
+  let keys = $state.raw<number[]>(newKeys(first.stages.length))
+  function replace(p: Pathway) { draft = p; keys = newKeys(p.stages.length) }
   let phase = $state<'loading' | 'ready' | 'failed' | 'gone'>(isNew() ? 'ready' : 'loading')
   function isNew() { return id === null }
   let selected = $state(-1)
@@ -65,7 +73,7 @@
     phase = 'loading'
     try {
       const p = await getGafferPathway(id, signal())
-      saved = p; draft = p; phase = 'ready'
+      saved = p; replace(p); phase = 'ready'
     } catch (e) {
       if (life.signal.aborted) return
       phase = e instanceof ApiError && e.status === 404 ? 'gone' : 'failed'
@@ -130,11 +138,15 @@
     let at = draft.stages.length
     while (at >= 0 && canInsert(draft.stages, made, at)) at--
     if (at < 0) { const why = canInsert(draft.stages, made, draft.stages.length); say(why); return why }
+    place(made, at)
+    return ''
+  }
+  function place(made: PathwayStage, at: number) {
     edit(insertStage(draft, made, at))
+    keys = [...keys.slice(0, at), ++serial, ...keys.slice(at)]
     selected = at
     if (phone) sheet = ''
     say(`${titled(made)} added at place ${at + 1} of ${draft.stages.length}.`)
-    return ''
   }
   function move(from: number, to: number): boolean {
     if (to < 0 || to >= draft.stages.length) return false
@@ -142,6 +154,8 @@
     if (why) { say(why); return false }
     const moving = draft.stages[from]
     edit(moveStage(draft, from, to))
+    const rest = keys.filter((_, i) => i !== from)
+    keys = [...rest.slice(0, to), keys[from], ...rest.slice(to)]
     selected = to
     say(`${titled(moving)} moved to place ${to + 1} of ${draft.stages.length}`)
     return true
@@ -150,6 +164,7 @@
   async function remove(at: number) {
     const gone = draft.stages[at]
     edit(removeStage(draft, at))
+    keys = keys.filter((_, i) => i !== at)
     if (selected === at) { selected = -1; sheet = '' } else if (selected > at) selected--
     say(`${titled(gone)} removed.`)
     await tick()
@@ -198,7 +213,8 @@
       const answer = body.id ? await saveGafferPathway(body, signal()) : await createGafferPathway({ name: body.name, description: body.description, enabled: body.enabled, stages: body.stages }, signal())
       // Edits made while the save was out stay in the draft, on the answer's id and time.
       saved = answer; conflict = false
-      draft = draft === sending ? answer : { ...draft, id: answer.id, createdAt: answer.createdAt, updatedAt: answer.updatedAt }
+      if (draft === sending) replace(answer)
+      else draft = { ...draft, id: answer.id, createdAt: answer.createdAt, updatedAt: answer.updatedAt }
       say('Saved.')
       onsaved(answer)
     } catch (e) {
@@ -221,7 +237,7 @@
   async function loadTheirs() {
     const p = await newer()
     if (!p) return
-    saved = p; draft = p; conflict = false; notice = ''
+    saved = p; replace(p); conflict = false; notice = ''
     selected = Math.min(selected, p.stages.length - 1)
   }
   async function keepMine() {
@@ -231,7 +247,7 @@
     info = 'Your edits are still here. Saving now replaces the version saved elsewhere.'
   }
   function discard() {
-    draft = saved; conflict = false; theirs = null; nameError = ''; descriptionError = ''; saveError = ''; info = ''
+    replace(saved); conflict = false; theirs = null; nameError = ''; descriptionError = ''; saveError = ''; info = ''
     selected = Math.min(selected, saved.stages.length - 1)
   }
   function back(event: MouseEvent) {
@@ -248,6 +264,168 @@
     else onclose()
   }
 
+  // Dragging. The palette's items and the cards report a drag here; the editor works out where it would land, draws the
+  // ghost, the insertion bar and a sentence saying what a drop does (or why not), and a drop calls the same edits as the buttons.
+  let dragging = $state.raw<DragState>(null)
+  let ghost = $state.raw<{ node: HTMLElement; dx: number; dy: number; width: number } | null>(null)
+  let bar = $state.raw<{ left: number; top: number; width: number; height: number } | null>(null)
+  let hintAt = $state.raw({ x: 0, y: 0 })
+  let canvas = $state<HTMLElement>()
+  let raf = 0
+  const lineOf = () => canvas?.querySelector<HTMLElement>('[data-pathway-line]') ?? null
+  const slotTo = (from: number, at: number) => at > from ? at - 1 : at
+  const skillName = (skillId: string) => shelf?.find(s => s.id === skillId)?.name ?? skillId
+  const stageName = (kind: string) => kind === 'custom' ? 'your own stage' : stageLabel(kind)
+  const modelName = (choice: ModelChoice) => choice === 'other' ? 'another model' : 'tier' in choice ? `the ${tierLabel(choice.tier)} crew tier` : choice.agent.model || chatToolName(choice.agent.tool)
+  function refusal(item: DragItem, at: number): string {
+    if (item.type !== 'skill') return ''
+    const skill = shelf?.find(s => s.id === item.id)
+    return skill ? canAddSkill(draft.stages[at], skill, shelf ?? []) : ''
+  }
+
+  const hooks: DragHooks = {
+    onstart(s, node) {
+      const box = node.getBoundingClientRect()
+      const copy = node.cloneNode(true) as HTMLElement
+      for (const name of ['id', 'data-stage-index', 'data-palette-item', 'data-drop', 'data-dragging', 'aria-pressed']) copy.removeAttribute(name)
+      // A card is held where it was pressed; anything from the palette floats just above and to the right of the pointer,
+      // so the card or gap under the pointer stays in view.
+      const held = s.item.type === 'card'
+      ghost = { node: copy, dx: held ? s.x - box.left : -14, dy: held ? s.y - box.top : box.height + 10, width: box.width }
+      document.documentElement.style.userSelect = 'none'
+      document.documentElement.style.setProperty('-webkit-user-select', 'none')
+      document.documentElement.dataset.pathwayDrag = ''
+      aim(s.item, s.x, s.y)
+      raf = requestAnimationFrame(edges)
+    },
+    onmove(x, y) { if (dragging) aim(dragging.item, x, y) },
+    onend(drop) {
+      const was = dragging
+      cancelAnimationFrame(raf)
+      dragging = null; ghost = null; bar = null
+      document.documentElement.style.removeProperty('user-select')
+      document.documentElement.style.removeProperty('-webkit-user-select')
+      delete document.documentElement.dataset.pathwayDrag
+      if (drop && was) land(was)
+    },
+  }
+
+  // Where the pointer would drop: a slot the order rules allow, or a card (which may refuse, with why).
+  function aim(item: DragItem, x: number, y: number) {
+    const line = lineOf()
+    if (!canvas || !line) return
+    const cards = [...line.querySelectorAll<HTMLElement>('[data-stage-index]')].map(el => el.getBoundingClientRect())
+    let target = targetAt(item, x, y, cards, canvas.getBoundingClientRect(), phone), why = ''
+    if (target?.type === 'slot') {
+      why = item.type === 'stage' ? canInsert(draft.stages, newStage(item.kind, draft.stages), target.at) : item.type === 'card' ? canMove(draft.stages, item.from, slotTo(item.from, target.at)) : ''
+      if (why) target = null
+    } else if (target) why = refusal(item, target.at)
+    dragging = { item, x, y, target, why }
+    bar = target?.type === 'slot' ? barAt(target.at, cards) : null
+    const box = line.getBoundingClientRect()
+    hintAt = { x: box.left + box.width / 2, y: cards.length ? Math.max(...cards.map(c => c.bottom)) + 18 : box.top + box.height / 2 }
+  }
+  // The insertion bar, in the gap the slot is: between two cards, or just outside the first or last.
+  function barAt(at: number, cards: DOMRect[]) {
+    const a = cards[at - 1], b = cards[at], ref = b ?? a
+    if (!ref) return null
+    if (phone) {
+      const y = a && b ? (a.bottom + b.top) / 2 : b ? b.top - 7 : a.bottom + 7
+      return { left: ref.left, top: y - 1.5, width: ref.width, height: 3 }
+    }
+    const x = a && b ? (a.right + b.left) / 2 : b ? b.left - 20 : a.right + 20
+    return { left: x - 1.5, top: ref.top - 8, width: 3, height: ref.height + 16 }
+  }
+  // Held near an edge of the line (or, on a phone, of the screen), the line scrolls that way.
+  const EDGE = 56
+  function edges() {
+    const d = dragging, line = lineOf()
+    if (!d || !line) return
+    const speed = (gap: number, edge: number) => Math.ceil(((edge - Math.max(gap, 0)) / edge) * 14)
+    let scroller: Element = line, by = 0
+    if (phone) {
+      scroller = scrollerOf(line)
+      if (d.y < 80) by = -speed(d.y, 80)
+      else if (d.y > innerHeight - 80) by = speed(innerHeight - d.y, 80)
+    } else {
+      const r = line.getBoundingClientRect()
+      if (d.y >= r.top && d.y <= r.bottom && d.x >= r.left && d.x <= r.right) {
+        if (d.x < r.left + EDGE) by = -speed(d.x - r.left, EDGE)
+        else if (d.x > r.right - EDGE) by = speed(r.right - d.x, EDGE)
+      }
+    }
+    if (by) {
+      const was = phone ? scroller.scrollTop : scroller.scrollLeft
+      if (phone) scroller.scrollTop += by
+      else scroller.scrollLeft += by
+      if ((phone ? scroller.scrollTop : scroller.scrollLeft) !== was) aim(d.item, d.x, d.y)
+    }
+    raf = requestAnimationFrame(edges)
+  }
+  function scrollerOf(node: Element): Element {
+    for (let e = node.parentElement; e; e = e.parentElement) {
+      const overflow = getComputedStyle(e).overflowY
+      if ((overflow === 'auto' || overflow === 'scroll') && e.scrollHeight > e.clientHeight) return e
+    }
+    return document.scrollingElement ?? document.documentElement
+  }
+
+  // A drop: the same edits the buttons make, and the stage is selected.
+  function land({ item, target, why }: NonNullable<DragState>) {
+    if (!target || why) return
+    if (item.type === 'stage') place(newStage(item.kind, draft.stages), target.at)
+    else if (item.type === 'card') { const to = slotTo(item.from, target.at); if (to !== item.from) move(item.from, to) }
+    else {
+      selected = target.at
+      if (item.type === 'model') void applyModel(item.choice)
+      else if (item.type === 'skill') applySkill(item.id)
+      else patch({ prompt: item.text })
+    }
+  }
+
+  // While a model, skill or prompt is dragged: the card under the pointer is ringed with what would change, and every card
+  // that cannot take a skill is dimmed with why, in a word.
+  const aims = $derived.by(() => {
+    const d = dragging
+    if (!d || d.item.type === 'stage' || d.item.type === 'card') return []
+    const item = d.item, on = d.target?.type === 'card' ? d.target.at : -1
+    return draft.stages.map((s, at) => {
+      if (refusal(item, at) && item.type === 'skill') {
+        const have = s.skills ?? []
+        return { take: false, note: have.includes(item.id) ? `has ${skillName(item.id)}` : have.length >= MAX_STAGE_SKILLS ? `${have.length} skills · full` : 'too much guidance' }
+      }
+      if (at !== on) return null
+      const note = item.type === 'skill' ? `+ ${skillName(item.id)}` : item.type === 'model' ? `→ ${modelName(item.choice)}` : s.prompt?.trim() ? 'new prompt' : '+ prompt'
+      return { take: true, note }
+    })
+  })
+  const hint = $derived.by(() => {
+    const d = dragging
+    if (!d) return ''
+    const { item, target, why } = d
+    if (item.type === 'stage') return target ? `Drop to add ${stageName(item.kind)} at place ${target.at + 1}.` : why || `Drop on the line to add ${stageName(item.kind)}.`
+    if (item.type === 'card') {
+      const name = titled(draft.stages[item.from]), to = target ? slotTo(item.from, target.at) : -1
+      return !target ? why || `Drop on the line to move ${name}.` : to === item.from ? `Drop here to leave ${name} where it is.` : `Drop to move ${name} to place ${to + 1}.`
+    }
+    const on = target?.type === 'card' ? target.at : -1, name = on >= 0 ? titled(draft.stages[on]) : ''
+    const what = item.type === 'skill' ? skillName(item.id) : item.type === 'model' ? modelName(item.choice) : 'this prompt'
+    if (on >= 0 && why) return `${name} cannot take ${what}. ${why}`
+    let first: string
+    if (item.type === 'skill') first = on >= 0 ? `Drop to give ${name} the skill ${what}.` : `Drop on a stage to give it the skill ${what}.`
+    else if (item.type === 'model') first = item.choice === 'other' ? `Drop on a stage to choose another model for it.` : on >= 0 ? `Drop to put ${name} on ${what}.` : `Drop on a stage to put it on ${what}.`
+    else {
+      const s = on >= 0 ? draft.stages[on] : null
+      first = !s ? 'Drop on a stage to give it this prompt.' : s.prompt?.trim() ? `Drop to replace ${name}’s ${s.kind === 'custom' ? 'prompt' : 'extra instructions'}.` : `Drop to give ${name} this prompt.`
+    }
+    if (item.type !== 'skill') return first
+    const others = draft.stages.flatMap((s, at) => at === on || !refusal(item, at) ? [] : [
+      (s.skills ?? []).includes(item.id) ? `${titled(s)} already has it.` : (s.skills?.length ?? 0) >= MAX_STAGE_SKILLS ? `${titled(s)} already has ${MAX_STAGE_SKILLS}.` : `${titled(s)} has too much guidance for it.`])
+    return [first, ...others].join(' ')
+  })
+  // The ghost is a copy of what was picked up, put in the drag layer.
+  function hold(node: HTMLElement, copy: HTMLElement) { node.replaceChildren(copy) }
+
   // A bottom sheet is a modal <dialog>: Escape and a press outside close it.
   function modal(node: HTMLDialogElement) {
     node.showModal()
@@ -261,7 +439,7 @@
 
 {#snippet palette()}
   <PathwayPalette bind:tab stages={draft.stages} {stage} {shelf} {shelfFailed} onretryshelf={loadShelf} {prompts} {promptsFailed} {favourites} {crew}
-    onadd={add} onmodel={choice => void applyModel(choice)} onskill={applySkill} onprompt={applyPrompt} {canskill} />
+    drag={phone ? null : hooks} onadd={add} onmodel={choice => void applyModel(choice)} onskill={applySkill} onprompt={applyPrompt} {canskill} />
 {/snippet}
 
 {#snippet onoff()}
@@ -339,8 +517,8 @@
     <div class="body">
       {#if !phone}<aside class="side">{@render palette()}</aside>{/if}
       <div class="main">
-        <div class="canvas">
-          <PathwayLine stages={draft.stages} {selected} problems={problems.stages} vertical={phone} onselect={select} onmove={move} onremove={at => void remove(at)} onaddend={() => void focusPalette('stages')} />
+        <div class="canvas" bind:this={canvas}>
+          <PathwayLine stages={draft.stages} {keys} {selected} drag={hooks} {aims} problems={problems.stages} vertical={phone} onselect={select} onmove={move} onremove={at => void remove(at)} onaddend={() => void focusPalette('stages')} />
         </div>
         {#if !phone}
           {#if stage}
@@ -373,6 +551,16 @@
     <p class="vh" aria-live="polite">{said}</p>
     <div class="sheet-palette">{@render palette()}</div>
   </dialog>
+{/if}
+{#if dragging}
+  <div class="drag-layer" aria-hidden="true" inert>
+    {#if ghost}
+      <div class="ghost" style:width="{ghost.width}px" style:transform="translate({dragging.x - ghost.dx}px, {dragging.y - ghost.dy}px)"><div class="tilt" use:hold={ghost.node}></div></div>
+    {/if}
+    <!-- Over the ghost, so the gap it will land in is never hidden. -->
+    {#if bar}<div class="drop-bar" data-drag-bar style:left="{bar.left}px" style:top="{bar.top}px" style:width="{bar.width}px" style:height="{bar.height}px"></div>{/if}
+    {#if hint}<p class="drag-hint" class:phone data-drag-hint style:left={phone ? undefined : `${hintAt.x}px`} style:top={phone ? undefined : `${hintAt.y}px`}>{hint}</p>{/if}
+  </div>
 {/if}
 {#if asking}
   <ConfirmDialog title="Leave without saving?" body="Your changes to this pathway are not saved. If you leave now, they are lost."
@@ -483,7 +671,23 @@
   .sheet-head .btn { min-height: 44px; }
   .sheet-palette { padding: 8px 16px 20px; }
 
+  /* The drag layer: over everything, never in the way of the pointer. */
+  .drag-layer { position: fixed; inset: 0; z-index: 1000; pointer-events: none; }
+  .drop-bar { position: fixed; border-radius: 2px; background: var(--accent); box-shadow: 0 0 0 3px var(--accent-wash); }
+  .ghost { position: fixed; left: 0; top: 0; }
+  .tilt > :global(*) {
+    width: 100% !important; margin: 0 !important; opacity: 1 !important; border-color: var(--accent) !important; border-style: solid !important;
+    background: var(--card) !important; box-shadow: 0 18px 36px -14px var(--scrim), var(--shadow) !important;
+  }
+  .drag-hint {
+    position: fixed; translate: -50% 0; max-width: min(560px, calc(100vw - 32px)); box-sizing: border-box; margin: 0; padding: 8px 12px; border-radius: 8px;
+    background: var(--ink); color: var(--bg); font-size: 14px; line-height: 1.45; text-align: center; box-shadow: 0 12px 30px -12px var(--scrim);
+  }
+  .drag-hint.phone { left: 16px; right: 16px; bottom: calc(16px + var(--bottom-chrome, 0px)); translate: none; max-width: none; }
+  :global(html[data-pathway-drag]), :global(html[data-pathway-drag] *) { cursor: grabbing !important; }
+
   @media (prefers-reduced-motion: no-preference) {
+    .tilt { rotate: 2deg; }
     .knob { transition: transform 0.16s var(--ease-out), background-color 0.16s; }
     .sheet[open] { animation: up 220ms var(--ease-out) both; }
     @keyframes up { from { transform: translateY(24px); opacity: 0; } to { transform: none; opacity: 1; } }

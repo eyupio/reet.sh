@@ -1,14 +1,20 @@
 <script lang="ts">
   import { tick } from 'svelte'
+  import { flip } from 'svelte/animate'
   import type { PathwayStage, StageProblem } from '../pathways'
   import StageCard from './StageCard.svelte'
+  import type { DragHooks } from './drag'
 
   // The pathway's stages in order, joined by arrows, with a + at the end. Sideways from 700 px wide, top to bottom below.
   // `onmove` answers whether the stage moved, so focus can follow a card moved from the keyboard; the editor places focus after a removal.
-  let { stages, selected, problems, vertical, onselect, onmove, onremove, onaddend }: {
-    stages: PathwayStage[]; selected: number; problems: StageProblem[]; vertical: boolean
+  // `keys` are the editor's ids for the stages, in step with them, so a moved card slides to its new place; `aims` say, while a
+  // model, skill or prompt is dragged, which cards would take it.
+  let { stages, keys, selected, problems, vertical, drag, aims, onselect, onmove, onremove, onaddend }: {
+    stages: PathwayStage[]; keys: number[]; selected: number; problems: StageProblem[]; vertical: boolean
+    drag: DragHooks; aims: ({ take: boolean; note: string } | null)[]
     onselect: (at: number) => void; onmove: (from: number, to: number) => boolean; onremove: (at: number) => void; onaddend: () => void
   } = $props()
+  const still = matchMedia('(prefers-reduced-motion: reduce)').matches
 
   let list = $state<HTMLElement>()
   const cardAt = (at: number) => list?.querySelector<HTMLElement>(`[data-stage-index="${at}"]`)
@@ -26,10 +32,10 @@
   <div class="run">
     {#if stages.length}
       <ol aria-label="Stages">
-        {#each stages as stage, at (at)}
-          <li>
+        {#each stages as stage, at (keys[at])}
+          <li animate:flip={{ duration: still ? 0 : 220 }}>
             {#if at > 0}<span class="join" aria-hidden="true"></span>{/if}
-            <StageCard {stage} {at} {vertical} selected={selected === at} problem={problems.find(p => p.at === at)?.text ?? ''}
+            <StageCard {stage} {at} {vertical} {drag} aim={aims[at] ?? null} selected={selected === at} problem={problems.find(p => p.at === at)?.text ?? ''}
               onselect={() => onselect(at)} onmove={to => void keyMove(at, to)} onremove={() => onremove(at)} />
           </li>
         {/each}

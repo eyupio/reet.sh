@@ -1,10 +1,13 @@
 <script lang="ts">
   import { stageTitle, stageWho, type PathwayStage } from '../pathways'
+  import { draggable, type DragHooks } from './drag'
 
   // One stage on the line: its name, where it comes from, who does it, its skills and prompt, and its first problem.
-  // With focus on it, Alt and an arrow along the line moves it and Delete or Backspace removes it.
-  let { stage, at, selected, problem, vertical, onselect, onmove, onremove }: {
+  // With focus on it, Alt and an arrow along the line moves it and Delete or Backspace removes it. It can be dragged along
+  // the line; while a model, skill or prompt is dragged, `aim` says whether it would take the drop and what would change.
+  let { stage, at, selected, problem, vertical, drag, aim, onselect, onmove, onremove }: {
     stage: PathwayStage; at: number; selected: boolean; problem: string; vertical: boolean
+    drag: DragHooks | null; aim: { take: boolean; note: string } | null
     onselect: () => void; onmove: (to: number) => void; onremove: () => void
   } = $props()
 
@@ -29,12 +32,13 @@
   }
 </script>
 
-<button type="button" class="card" class:vertical class:bad={!!problem} data-stage-index={at} aria-pressed={selected} onclick={onselect} onkeydown={keys}>
+<button type="button" class="card" class:vertical class:bad={!!problem} data-stage-index={at} data-drop={aim ? aim.take ? 'take' : 'refuse' : undefined} aria-pressed={selected}
+  onclick={onselect} onkeydown={keys} use:draggable={drag && { item: () => ({ type: 'card', from: at }), ...drag }}>
   <span class="grip" aria-hidden="true">⠿</span>
   <span class="title" class:unnamed={!title}>{title || 'Unnamed stage'}</span>
   <span class="origin">{own ? 'Your own' : stage.kind === 'merge' ? 'Built in · waits for you' : 'Built in'}</span>
   <span class="who">{stageWho(stage)}</span>
-  <span class="summary">{summary}</span>
+  <span class="summary">{#if aim && !aim.take}{aim.note}{:else}{aim ? `${summary} · ` : summary}{#if aim}<span class="preview">{aim.note}</span>{/if}{/if}</span>
   {#if problem}<span class="problem" title={problem}><span class="mark" aria-hidden="true">!</span>{problem}</span>{/if}
 </button>
 
@@ -50,7 +54,12 @@
   .card:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
   .card[aria-pressed='true'] { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-wash), var(--shadow); }
   .card.bad:not([aria-pressed='true']) { border-color: var(--warn); }
-  .grip { grid-area: grip; color: var(--faint); font-size: 14px; line-height: 22px; }
+  .grip { grid-area: grip; color: var(--faint); font-size: 14px; line-height: 22px; cursor: grab; }
+  /* Picked up: a dashed outline where it was. Under a dragged model, skill or prompt: a ring when it takes the drop, dimmed when it cannot. */
+  .card:global([data-dragging]) { opacity: 0.45; border-style: dashed; box-shadow: none; }
+  .card.card[data-drop='take'] { border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-wash), var(--shadow); }
+  .card[data-drop='refuse'] { opacity: 0.5; }
+  .preview { color: var(--accent-text); font-weight: 600; }
   .title { grid-area: title; font-weight: 600; font-size: 15px; line-height: 22px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .title.unnamed { color: var(--muted); font-weight: 400; font-style: italic; }
   .origin { grid-area: origin; color: var(--muted); font-size: 14px; line-height: 20px; }
@@ -72,6 +81,6 @@
   .card.vertical .who { margin: 0; justify-self: start; }
   .card.vertical .summary { text-align: right; white-space: nowrap; }
   @media (prefers-reduced-motion: no-preference) {
-    .card { transition: border-color 0.15s, box-shadow 0.15s, background-color 0.15s; }
+    .card { transition: border-color 0.15s, box-shadow 0.15s, background-color 0.15s, opacity 0.15s; }
   }
 </style>

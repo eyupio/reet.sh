@@ -104,6 +104,11 @@
     const current = crewOf(title), member = current[role]
     crews[title] = { ...current, [role]: { ...member, ...next, source: next.tool && next.tool !== member.tool ? (next.tool === record.tool ? record.provider : undefined) : member.source } }
   }
+  // A tier that is no longer where the dialog started it (the saved crew's, else the pipeline's own agent) can be put back.
+  const savedHere = (tier: keyof Crew) => { const member = savedCrew?.[tier]; return !!member?.tool && tools.includes(member.tool) }
+  // An effort this machine does not report is dropped for the person (below), so it does not count as a change of theirs.
+  const kept = (who: { tool: string; effort?: string }) => who.effort && known && !efforts(who.tool).includes(who.effort) ? '' : who.effort ?? ''
+  const moved = (title: string, tier: keyof Crew) => { const now = crewOf(title)[tier], start = savedRole(title, tier); return now.tool !== start.tool || now.model.trim() !== start.model.trim() || kept(now) !== kept(start) }
   const split = (title: string) => CREW_TIERS.some(item => { const who = crewOf(title)[item.tier], top = choice(title); return who.tool !== top.tool || who.model.trim() !== top.model.trim() || (who.effort ?? '') !== top.effort })
 
   // Once this machine's agents are known, a level one of them does not report goes back to the agent's default, so what
@@ -157,7 +162,7 @@
         <details class="crew"><summary>{split(item.title) ? 'A crew does the stages' : 'One agent does every stage'} <span>Choose who does what</span></summary>
           <div class="crew-rows">
             {#each CREW_TIERS as part (part.tier)}{@const role = crewOf(item.title)[part.tier]}<div class="crew-row" role="group" aria-label={`${part.label} crew for ${item.title}`}>
-              <div class="crew-role"><strong>{part.label}</strong><span>{part.does}</span></div>
+              <div class="crew-role"><strong>{part.label}</strong><span>{part.does}</span>{#if moved(item.title, part.tier)}<button class="crew-reset" type="button" disabled={busy} aria-label={`Put the ${part.label} crew for ${item.title} back to ${savedHere(part.tier) ? 'your saved crew' : 'the pipeline’s agent'}`} onclick={() => crews[item.title] = { ...crewOf(item.title), [part.tier]: savedRole(item.title, part.tier) }}>{savedHere(part.tier) ? 'Back to your saved crew' : 'Back to the pipeline’s agent'}</button>{/if}</div>
               <select aria-label={`${part.label} agent for ${item.title}`} value={role.tool} disabled={busy} onchange={event => setRole(item.title, part.tier, { tool: event.currentTarget.value, model: '', effort: '' })}>{#each tools as id (id)}<option value={id}>{chatToolName(id)}</option>{/each}</select>
               <GafferModelSelect label={`${part.label} model for ${item.title}`} tool={role.tool} value={role.model} machine={offered[role.tool] ?? null} {favourites} host={machine?.host ?? ''} disabled={busy} onchange={next => setRole(item.title, part.tier, { model: next })}/>
               <select aria-label={`${part.label} effort for ${item.title}`} value={role.effort ?? ''} disabled={busy || efforts(role.tool).length < 2} onchange={event => setRole(item.title, part.tier, { effort: event.currentTarget.value })}>{#each shown(role.tool, role.effort) as level (level)}<option value={level}>{effortLabel(role.tool, level)}</option>{/each}</select>
@@ -208,7 +213,7 @@
   select{font:inherit;font-weight:400;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px 12px;min-width:0;width:100%;min-height:44px;box-sizing:border-box}
   .crew summary{min-height:44px;display:list-item;align-content:center;cursor:pointer}.crew summary span{color:var(--accent-text);margin-left:8px}
   .crew-spare{grid-column:1/-1;display:grid;grid-template-columns:subgrid;gap:6px 10px;align-items:start}.spare-name{grid-column:1/-1;font-size:0.875rem;font-weight:600;color:var(--muted)}.crew-spare select{min-width:0;width:100%}.crew-spare>select:last-child{grid-column:1/-1}
-  .splits{display:grid;gap:8px;margin:8px 0 0}.split-offer{display:flex;flex-wrap:wrap;gap:4px 14px;align-items:center;font-size:0.875rem;color:var(--muted)}.split-offer button{min-height:44px;border:0;background:none;padding:0 2px;font:inherit;font-weight:600;color:var(--accent-text);cursor:pointer}.split-offer button:hover{text-decoration:underline}
+  .splits{display:grid;gap:8px;margin:8px 0 0}.split-offer{display:flex;flex-wrap:wrap;gap:4px 14px;align-items:center;font-size:0.875rem;color:var(--muted)}.split-offer button,.crew-reset{min-height:44px;border:0;background:none;padding:0 2px;font:inherit;font-weight:600;color:var(--accent-text);cursor:pointer}.split-offer button:hover,.crew-reset:hover{text-decoration:underline}.crew-reset{margin-left:auto;font-size:0.875rem}
   .crew-rows{display:grid;gap:10px;padding:6px 0 8px}.crew-row{display:grid;grid-template-columns:1fr 1.3fr .9fr;gap:6px 10px;align-items:start}.crew-role{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 8px;min-width:0}.crew-role span{font-size:0.875rem;color:var(--muted)}
   summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
   .actions{display:flex;flex-wrap:wrap;gap:8px}.btn{min-height:44px}

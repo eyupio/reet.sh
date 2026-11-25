@@ -107,3 +107,20 @@ func TestSoftwareApplyCapabilityNeedsNegotiationAndTerminalAccess(t *testing.T) 
 		t.Fatal("apply capability without terminal control")
 	}
 }
+
+// A machine that negotiated software-apply-v1 lists it among the features its dispatcher serves; without it the dispatcher
+// refuses every apply as invalid.
+func TestSoftwareApplyIsListedForTheDispatcher(t *testing.T) {
+	cfg := AgentConfig{TerminalSession: testTerminalFactory, TerminalEnabled: true, TerminalReadiness: terminalproto.Ready}
+	if terminalproto.SupportsSoftwareApply(terminalFeatures(cfg)) {
+		t.Fatal("listed before it was negotiated")
+	}
+	negotiateFeatures(&cfg, terminalproto.SoftwareApplyFeature)
+	features := terminalFeatures(cfg)
+	if !terminalproto.SupportsSoftwareApply(features) {
+		t.Fatalf("negotiated but not listed: %q", features)
+	}
+	if err := capabilitiesFor(cfg, true, terminalproto.Ready).ValidateFor(features); err != nil {
+		t.Fatal(err)
+	}
+}

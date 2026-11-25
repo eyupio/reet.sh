@@ -73,6 +73,9 @@ type OutcomeSession struct {
 	// CriteriaIDs are a template's ids for Criteria, so a criterion keeps its
 	// identity from the template through the run and back into a new version.
 	CriteriaIDs []string `json:"-"`
+	// Pathway, set only by a pathway launch, is the pathway the stages came
+	// from: the pipeline keeps their order and may have custom stages.
+	Pathway *store.GafferPathwayRef `json:"-"`
 }
 
 type OutcomePlan struct {

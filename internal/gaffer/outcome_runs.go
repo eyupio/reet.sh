@@ -196,6 +196,10 @@ type OutcomeStageInput struct {
 	// Skills are the skill guidance a template launch loaded for the stage at
 	// the revision the template names. No request body can set them.
 	Skills []skillbuddy.Skill `json:"-"`
+	// Name and Prompt are a custom stage's name and work, or a built-in
+	// stage's extra instructions. Only a pathway sets them.
+	Name   string `json:"-"`
+	Prompt string `json:"-"`
 }
 
 // MaxStageParts is how many parts one stage can be split into, and
@@ -279,8 +283,12 @@ func stageIndex(kind string) int {
 
 // StageGoal is the saved goal for one stage of a pipeline. Every stage but
 // merge ends "Do not merge."
-func StageGoal(objective, title, kind string) string {
-	text := "Outcome: " + clipBytes(objective, outcomeLineBytes) + "\nThis session’s part: " + clipBytes(title, 240) + "\nStage: " + kind + "\n" + stageWork[kind] + " Stay inside this stage and this part of the outcome. Bring scope changes and decisions back to me."
+func StageGoal(objective, title string, stage store.GafferOutcomeStage) string {
+	kind, work := stage.Kind, stageWork[stage.Kind]
+	if kind == CustomStage {
+		work = clipBytes(stage.Prompt, 1200)
+	}
+	text := "Outcome: " + clipBytes(objective, outcomeLineBytes) + "\nThis session’s part: " + clipBytes(title, 240) + "\nStage: " + stage.Label() + "\n" + work + " Stay inside this stage and this part of the outcome. Bring scope changes and decisions back to me."
 	if kind != "merge" {
 		// Merging is the merge stage's work, decided by the pipeline's own
 		// merge setting when it gets there. Said this way so a review does not
@@ -301,6 +309,7 @@ var stageDeliverable = map[string]string{
 	"pr":      "the pull request raised, with its link",
 	"babysit": "a pull request with passing checks, no open review thread and no conflict",
 	"merge":   "the pull request merged",
+	"custom":  "what this stage’s instructions ask for",
 }
 
 // stagePrompt is what the working agent is told at the start of a stage. The
@@ -310,9 +319,14 @@ func stagePrompt(o store.GafferOutcome, item store.GafferOutcomeSession, n int) 
 	stage := item.Stages[n]
 	var later []string
 	for _, next := range item.Stages[n+1:] {
-		later = append(later, next.Kind)
+		later = append(later, next.Label())
 	}
 	text := "You are doing ONE stage of a staged piece of work: the " + stage.Kind + " stage. " + stageWork[stage.Kind]
+	if stage.Kind == CustomStage {
+		text = "You are doing ONE stage of a staged piece of work: the “" + stage.Label() + "” stage. " + stage.Prompt
+	} else if stage.Prompt != "" {
+		text += "\n\nExtra instructions for this stage:\n" + stage.Prompt
+	}
 	if stage.Part != "" {
 		// A split stage: this session does one named part of it and no other.
 		var others []string
@@ -330,7 +344,7 @@ func stagePrompt(o store.GafferOutcome, item store.GafferOutcomeSession, n int) 
 		text += "\n\nThe work is already under way in this folder and branch."
 		for i := n - 1; i >= 0; i-- {
 			if item.Stages[i].Summary != "" {
-				from := "the " + item.Stages[i].Kind + " stage"
+				from := "the " + item.Stages[i].Label() + " stage"
 				if item.Stages[i].Part != "" {
 					from = "the “" + item.Stages[i].Part + "” part of " + from
 				}
@@ -363,9 +377,9 @@ func stagePrompt(o store.GafferOutcome, item store.GafferOutcomeSession, n int) 
 	if len(later) > 0 {
 		// Named once each: the later parts of this stage are the same kind.
 		var names []string
-		for _, kind := range later {
-			if kind != stage.Kind && (len(names) == 0 || names[len(names)-1] != kind) {
-				names = append(names, kind)
+		for _, label := range later {
+			if label != stage.Label() && (len(names) == 0 || names[len(names)-1] != label) {
+				names = append(names, label)
 			}
 		}
 		if len(names) > 0 {
@@ -605,12 +619,26 @@ func outcomePieces(items []OutcomeSession, tool, model, provider string, crew st
 		if len(item.Stages) > MaxPipelineStages {
 			return nil, invalid("sessions", "“"+title+"” has too many stages and parts. Keep it to "+strconv.Itoa(MaxPipelineStages)+".")
 		}
+		if item.Pathway != nil {
+			// A pathway's line keeps its own order and may hold custom stages; its stages are never split.
+			kinds := make([]string, len(item.Stages))
+			for n, stage := range item.Stages {
+				kinds[n] = stage.Kind
+				if stage.Kind == CustomStage && strings.TrimSpace(stage.Prompt) == "" || stage.Kind != CustomStage && stageIndex(stage.Kind) < 0 || stage.Part != "" || stage.Brief != "" {
+					return nil, invalid("sessions", "The stages of “"+title+"” are built-in stages or named custom stages with a prompt, and are not split into parts.")
+				}
+			}
+			if why := validPathwayOrder(kinds); why != "" {
+				return nil, invalid("sessions", "“"+title+"”: "+why)
+			}
+			piece.PathwayID, piece.PathwayName = item.Pathway.ID, item.Pathway.Name
+		}
 		for n, stage := range item.Stages {
 			at := stageIndex(stage.Kind)
 			// A kind appears once, or as parts of one split stage sitting together.
 			part, brief := strings.TrimSpace(stage.Part), strings.TrimSpace(stage.Brief)
 			again := at == last && at >= 0
-			if at < 0 || at < last || again && (part == "" || strings.TrimSpace(item.Stages[n-1].Part) == "") {
+			if item.Pathway == nil && (at < 0 || at < last || again && (part == "" || strings.TrimSpace(item.Stages[n-1].Part) == "")) {
 				return nil, invalid("sessions", "Keep the stages of “"+title+"” in pipeline order, each at most once unless it is split into named parts.")
 			}
 			if !again {
@@ -671,7 +699,7 @@ func outcomePieces(items []OutcomeSession, tool, model, provider string, crew st
 			if err != nil {
 				return nil, err
 			}
-			piece.Stages = append(piece.Stages, store.GafferOutcomeStage{Kind: stage.Kind, Tool: stageTool, Model: stageModel, Effort: stageEffort, Provider: stageProvider, Backup: backup, More: more, Tier: tier, TierWhy: why, Part: part, Brief: brief, SkillGuidance: stage.Skills, RequestID: id})
+			piece.Stages = append(piece.Stages, store.GafferOutcomeStage{Kind: stage.Kind, Name: stage.Name, Prompt: stage.Prompt, Tool: stageTool, Model: stageModel, Effort: stageEffort, Provider: stageProvider, Backup: backup, More: more, Tier: tier, TierWhy: why, Part: part, Brief: brief, SkillGuidance: stage.Skills, RequestID: id})
 		}
 		if len(piece.Stages) > 0 {
 			piece.Stages[0].RequestID = request
@@ -1406,11 +1434,12 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 		launch.RequestID, launch.Tool, launch.Model, launch.Provider, launch.Prompt = stage.RequestID, stage.Tool, stage.Model, stage.Provider, stagePrompt(o, item, item.Stage)
 		launch.Effort = stage.Effort
 		launch.Trust = o.Trust && (stage.Tool == "opencode" || stage.Tool == "antigravity")
-		launch.Title = clipBytes(item.Title, 60) + " · " + stage.Kind
-		goal = StageGoal(o.Objective, item.Title, stage.Kind)
+		// A custom stage's name can be long: the pipeline's title gives way so the whole stays a valid title.
+		launch.Title = clipBytes(item.Title, min(60, terminalproto.MaxTitleRunes-3-utf8.RuneCountInString(stage.Label()))) + " · " + stage.Label()
+		goal = StageGoal(o.Objective, item.Title, stage)
 		if stage.Part != "" {
 			// One part of a split stage: Gaffer follows it against the part's own brief.
-			launch.Title = partTitle(item.Title, stage.Kind, stage.Part)
+			launch.Title = partTitle(item.Title, stage.Label(), stage.Part)
 			// The brief is clipped hard here so a long title, objective and part name cannot take the goal past the 2,000 bytes a goal may hold.
 			goal += "\nThis session does one part of the stage only, “" + clipBytes(stage.Part, 80) + "”: " + clipBytes(stage.Brief, 400) + " Hand over when this part is done; the stage's other parts are done in sessions of their own."
 		}

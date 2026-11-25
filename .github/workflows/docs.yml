@@ -9,6 +9,7 @@ on:
     paths:
       - "docs/**"
       - "hooks/**"
+      - "internal/api/builtin_skills/**"
       - "overrides/**"
       - "mkdocs.yml"
       - "scripts/check-docs*"
@@ -18,6 +19,7 @@ on:
     paths:
       - "docs/**"
       - "hooks/**"
+      - "internal/api/builtin_skills/**"
       - "overrides/**"
       - "mkdocs.yml"
       - "scripts/check-docs*"
@@ -110,6 +112,9 @@ jobs:
       - uses: actions/upload-pages-artifact@v5
         with:
           path: site
+          # The skills CLI reads /eyupio/<slug>/.well-known/agent-skills/, and
+          # a directory starting with a dot is left out unless asked for.
+          include-hidden-files: true
 
   deploy:
     if: github.event_name != 'pull_request'

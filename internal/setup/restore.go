@@ -64,10 +64,13 @@ type RestorePlan struct {
 type restoreFile struct {
 	agentID, format, container string
 	settings, mcp              map[string]any
-	text                       string
-	data                       []byte
-	mode                       os.FileMode
-	baseDigest                 string
+	// base is the destination's own settings for a field-level merge: the
+	// written file keeps every field of base and overwrites only settings.
+	base       map[string]any
+	text       string
+	data       []byte
+	mode       os.FileMode
+	baseDigest string
 }
 
 type restoreComponent struct {

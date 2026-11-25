@@ -35,10 +35,18 @@ type RestoreRollbackResult struct {
 type rollbackTarget struct {
 	index       int
 	action      restoreJournalAction
-	expected    []byte
 	backup      []byte
 	destination string
 }
+
+// ErrRollbackChanged means a file changed after the apply, so a rollback
+// would overwrite someone's later edit. ErrNoJournal means there is no such
+// journal. ErrRollbackDamaged means a rollback copy is missing or altered.
+var (
+	ErrRollbackChanged = errors.New("changed after the apply")
+	ErrNoJournal       = errors.New("no such restore journal")
+	ErrRollbackDamaged = errors.New("rollback copy is missing or damaged")
+)
 
 // RollbackRestore reverses a completed create/replace journal. It verifies the
 // journal against the snapshot and current destinations before changing anything.
@@ -50,6 +58,43 @@ func RollbackRestore(journalPath string, snapshot SetupSnapshot, manifest sealed
 	if journal.SnapshotID != manifest.ID {
 		return RestoreRollbackResult{}, errors.New("the restore journal belongs to a different snapshot")
 	}
+	if journal.State == "completed" {
+		plan := BuildRestorePlan(snapshot, manifest, destination)
+		if plan.files == nil {
+			return RestoreRollbackResult{}, errors.New("the snapshot has no selected content to roll back")
+		}
+		for _, action := range journal.Actions {
+			if action.State != "created" && action.State != "replaced" {
+				continue
+			}
+			file, ok := plan.files[action.Destination]
+			if !ok {
+				return RestoreRollbackResult{}, fmt.Errorf("restore journal destination %q is not in the snapshot plan", action.Destination)
+			}
+			expected, err := restoreContent(file)
+			if err != nil {
+				return RestoreRollbackResult{}, err
+			}
+			if action.AppliedSHA256 == "" || action.AppliedSHA256 != sha256Bytes(expected) {
+				return RestoreRollbackResult{}, fmt.Errorf("restore journal for %q does not match the snapshot content", action.Destination)
+			}
+		}
+	}
+	return rollbackJournal(journalPath, journal, opts)
+}
+
+// RollbackJournal reverses a completed journal from the journal alone: each
+// file must still hash to what the apply wrote, and each rollback copy to what
+// the apply kept, before anything changes.
+func RollbackJournal(journalPath string, opts RestoreRollbackOptions) (RestoreRollbackResult, error) {
+	journal, _, err := loadRestoreJournal(journalPath)
+	if err != nil {
+		return RestoreRollbackResult{}, err
+	}
+	return rollbackJournal(journalPath, journal, opts)
+}
+
+func rollbackJournal(journalPath string, journal restoreJournal, opts RestoreRollbackOptions) (RestoreRollbackResult, error) {
 	result := RestoreRollbackResult{
 		SchemaVersion: restoreRollbackSchemaVersion, SnapshotID: journal.SnapshotID,
 		JournalPath: journalPath, Removed: []string{}, Restored: []string{}, Skipped: []string{},
@@ -60,10 +105,6 @@ func RollbackRestore(journalPath string, snapshot SetupSnapshot, manifest sealed
 	}
 	if journal.State != "completed" {
 		return RestoreRollbackResult{}, fmt.Errorf("the restore journal is %s, not a completed apply", journal.State)
-	}
-	plan := BuildRestorePlan(snapshot, manifest, destination)
-	if plan.files == nil {
-		return RestoreRollbackResult{}, errors.New("the snapshot has no selected content to roll back")
 	}
 	journalDir := filepath.Clean(filepath.Dir(journalPath))
 	var targets []rollbackTarget
@@ -76,29 +117,23 @@ func RollbackRestore(journalPath string, snapshot SetupSnapshot, manifest sealed
 		default:
 			return RestoreRollbackResult{}, fmt.Errorf("restore journal action %q is %s and cannot be rolled back", action.Destination, action.State)
 		}
-		file, ok := plan.files[action.Destination]
-		if !ok {
-			return RestoreRollbackResult{}, fmt.Errorf("restore journal destination %q is not in the snapshot plan", action.Destination)
-		}
-		expected, err := restoreContent(file)
-		if err != nil {
-			return RestoreRollbackResult{}, err
-		}
-		expectedHash := sha256Bytes(expected)
-		if action.AppliedSHA256 == "" || action.AppliedSHA256 != expectedHash {
-			return RestoreRollbackResult{}, fmt.Errorf("restore journal for %q does not match the snapshot content", action.Destination)
+		if action.AppliedSHA256 == "" {
+			return RestoreRollbackResult{}, fmt.Errorf("restore journal for %q has no applied digest", action.Destination)
 		}
 		info, err := os.Lstat(action.Destination)
+		if os.IsNotExist(err) {
+			return RestoreRollbackResult{}, fmt.Errorf("%q was removed after the apply (%w); refusing to roll back", action.Destination, ErrRollbackChanged)
+		}
 		if err != nil {
 			return RestoreRollbackResult{}, fmt.Errorf("inspect %q before rollback: %w", action.Destination, err)
 		}
 		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-			return RestoreRollbackResult{}, fmt.Errorf("%q is no longer a regular file", action.Destination)
+			return RestoreRollbackResult{}, fmt.Errorf("%q is no longer a regular file (%w)", action.Destination, ErrRollbackChanged)
 		}
-		if fileSHA256(action.Destination) != expectedHash {
-			return RestoreRollbackResult{}, fmt.Errorf("%q changed after the apply; refusing to roll back", action.Destination)
+		if fileSHA256(action.Destination) != action.AppliedSHA256 {
+			return RestoreRollbackResult{}, fmt.Errorf("%q %w; refusing to roll back", action.Destination, ErrRollbackChanged)
 		}
-		target := rollbackTarget{index: i, action: action, expected: expected, destination: action.Destination}
+		target := rollbackTarget{index: i, action: action, destination: action.Destination}
 		if action.State == "replaced" {
 			backup := filepath.Clean(action.Backup)
 			backupInDir := action.Backup != "" && filepath.Dir(backup) == journalDir
@@ -111,13 +146,13 @@ func RollbackRestore(journalPath string, snapshot SetupSnapshot, manifest sealed
 			invalid := err != nil || backupInfo.Mode()&os.ModeSymlink != 0 ||
 				!backupInfo.Mode().IsRegular()
 			if invalid {
-				return RestoreRollbackResult{}, fmt.Errorf("restore journal rollback copy for %q is missing or unsafe", action.Destination)
+				return RestoreRollbackResult{}, fmt.Errorf("restore journal rollback copy for %q is missing or unsafe (%w)", action.Destination, ErrRollbackDamaged)
 			}
 			backupData, err := os.ReadFile(backup)
 			valid := err == nil && action.BackupSHA256 != "" &&
 				sha256Bytes(backupData) == action.BackupSHA256
 			if !valid {
-				return RestoreRollbackResult{}, fmt.Errorf("restore journal rollback copy for %q is damaged", action.Destination)
+				return RestoreRollbackResult{}, fmt.Errorf("restore journal rollback copy for %q is damaged (%w)", action.Destination, ErrRollbackDamaged)
 			}
 			target.backup = backupData
 		}

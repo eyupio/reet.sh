@@ -472,6 +472,9 @@ func restoreContent(file restoreFile) ([]byte, error) {
 		return file.data, nil
 	}
 	content := map[string]any{}
+	for key, value := range file.base {
+		content[key] = value
+	}
 	for key, value := range file.settings {
 		content[key] = value
 	}

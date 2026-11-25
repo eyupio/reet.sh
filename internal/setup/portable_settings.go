@@ -6,10 +6,13 @@ import "fmt"
 // library upload. Unlike encrypted snapshots, a portable item cannot opt into
 // credentials, hooks, project state or unlisted fields. Bytes are not rewritten.
 func ValidatePortableSettings(agent, format, base string, data []byte) error {
+	return validateSettingsPolicy(settingsExportPolicy(agent, base), agent, format, data)
+}
+
+func validateSettingsPolicy(policy ComponentExportPolicy, agent, format string, data []byte) error {
 	if !supportedFormat(format, agent) {
 		return fmt.Errorf("unsupported settings format")
 	}
-	policy := settingsExportPolicy(agent, base)
 	if policy.Selection == "unsupported" {
 		return fmt.Errorf("unsupported settings application")
 	}

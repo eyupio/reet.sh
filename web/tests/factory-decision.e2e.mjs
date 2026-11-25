@@ -251,7 +251,7 @@ try{
    await ask.getByRole('button',{name:'Cancel',exact:true}).click();await expect(ask).toHaveCount(0);expect(tall.box.backup).toEqual([])
    await again.click();await ask.getByRole('button',{name:'Run again',exact:true}).click()
    await expect.poll(()=>tall.box.backup).toEqual([{revision:5,endSession:sid}])
-   await expect(page.getByRole('status').filter({hasText:'again'})).toHaveText('Running this stage again in a new session. This one is ending.')
+   await expect(page.getByRole('status').filter({hasText:'again'})).toHaveText('Running “Export API” again in a new session. The old one is ending.')
    await expect(decision).toHaveCount(0)
    expect(tw.state.unexpected).toEqual([])
   }finally{await tw.context.close()}

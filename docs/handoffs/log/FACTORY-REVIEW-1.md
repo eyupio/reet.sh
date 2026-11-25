@@ -88,6 +88,10 @@ Web (`web/src/lib`).
   The bell and title now update after every answer from the session page. The wording of three messages on that page
   became PipelineChoices' ("Your instruction is with the agent of ... for its next turn.", "Gaffer is reviewing ... again.",
   "Move ... on to review?").
+- The "Run again in a new session" confirmation in `PipelineChoices` cleared its pair before reading it, so confirming threw
+  and posted nothing, on the Factory page as well as the session page (it came in with main's restart choice). It reads
+  the pair first now, and the session page says the shared wording ("Running ... again in a new session. The old one is
+  ending.") after a restart, as it does after the other choices.
 - The two bulk selects of Gaffer's tools no longer offer Allow. Allow stays per tool, where the warning is.
 - The outcome dialog's poll no longer lets an older reply overwrite a newer one.
 - Dead code in `gafferOutcome.ts` (`clip`, `outcomeLine`, `outcomeGoal`, `factoryTally`, two constants) is deleted.

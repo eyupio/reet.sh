@@ -132,7 +132,7 @@
       const [next, health] = await Promise.all([getSyncState(), loadSyncSkills().catch(() => null)])
       if (generation !== loadGeneration) return
       syncState = next
-      if (health) skills = health
+      skills = health
       error = ''
       loaded = true
       loadFailure = undefined

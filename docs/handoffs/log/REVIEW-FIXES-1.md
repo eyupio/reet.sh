@@ -43,8 +43,10 @@ Machines and sync.
 
 Web client.
 
-- 16. The Machines page clears an old error on a good read, keeps the last skill health when only that read fails, and the
-  setup panel polls with the background read.
+- 16. The Machines page clears an old error on a good read, and the setup panel polls with the background read. The
+  review also asked to keep the last skill health when only the skills read fails. That was tried and reverted:
+  `library-machine-flow.e2e.mjs` states the rule that a failed current read must show "Skill sync not confirmed" and
+  never fall back to older health as proof of sync, and the old health would have been shown as current.
 - 17. Skill Buddy checks the draft has room (`skillPromptFits`) before it saves a choice. A caller with no `fits` still
   gets the old check afterwards.
 - 18, 19, 20. The setup panel reads `updateJobs` first, forgetting a machine goes through `updateState`, and a second
@@ -67,6 +69,9 @@ Checked.
   alone and the whole package passes alone (87 s). Nothing in `internal/gaffer` refers to code changed here, and the
   directory is unchanged. It is not in `flaky-tests.md`; it needs an owner to look at it.
 - The web unit tests (127 files) and `svelte-check` (537 files, no errors or warnings) pass.
+- Browser suites against a built UI, all passing: `machine-import`, `add-machine`, `machines-fleet`, `library-machine-flow`,
+  `machines-search`, `first-machine`, `skill-buddy`, `library`, `chat` and `session-workspace`. `library-machine-flow` failed
+  first, which is how the part of finding 16 above was found to be wrong.
 - Under `-race`, `internal/store`, `internal/scan` and `internal/skillfetch` pass with no race reported. `internal/api`
   under `-race` ran into Go's default ten minute timeout with no race reported; it needs the two shards and 40 minute
   timeout of `scripts/ci-go-shard.sh api-1` and `api-2`, which CI runs. Those shards had not been run to the end locally
@@ -74,8 +79,8 @@ Checked.
 
 Not checked.
 
-- No browser suite was run, so the Library double change, the Skill Buddy limit and the Machines page polling are checked by
-  type check and reading only.
+- No test drives the Library double change, the Skill Buddy over-limit message or the Machines page polling directly. The
+  suites above cover the behaviour around them, and these three were checked by reading only.
 - The leads the review listed but did not confirm are untouched: no limit on `POST /api/import` items or names, the Skills
   page and copy planner repeating work, Skill Buddy posting on every typing pause, pages that start a poll while one runs,
   touch targets and copy in the machine dialogs, the controller proof that can be relayed by a rogue `set-server` target,

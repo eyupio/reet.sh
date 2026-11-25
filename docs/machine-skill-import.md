@@ -14,7 +14,11 @@ remains a separate later stage.
 ## Use
 
 The controller and CLI both need this feature. The enrollment must belong to the
-current local user/machine and use an active write-role account's personal token.
+current local user/machine and its account must have an active write role. The
+machine's own enrollment secret is enough; an older enrollment that also holds a
+personal token sends it too. A machine can start new bundles and add to the ones
+it started, but not to a bundle another machine or the browser made: the
+controller answers 409, and the skill can be added to from the web app.
 The controller must have a reported inventory scope for that enrollment; run the
 usual agent scan if it has never reported the selected scope. Anonymous and
 shared-token installations cannot inherit the default owner's private store.
@@ -32,7 +36,7 @@ reet agent skill import --agent claude --name demo --exclude .env --upload
 # Project roots must already be enrolled locally.
 reet agent skill import --agent agents --project /absolute/enrolled/project --name demo --upload
 
-# Append to an existing owned bundle at an explicitly reviewed revision.
+# Append to a bundle this machine started, at an explicitly reviewed revision.
 reet agent skill import --agent agents --name demo --bundle BUNDLE_ID --expected-base REVISION_ID --upload
 ```
 

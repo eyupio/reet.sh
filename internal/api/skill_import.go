@@ -162,8 +162,6 @@ func (s *server) importEntry(userID int64, item importItem, newItems bool, reque
 }
 
 func (s *server) importSkills(w http.ResponseWriter, r *http.Request) {
-	s.importMu.Lock()
-	defer s.importMu.Unlock()
 	var in struct {
 		Machine      store.MachineInfo `json:"machine"`
 		Items        []importItem      `json:"items"`
@@ -181,6 +179,9 @@ func (s *server) importSkills(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &in) {
 		return
 	}
+	// Taken after the body is read: a stalled upload must not block every other import and merge.
+	s.importMu.Lock()
+	defer s.importMu.Unlock()
 	// Resolve legacy names once before IDs, pruning and inventories are computed.
 	aliases, err := s.st.MachineAliasesFor(s.uid(r))
 	if err != nil {

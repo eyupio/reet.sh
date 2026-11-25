@@ -2,17 +2,16 @@
   import Skeleton from './Skeleton.svelte'
  import Icon from './Icon.svelte'
 import Sentence from './Sentence.svelte'
- import { onMount, untrack } from 'svelte'
+ import { onMount } from 'svelte'
  import { shell } from './dialogShell'
  import { getImports, getImport, requestImport, approveImport, cancelImport, stopImport, getPrivateBundles, getPrivateRevisions, type ImportRequest, type ImportState, type PrivateBundle, type PrivateRevision, type SyncState } from './api'
  import CopyButton from './CopyButton.svelte'
- let { snapshot, source, initialRequestId = '', onclose }: { snapshot: SyncState; source?: { environmentId: string; name: string; direct?: boolean }; initialRequestId?: string; onclose: () => void } = $props()
+ let { snapshot, source, onclose }: { snapshot: SyncState; source?: { environmentId: string; name: string }; onclose: () => void } = $props()
  let dialog = $state<HTMLDialogElement>()
  let importState = $state<ImportState>({requests: [], capabilities: []}), bundles = $state<PrivateBundle[]>([])
  let selected = $state<ImportRequest | null>(null), selectedID = $state(''), error = $state(''), busy = $state(false), loading = $state(true)
  let environmentId = $state(''), name = $state(''), bundleId = $state(''), exclusions = $state<string[]>([])
  let historyID = $state(''), revisions = $state<PrivateRevision[]>([])
- let autoStarted = false, autoApproved = false
  let requestKey = crypto.randomUUID(), alive = true, generation = 0, syncing = false
  let refreshAbort: AbortController | undefined
  const environments = $derived(snapshot.environments.filter(e => ['agents','claude','cursor','codex','opencode'].includes(e.agent)))
@@ -28,17 +27,6 @@ import Sentence from './Sentence.svelte'
  const stateLabels: Record<string,string> = {queued:'Queued',previewing:'Reading files',reviewing:'Ready for review',approved:'Approved',uploading:'Saving private copy',completed:'Saved',cancelled:'Cancelled',expired:'Expired',failed:'Needs attention'}
  const messages: Record<string,string> = { reviewing: 'Ready for your review. No file contents have been uploaded.', queued: 'Waiting for the machine to prepare a preview.', previewing: 'Reading file metadata on the machine. No file contents have been uploaded.', approved: 'Approved. Waiting for the machine to recheck and transfer your selection.', uploading: 'Verifying and saving the approved files privately.', cancelled: 'Cancelled. No further transfer is authorised.', expired: 'This preview expired or the connector restarted. Request a fresh preview.', failed: 'The import could not complete. Review the reason and request a fresh preview.', completed: 'Saved privately in reet.' }
  const reasons: Record<string,string> = { capture_failed: 'The source contains unsafe, unavailable or changing files.', source_changed: 'Files changed after preview. Nothing from this attempt was saved.', scope_unavailable: 'The source is no longer enrolled locally.', transfer_failed: 'The transfer was rejected. Check the destination revision, content validation and private storage capacity.', preview_expired: 'The preview or connector generation expired.', machine_locked: 'Locked on the machine. Only someone there can unlock it, with `reet agent unlock`.', invalid_skill_manifest: 'SKILL.md needs valid matching metadata and instructions.' }
- // A skill chosen from the connect step goes straight to the library: the preview and approval happen without a stop for review.
- // Anything that needs a person's decision (a file the server blocks, an invalid SKILL.md, a failure) falls back to the review below.
- $effect(() => {
-  if (!source?.direct || autoStarted || loading || selectedID || !environment || !name || !ready || pending || busy) return
-  autoStarted = true; untrack(() => void preview())
- })
- $effect(() => {
-  if (!source?.direct || autoApproved || selected?.state !== 'reviewing' || !selected.preview || busy) return
-  if (!selected.preview.skillValid || blocked) { autoApproved = true; return }
-  autoApproved = true; untrack(() => void approve())
- })
  async function refresh(force = false) {
   if (!alive || (!force && (syncing || busy))) return
   if (force) refreshAbort?.abort()
@@ -55,7 +43,7 @@ import Sentence from './Sentence.svelte'
   finally { if (refreshAbort === abort) { syncing = false; if (alive) loading = false } }
  }
  onMount(() => {
-  environmentId = source?.environmentId ?? ''; name = source?.name ?? ''; selectedID = initialRequestId; dialog?.showModal(); void refresh()
+  environmentId = source?.environmentId ?? ''; name = source?.name ?? ''; dialog?.showModal(); void refresh()
   const timer = setInterval(() => { if (document.visibilityState === 'visible') void refresh() },3000)
   return () => { alive = false; generation++; refreshAbort?.abort(); clearInterval(timer) }
  })
@@ -91,7 +79,7 @@ import Sentence from './Sentence.svelte'
 <dialog bind:this={dialog} use:shell oncancel={(event) => { event.preventDefault(); onclose() }} aria-labelledby="machine-import-title">
  <header data-shell-head><div><p class="eyebrow" data-shell-aside>Save a copy to your library</p><h2 id="machine-import-title">Bring a machine skill into reet</h2></div><button type="button" onclick={onclose} aria-label="Close skill imports" data-shell-close>Close <Icon name="x" size={14} /></button></header>
  <div class="body" data-shell-body>
-  <p class="intro">{#if source?.direct && !error && (!selected || selected.state !== 'reviewing' || (selected.preview?.skillValid && !blocked))}Saving a private copy of {name} straight into your library. Your machine files, library choices and published skills stay separate.{:else}Review a skill’s files, choose what to keep, then save a private copy. Your machine files, library choices and published skills stay separate.{/if}</p>
+  <p class="intro">Review a skill’s files, choose what to keep, then save a private copy. Your machine files, library choices and published skills stay separate.</p>
   {#if error}<p role="alert" class="error">{error}</p>{/if}
   {#if loading}<Skeleton label="Loading imports and private copies…" count={2} />{/if}
   {#if !selected && selectedID}<Skeleton label="Loading the selected import…" count={2} />

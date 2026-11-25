@@ -7,13 +7,12 @@
   // The per-session skill picker: a modal sheet listing the skills a session could use, grouped by where they live.
   // Names and descriptions are untrusted text from a machine and are only ever rendered as text.
   // Arrow keys, Home and End move through the rows, Enter picks one, Escape closes; the caller gives focus back.
-  let { data, loading, error, tool, initialQuery = '', sessionId, commands = [], commandsNote = '', onpick, onpickcommand, onclose, onretry, onrefresh }: {
+  let { data, loading, error, tool, initialQuery = '', commands = [], commandsNote = '', onpick, onpickcommand, onclose, onretry, onrefresh }: {
     data: SessionSkills | null
     loading: boolean
     error: string
     tool: string
     initialQuery?: string
-    sessionId: string
     /** What the agent announced for Chat, and the server's sentence when the machine is too old to say. */
     commands?: ChatCommand[]
     commandsNote?: string

@@ -9,8 +9,8 @@ import (
 )
 
 // copyDigest is a copy's digest over all its files, and over all but the files
-// an operating system leaves in folders on its own, which no one put in the
-// skill. Either matching reet's digest makes the copy reet's.
+// an operating system or an interpreter leaves in folders on its own, which no
+// one put in the skill. Either matching reet's digest makes the copy reet's.
 type copyDigest struct{ all, sans string }
 
 func (c copyDigest) is(digest string) bool {
@@ -18,10 +18,14 @@ func (c copyDigest) is(digest string) bool {
 }
 
 // osFile says whether a skill file is one Finder or Windows Explorer leaves on
-// its own: .DS_Store, Thumbs.db, or a ._ AppleDouble file.
+// its own (.DS_Store, Thumbs.db, a ._ AppleDouble file), or Python writes when a
+// bundled script runs (anything under a __pycache__ folder).
+// shortcut: a node_modules folder is not skipped here; Scan's file limit applies first, so such a copy reads as
+// unreadable, until Scan can skip folders.
 func osFile(p string) bool {
 	base := p[strings.LastIndex(p, "/")+1:]
-	return strings.EqualFold(base, ".DS_Store") || strings.EqualFold(base, "Thumbs.db") || strings.HasPrefix(base, "._")
+	return strings.EqualFold(base, ".DS_Store") || strings.EqualFold(base, "Thumbs.db") || strings.HasPrefix(base, "._") ||
+		strings.HasPrefix(p, "__pycache__/") || strings.Contains(p, "/__pycache__/")
 }
 
 func readCopyDigest(dir string) copyDigest {

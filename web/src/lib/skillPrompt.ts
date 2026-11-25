@@ -11,3 +11,8 @@ export function insertSkillPrompt(prompt: string, insert: string, start = prompt
   const trail = after === '' || /^[ \t]*\n[ \t]*\n/.test(after) ? '' : after.startsWith('\n') ? '\n' : '\n\n'
   return { text: before + lead + insert + trail + after, caret: (before + lead + insert).length }
 }
+
+/** Whether a skill's prompt can be added to the end of the draft without the message passing `limit` bytes. */
+export function skillPromptFits(prompt: string, insert: string, limit: number): boolean {
+  return new TextEncoder().encode(insertSkillPrompt(prompt, insert).text).length <= limit
+}

@@ -8,7 +8,7 @@
     updateSyncAgent,
     type Machine, type SetupProfileSummary, type SyncJob, type SyncState,
   } from './api'
-  import { agentBuild, agentGroups, agentUpdateTarget, latestRelease, updateAvailable } from './machines'
+  import { agentBuild, agentGroups, agentUpdateTarget, latestRelease, updateAvailable, updateJobFor } from './machines'
   import {
     configureCommand, connectionStage, enrollCommands, installCommands, profileFetchCommand, profilePullCommand,
     profileRestoreCommand, profileVerifyCommand, retryDelay, scanCommand, syncLink, upgradeCommands,
@@ -111,12 +111,7 @@
   })
   const latest = $derived(enrolledAgent ? latestRelease(enrolledAgent, snapshot?.releases) : null)
   const updateReady = $derived(!!enrolledAgent && !!snapshot && updateAvailable(enrolledAgent, snapshot.releases))
-  const updateJob = $derived.by((): SyncJob | undefined => {
-    if (!enrolledAgent) return undefined
-    return (snapshot?.jobs ?? [])
-      .filter((job) => job.agentId === enrolledAgent.id && job.kind === 'update')
-      .sort((a, b) => b.createdAt - a.createdAt)[0]
-  })
+  const updateJob = $derived(enrolledAgent ? updateJobFor(snapshot?.updateJobs ?? snapshot?.jobs, enrolledAgent.id) : undefined)
   const steps = $derived(mode === 'connect'
     ? [[1, 'Install'], [2, 'Authenticate'], [3, 'Connect terminal'], [4, 'Inventory & sync']]
     : [[1, 'Install'], [2, 'Restore setup'], [3, 'Connect terminal'], [4, 'Inventory & sync']])

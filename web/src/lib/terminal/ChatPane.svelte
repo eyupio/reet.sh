@@ -33,7 +33,7 @@ import InlinePromptMenu from '../prompts/InlinePromptMenu.svelte'
 import PromptPicker from '../prompts/PromptPicker.svelte'
 import { readPromptLibrary, type PromptLibrary } from '../prompts/library'
 import { promptTrigger, replacePromptTrigger } from './prompts'
-import { insertSkillPrompt } from '../skillPrompt'
+import { insertSkillPrompt, skillPromptFits } from '../skillPrompt'
 import { chatControls, chatSetting, chatEnqueue, chatUsage, type ChatControls } from './api'
 import { chatUsageView, type ChatUsage } from '../chatUsage'
 import { planEntries, type MachineAccounts } from '../agentAccounts'
@@ -326,6 +326,7 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
   promptMenu = null
   if (dismissed) promptSuppressed = true
  }
+ function skillFits(text: string): boolean { return skillPromptFits(draft, text, MAX_CHAT_BYTES) }
  function pickPrompt(result: { prompt: { title: string }; text: string; unresolved: string[] }) {
   if (!promptMenu) return
   const out = replacePromptTrigger(draft, promptMenu, result.text, MAX_CHAT_BYTES)
@@ -1028,10 +1029,9 @@ const promptBlocked = $derived(!!locked || reattaching || sending || uploading |
   {#if liveControls}<ChatQueue sessionId={session.id} controls={null} active={false} />{/if}
   {#if queued.length}<p class="composer-note">{queued.length} queued {queued.length === 1 ? 'message was' : 'messages were'} not sent.</p>{/if}
  {:else}
-  <div class="skill-buddy-slot"><SkillBuddy compact context={{sessionId: session.id, task: draft}} disabled={!!locked || ended || sending || uploading} oninsert={text => {
-    const next = insertSkillPrompt(draft, text)
-    if (new TextEncoder().encode(next.text).length > MAX_CHAT_BYTES) return false
-    draft = next.text; void tick().then(() => composerInput?.focus()); return true
+  <div class="skill-buddy-slot"><SkillBuddy compact context={{sessionId: session.id, task: draft}} disabled={!!locked || ended || sending || uploading} fits={skillFits} oninsert={text => {
+    if (!skillFits(text)) return false
+    draft = insertSkillPrompt(draft, text).text; void tick().then(() => composerInput?.focus()); return true
   }}/></div>
   <div class="composer" data-floating-clearance onpaste={pasted} class:dropping={dropping}>
    {#if promptMenu}
@@ -1135,7 +1135,7 @@ const promptBlocked = $derived(!!locked || reattaching || sending || uploading |
       other={{ label: 'Other…', field: 'Model name', validate: validateModel }}
       onpick={value => { selectedModel = value; modelOpen = false; void changeModel() }} onclose={() => modelOpen = false} />
     {/if}
-    {#if skillsOpen}<SkillPicker data={skillData} loading={skillsLoading} error={skillsError} tool={toolName} initialQuery={skillQuery} sessionId={session.id} {commands} {commandsNote} onpickcommand={command => insertInvocation(`/${command.name} `)} onrefresh={() => void loadSkills()} onpick={skill => insertInvocation(skill.invocation)} onclose={() => void closeSkills()} onretry={() => void loadSkills()} />{/if}
+    {#if skillsOpen}<SkillPicker data={skillData} loading={skillsLoading} error={skillsError} tool={toolName} initialQuery={skillQuery} {commands} {commandsNote} onpickcommand={command => insertInvocation(`/${command.name} `)} onrefresh={() => void loadSkills()} onpick={skill => insertInvocation(skill.invocation)} onclose={() => void closeSkills()} onretry={() => void loadSkills()} />{/if}
     {#if promptPickerOpen}<PromptPicker opener={promptButton ?? null} sheet={touchModels} context={promptContext} limit={MAX_CHAT_BYTES} oninsert={usePromptFromPicker} onclose={() => { promptPickerOpen = false; void tick().then(() => composerInput?.focus()) }} />{/if}
    {#if canAttach}<input class="vh" bind:this={fileInput} type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple onchange={picked} />{/if}
   </div>

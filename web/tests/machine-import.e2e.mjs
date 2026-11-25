@@ -21,6 +21,7 @@ await page.route('**/api/**',async route=>{
  else if(path==='/api/v2/lists')data={lists:[],linkEnabled:false}
  else if(path==='/api/v2/sync')data=snapshot
  else if(path==='/api/v2/machines/health')data={serverNow:now,machines:[]}
+ else if(path==='/api/v2/setup/fleet/batches/active')data=null
  else if(path==='/api/v2/setup/profiles')data={profiles:[]}
  else if(path==='/api/v2/terminal/machines')data={machines:[]}
  else if(path==='/api/v2/terminal/sessions')data={sessions:[]}

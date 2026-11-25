@@ -121,6 +121,7 @@ export async function installApi(page, { status = null, extra = {} } = {}) {
       activity: [{ at: now - 60000, host: LONGHOST, name: LONGSKILL, action: 'failed', detail: 'No write access' }, { at: now - 3600000, host: 'dev-laptop', name: LONGSKILL, action: 'installed', detail: '' }],
       work: { failed: 1, installing: 0, removing: 0, updating: 0, paused: 1, pausedHost: 'pi' }, active: 12,
     })
+    if (path === '/api/v2/setup/fleet/batches/active') return json(null)
     if (path === '/api/v2/setup/profiles') return json({ profiles: [{ name: 'laptop-claude', revision: 2, snapshotId: 'snap-' + 'a'.repeat(24), snapshotDigest: 'sha256:' + 'b'.repeat(64), updatedAt: now }, { name: 'a_very_long_setup_profile_name_for_the_build_server', revision: 1, snapshotId: 'snap-x', snapshotDigest: 'sha256:' + 'd'.repeat(64), updatedAt: now - DAY }] })
     if (path.startsWith('/api/v2/setup/profiles/')) return json(profileRecord)
     if (path === '/api/v2/hosting') return json(hosting)

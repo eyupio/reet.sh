@@ -53,6 +53,7 @@ await page.route('**/api/**',async route=>{
  }
  else if(path==='/api/v2/sync/skills')data={active:0,work:{failed:0,installing:0,removing:0,updating:0},activity:[],machines:[]}
  else if(path==='/api/v2/machines/health')data={serverNow:now,machines:[]}
+ else if(path==='/api/v2/setup/fleet/batches/active')data=null
  else if(path==='/api/v2/setup/profiles')data={profiles:[]}
  else if(path==='/api/v2/terminal/machines'){if(failState)return route.fulfill({status:503,json:{error:'Inventory unavailable'}});data={machines:snapshot.agents.map(item=>({agentId:item.id,host:item.host,ready:terminalReady,serverEnabled:true,capabilities:{terminalControl:true,osUser:'developer',terminalEnabled:true,readiness:'ready',launch:true,agentsV2:true,tools:['claude','codex'],acpAgents:[{tool:'claude',adapter:'claude-agent-acp',state:'missing',minimumVersion:'0.99.1'},{tool:'codex',adapter:'codex-acp',state:'missing',minimumVersion:'1.13.1'}]}}))}}
  else if(path==='/api/v2/terminal/sessions')data={sessions:[]}

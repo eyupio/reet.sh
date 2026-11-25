@@ -59,6 +59,7 @@ await page.route('**/api/**',async route=>{
  else if(path==='/api/v2/lists')data={lists:[],linkEnabled:false}
  else if(path==='/api/v2/sync')data={environments:scopes,machines:machinesOf(),agents,targets:[],jobs:[]}
  else if(path==='/api/v2/machines/health')data={serverNow:Date.now(),machines:[]}
+ else if(path==='/api/v2/setup/fleet/batches/active')data=null
  else if(path==='/api/v2/setup/profiles')data={profiles:[]}
  // A repository From GitHub: the machine's list, the clone start and its state (cloning once, then done as a project).
  else if(path==='/api/v2/folder-projects/github-repos')data={repos:[{name:'acme/site',private:true,pushedAt:Math.floor(Date.now()/1000)-3600},{name:'acme/docs',private:false,pushedAt:0}],more:false}

@@ -86,6 +86,9 @@ type AgentConfig struct {
 	modelsAllowed      bool
 	software           bool
 	softwareApply      bool
+	setupRead          bool
+	setupApply         bool
+	setupRollback      bool
 	mirrorFirst        bool
 	yoloAllowed        bool
 	acpAgents          bool
@@ -1108,6 +1111,10 @@ func negotiateFeatures(cfg *AgentConfig, advertised string) {
 	cfg.software = terminalproto.SupportsSoftware(advertised)
 	cfg.softwareApply = terminalproto.SupportsSoftwareApply(advertised)
 	cfg.mirrorFirst = cfg.softwareApply && terminalproto.SupportsSoftwareMirrorFirst(advertised)
+	features := terminalproto.ParseFeatures(advertised)
+	cfg.setupRead = features.Has(terminalproto.SetupReadFeature)
+	cfg.setupApply = features.Has(terminalproto.SetupApplyFeature)
+	cfg.setupRollback = features.Has(terminalproto.SetupRollbackFeature)
 	cfg.acp = terminalproto.SupportsACP(advertised)
 	cfg.acpAgents = terminalproto.SupportsACPAgents(advertised)
 	cfg.acpWorktree = terminalproto.SupportsACPWorktree(advertised)
@@ -1162,6 +1169,15 @@ func terminalFeatures(cfg AgentConfig) string {
 	// listing it, so every real apply was refused as invalid.
 	if cfg.softwareApply {
 		features = append(features, terminalproto.SoftwareApplyFeature)
+	}
+	if cfg.setupRead {
+		features = append(features, terminalproto.SetupReadFeature)
+	}
+	if cfg.setupApply {
+		features = append(features, terminalproto.SetupApplyFeature)
+	}
+	if cfg.setupRollback {
+		features = append(features, terminalproto.SetupRollbackFeature)
 	}
 	if cfg.commandHistory {
 		features = append(features, terminalproto.CommandHistoryFeature)
@@ -1579,6 +1595,12 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 		AgentAccounts: cfg.agentAccounts && control && enabled,
 		Software:      software,
 		SoftwareApply: cfg.softwareApply && control && enabled,
+		// A setup copy reads and writes files as a terminal could, so each
+		// step follows terminal access; writing also needs allow-apply,
+		// which the machine checks per request.
+		SetupRead:     cfg.setupRead && control && enabled,
+		SetupApply:    cfg.setupApply && control && enabled,
+		SetupRollback: cfg.setupRollback && control && enabled,
 		// Mirror first only refines an apply, so it follows SoftwareApply.
 		SoftwareMirrorFirst: cfg.mirrorFirst && control && enabled,
 		Locked:              cfg.machineLock && cfg.locked,

@@ -270,6 +270,8 @@ func (c *agentConn) dispatch(callCtx context.Context, msg terminalproto.Message)
 		return r.handleModels(op)
 	case *terminalproto.SoftwareApply:
 		return r.handleSoftwareApply(op)
+	case *terminalproto.SetupFleet:
+		return r.handleSetupFleet(op)
 	case *terminalproto.Upload:
 		return r.handleUpload(op)
 	}
@@ -520,6 +522,11 @@ func bodyFeatureError(body terminalproto.Body, features terminalproto.FeatureSet
 			return terminalproto.ErrInvalid
 		}
 		if b.PreferMirror && !has(terminalproto.SoftwareMirrorFirstFeature) {
+			return terminalproto.ErrInvalid
+		}
+	case *terminalproto.SetupFleet:
+		// Each operation is its own permission: read, plan and apply, undo.
+		if !has(terminalproto.SetupFeatureFor(b.Op)) {
 			return terminalproto.ErrInvalid
 		}
 	case *terminalproto.Upload:

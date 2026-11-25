@@ -34,7 +34,7 @@ func terminalControl(ctx context.Context, config string, c agentConfig) agenthea
 			return errors.New("terminal access disabled locally")
 		}
 		return nil
-	}, BrowseConsent: func() error { return browseConsent(config, c) }, ClipboardConsent: func() error { return clipboardConsent(config, c) }, UploadConsent: func() error { return uploadConsent(config, c) }, ModelsConsent: func() error { return modelsConsent(config, c) }, Locked: lockedNow(config)}
+	}, BrowseConsent: func() error { return browseConsent(config, c) }, ClipboardConsent: func() error { return clipboardConsent(config, c) }, UploadConsent: func() error { return uploadConsent(config, c) }, ModelsConsent: func() error { return modelsConsent(config, c) }, Locked: lockedNow(config), ApplyConsent: func() error { return applyConsent(config, c) }}
 	// Chat sessions are owned by this process, not by one control connection:
 	// a reconnect adopts them instead of ending every running agent.
 	chats := terminalagent.NewChatSupervisor(ctx, opts)
@@ -140,6 +140,20 @@ func currentTerminalConfig(config string, c agentConfig) (agentConfig, error) {
 		return agentConfig{}, errors.New("terminal access disabled locally")
 	}
 	return current, nil
+}
+
+// applyConsent re-reads the enrollment and the machine's allow-apply opt-in,
+// the same switch that lets skills be written: a setup copy changes files on
+// this machine only while it is on.
+func applyConsent(config string, c agentConfig) error {
+	current, err := currentTerminalConfig(config, c)
+	if err != nil {
+		return err
+	}
+	if !current.AllowApply {
+		return errors.New("remote apply disabled locally")
+	}
+	return nil
 }
 
 func browseConsent(config string, c agentConfig) error {

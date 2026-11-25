@@ -26,6 +26,7 @@ func TestPrivateControlKeepsTheLinkForEveryMachineAnswer(t *testing.T) {
 		"repo_clone_removed":       terminalproto.RepoCloneRemoved{Reason: terminalproto.RepoCloneChanged},
 		"repo_list_result":         terminalproto.RepoListResult{Reason: terminalproto.RepoListFailed},
 		"accounts_result":          terminalproto.AccountsResult{Reason: terminalproto.AccountsTimedOut},
+		"setup_fleet_result":       terminalproto.SetupFleetResult{Op: terminalproto.SetupOpApply, State: terminalproto.SetupRefused, Reason: terminalproto.SetupReasonBusy},
 	} {
 		t.Run(name, func(t *testing.T) {
 			h := newGM6Harness(t)

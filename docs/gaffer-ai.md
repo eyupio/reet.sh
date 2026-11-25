@@ -597,7 +597,9 @@ project, choose Gaffer's model. Each step links to where it is done and ticks of
    named for how demanding a stage is: **Heavy**, **Standard** and **Light**. Give
    each its agent and, if you like, a model and an effort: a stronger one for
    heavy stages, a cheaper one for light ones. Left alone, one agent does every
-   stage. **Save as my crew** keeps the three tiers for your account; every later
+   stage. A tier you change here gets a **Back to your saved crew** link (or
+   **Back to the outcome's agent**, when no crew is saved for it) that undoes
+   your change to that tier. **Save as my crew** keeps the three tiers for your account; every later
    outcome, from this page or over MCP, starts from them, for the tiers the
    project's machine can run. Nothing else is saved by it.
 
@@ -646,9 +648,10 @@ project, choose Gaffer's model. Each step links to where it is done and ticks of
 4. Review the plan. Edit any title or brief, add or remove a pipeline, and tick the
    stages each one runs through. Under each pipeline every stage has its tier and
    the agent, model and effort that tier means. A stage Gaffer moved off its usual
-   tier is marked **Gaffer's assessment** with its reason and a **Use Standard**
-   (or Heavy, or Light) button that puts it back; a tier you change is marked
-   **Your choice**. On the Factory, picking a stage in a pipeline's detail names
+   tier is marked **Gaffer's assessment** with its reason and a **Move back to
+   Standard tier** (or Heavy, or Light) button that puts that one stage back; a
+   tier you change is marked **Your choice**. The button moves the stage only:
+   the agent and model of a tier are changed under **Choose who does what**. On the Factory, picking a stage in a pipeline's detail names
    its tier and keeps Gaffer's reason. A stage Gaffer split is shown as its parts, in the
    order they run. You can rename a part, rewrite its brief, change its tier,
    remove it, add one (up to four), or choose **Do as one stage** to undo the

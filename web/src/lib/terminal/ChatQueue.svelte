@@ -76,7 +76,7 @@
 {/if}
 
 <style>
- .server-queue { flex: none; max-height: 15rem; overflow: auto; padding: 10px; margin-bottom: 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg-sunk); font-size: 14px; }
+ .server-queue { flex: 0 1 auto; min-height: 3.5rem; max-height: 15rem; overflow: auto; padding: 10px; margin-bottom: 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg-sunk); font-size: 14px; }
  header, .actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
  /* Shown only in focus mode. */
  .queue-summary { display: none; align-items: center; gap: 8px; width: 100%; min-height: 44px; padding: 4px 10px; border: 0; border-radius: 10px; background: none; text-align: left; }

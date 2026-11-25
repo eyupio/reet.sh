@@ -502,13 +502,16 @@ try{
    await expect(row.locator('summary')).toContainText('2 events')
   }finally{await w.context.close()}
  })
- // A1: four choices stay on one line at 1280 and wider.
+ // A1: four choices stay on one line at 1280 and wider. Running a stuck stage again is not a fifth: it is offered in
+ // the card that says why the stage waits, with what it does.
  for(const width of [1280,1440]){
   await step(`the bar's four choices on one line at ${width} px`,async()=>{
    const {w,page}=await open(width)
    try{
     const buttons=page.getByRole('group',{name:'What do you want to do?',exact:true}).getByRole('button')
     await expect(buttons).toHaveCount(4)
+    await expect(buttons.filter({hasText:'Restart stage'})).toHaveCount(0)
+    await expect(page.getByRole('region',{name:'What is waiting',exact:true}).getByRole('button',{name:'Restart stage…',exact:true})).toBeVisible()
     const tops=await buttons.evaluateAll(l=>l.map(b=>Math.round(b.getBoundingClientRect().top)))
     expect(new Set(tops).size).toBe(1)
    }finally{await w.context.close()}

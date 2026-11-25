@@ -65,10 +65,19 @@ try{
    await review.locator('summary').click()
    await expect(review.getByText('The endpoint and its tests are committed.',{exact:true})).toBeVisible()
    const choices=decision.getByRole('group',{name:'Choices for Export API',exact:true}).getByRole('button')
-   await expect(choices).toHaveText(['Move to next stage Recommended','Have Gaffer look again','Tell the agent…'])
+   await expect(choices).toHaveText(['Move to next stage Recommended','Have Gaffer look again','Tell the agent…','Restart stage…'])
    await expect(decision.getByRole('link',{name:'Export API',exact:true})).toHaveAttribute('href',`/factory#pipeline-${oid}-a`)
    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=document.documentElement.clientWidth)).toBe(true)
    await page.screenshot({path:`${shots}/factory-decision-${width}-${theme}.png`})
+   // The decision sits above the conversation, so it can be minimised to a line and brought back.
+   const fold=decision.getByRole('button',{name:'Minimise',exact:true})
+   await expect(fold).toHaveAttribute('aria-expanded','true');await fold.click()
+   await expect(choices).toHaveCount(0);await expect(decision).toContainText('Waiting for your decision')
+   expect((await decision.boundingBox()).height).toBeLessThan(120)
+   await page.screenshot({path:`${shots}/factory-decision-minimised-${width}-${theme}.png`})
+   const show=decision.getByRole('button',{name:'Show decision',exact:true})
+   await expect(show).toHaveAttribute('aria-expanded','false');await show.click()
+   await expect(choices).toHaveCount(4)
    // Telling the agent is done here, in the person's own words.
    await decision.getByRole('button',{name:'Tell the agent…',exact:true}).click()
    const note=page.getByRole('dialog',{name:'Tell the agent of “Export API”',exact:true})
@@ -207,8 +216,47 @@ try{
   await expect(last).toBeInViewport()
   await lw.page.screenshot({path:`${shots}/factory-decision-long-390.png`})
   await last.click()
-  await expect(lw.page.getByRole('dialog',{name:'Move “Export API” on?',exact:true})).toBeVisible()
+  await expect(lw.page.getByRole('dialog',{name:'Run “Export API” again in a new session?',exact:true})).toBeVisible()
  }finally{await lw.context.close()}
+ // A tablet-wide session with a long instruction and a queued message. The decision keeps to its share of the height
+ // and scrolls itself, the instruction starts short, and the composer stays on screen instead of below it.
+ for(const [width,height,theme] of [[714,1023,'dark'],[390,844,'light'],[1280,900,'light']]){
+  const tall=fixture()
+  tall.goal.advice={choice:'tell',why:'The stage cannot progress without a plan.',text:'Read how the tab strip is rendered, then give the plan. '.repeat(20)}
+  tall.routes[`/api/v2/terminal/sessions/${sid}/chat/queue`]={queue:[{id:'q1',text:'Please start the plan stage now.\n'.repeat(12),images:[],state:'queued',intent:'wait',note:'',revision:1,origin:'companion'}]}
+  const tw=await openWorkspace(browser,{width,height,theme,touch:width<1000,sessionFocus:false,routes:tall.routes})
+  await tw.page.addInitScript(()=>{window.EventSource=class{addEventListener(){}close(){}}})
+  try{
+   const page=tw.page
+   await page.goto(`${base}/sessions?agent=a1&session=${sid}`)
+   const decision=page.getByRole('region',{name:'Decision for Export API',exact:true})
+   await expect(decision).toBeVisible()
+   await expect(page.getByRole('region',{name:'Queued messages',exact:true})).toBeVisible()
+   await expect(page.locator('textarea.composer-input')).toBeInViewport({ratio:1})
+   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=document.documentElement.clientWidth)).toBe(true)
+   await page.screenshot({path:`${shots}/factory-decision-tall-${width}-${theme}.png`})
+   // The instruction Gaffer would give starts at three lines and opens in place.
+   const said=decision.locator('.advice .text'),more=decision.getByRole('button',{name:'Read all of it',exact:true})
+   await expect(more).toHaveAttribute('aria-expanded','false')
+   const short=(await said.boundingBox()).height
+   await more.focus();await page.keyboard.press('Enter')
+   await expect(decision.getByRole('button',{name:'Show less',exact:true})).toHaveAttribute('aria-expanded','true')
+   expect((await said.boundingBox()).height).toBeGreaterThan(short)
+   await expect(page.locator('textarea.composer-input')).toBeInViewport({ratio:1})
+   // Running the stage again ends this session, so it asks first and says what it does. Cancel sends nothing.
+   const again=decision.getByRole('button',{name:'Restart stage…',exact:true})
+   await again.scrollIntoViewIfNeeded();await again.click()
+   const ask=page.getByRole('dialog',{name:'Run “Export API” again in a new session?',exact:true})
+   await expect(ask).toContainText('This ends the session doing this stage now and starts the stage again in a new one, in the same folder and branch.')
+   await ask.getByRole('button',{name:'Cancel',exact:true}).click();await expect(ask).toHaveCount(0);expect(tall.box.backup).toEqual([])
+   await again.click();await ask.getByRole('button',{name:'Run again',exact:true}).click()
+   await expect.poll(()=>tall.box.backup).toEqual([{revision:5,endSession:sid}])
+   await expect(page.getByRole('status').filter({hasText:'again'})).toHaveText('Running this stage again in a new session. This one is ending.')
+   await expect(decision).toHaveCount(0)
+   expect(tw.state.unexpected).toEqual([])
+  }finally{await tw.context.close()}
+ }
+ console.log('factory decision beside a full conversation: ok')
  console.log('factory yolo switch: ok')
  console.log('factory decision in a session: ok')
 }finally{await browser.close()}

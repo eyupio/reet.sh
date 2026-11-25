@@ -152,6 +152,16 @@ try {
       const thinking=outcome.getByRole('combobox',{name:'Heavy model',exact:true})
       await expect(thinking.getByRole('option')).toHaveText(['Agent’s default model','starred-model (not in workshop’s list)','claude/on-the-machine','sonnet (not in workshop’s list)','opus (not in workshop’s list)','haiku (not in workshop’s list)','Other…'])
       await expect(outcome.getByRole('combobox',{name:'Model',exact:true}).getByRole('option',{name:'claude/on-the-machine',exact:true})).toBeAttached()
+      // A tier nobody has changed offers nothing to undo. Changed, it can be put back as the dialog started it: here,
+      // with no saved crew, on the outcome's own agent and model, which it then follows again.
+      const undo=outcome.getByRole('button',{name:'Put the Heavy crew back to the outcome’s agent',exact:true})
+      await expect(undo).toHaveCount(0)
+      await thinking.selectOption('sonnet');await expect(undo).toHaveText('Back to the outcome’s agent')
+      await expect(outcome.getByRole('button',{name:/^Put the (Standard|Light) crew back/})).toHaveCount(0)
+      await undo.click()
+      await expect(thinking).toHaveValue('');await expect(undo).toHaveCount(0)
+      await outcome.getByRole('combobox',{name:'Model',exact:true}).selectOption('haiku');await expect(thinking).toHaveValue('haiku')
+      await outcome.getByRole('combobox',{name:'Model',exact:true}).selectOption('');await expect(thinking).toHaveValue('')
       // A name none of them has can still be typed.
       await thinking.selectOption({label:'Other…'});await outcome.getByRole('textbox',{name:'Heavy model name',exact:true}).fill('private-model')
       await thinking.selectOption('opus');await expect(outcome.getByRole('textbox',{name:'Heavy model name',exact:true})).toHaveCount(0)

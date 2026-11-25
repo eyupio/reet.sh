@@ -158,7 +158,8 @@
     if (item.section === 'waiting' && item.need) for (const choice of item.need.choices) {
       // Stopping the outcome is in its menu. Opening the session is in the head, and in the bar too only when it is the
       // choice to take (Gaffer advised it, or it is the only one); with an approval on record, Allow and Deny answer instead.
-      if (choice.id === 'stop' || (choice.id === 'open' && !choice.primary) || (choice.id === 'answer' && asking)) continue
+      // Running a stuck stage again is offered in the card above, with what it does: the bar keeps to one line of four.
+      if (choice.id === 'stop' || (choice.id === 'open' && !choice.primary) || (choice.id === 'restart' && !choice.primary) || (choice.id === 'answer' && asking)) continue
       if (lost ? choice.id === 'move' && !(nodes.length && piece.conversationId) : !helpers.usable(choice, piece)) continue
       does.add(choice.id)
       const href = (choice.id === 'open' || choice.id === 'answer') && piece.sessionId ? helpers.sessionHref(record, piece.sessionId) : undefined
@@ -180,6 +181,8 @@
     }
     return out
   })
+  // The way out of a session that is still open but stuck, offered where the card says why the stage waits.
+  const stuckRestart = $derived(archived || item.section !== 'waiting' ? undefined : item.need?.choices.find(choice => choice.id === 'restart' && !choice.primary))
   // A goal's limits are opened from Usage and budget, unless the bar already offers a new budget.
   const goalButton = $derived(!!goal && !archived && !bar.some(entry => entry.key === 'budget'))
 
@@ -255,7 +258,9 @@
 
   <StagePipeline {nodes} at={item.at} size="labelled" waiting={item.section === 'waiting'} {selected} onselect={index => (chosen = { id: item.id, index })} label={`Choose a stage of ${piece.title}`}/>
 
-  {#if node && selected >= 0}<SkillBuddy context={{outcomeId: record.id, pipeline: piece.key, stage: selected}} disabled={archived} sessionHref={piece.stages?.[selected]?.sessionId ? helpers.sessionHref(record, piece.stages[selected].sessionId!) : ''}/>{/if}
+  <!-- What waits for the person comes first: on a phone the skill suggestions would push it off the screen. -->
+  {#snippet skills()}{#if node && selected >= 0}<SkillBuddy context={{outcomeId: record.id, pipeline: piece.key, stage: selected}} disabled={archived} sessionHref={piece.stages?.[selected]?.sessionId ? helpers.sessionHref(record, piece.stages[selected].sessionId!) : ''}/>{/if}{/snippet}
+  {#if item.section !== 'waiting'}{@render skills()}{/if}
 
   {#if item.section !== 'waiting' && item.why}<p class="note">{item.why}</p>{/if}
 
@@ -267,9 +272,10 @@
     {#if item.need?.recommend?.by === 'gaffer'}<p class="advice"><strong>Gaffer recommends: {item.need.recommend.label.replace(/…$/, '')}.</strong> {item.need.recommend.why}</p>{/if}
     {#if !usageLimited && goal?.goal.advice?.choice === 'tell' && goal.goal.advice.text}<p class="said">It would say: “{goal.goal.advice.text}”</p>{/if}
     {#if gafferNote}<p class="hint">{gafferNote}</p>{/if}
+    {#if stuckRestart}<p class="hint">If its agent is stuck, <button class="inline" type="button" disabled={busy} onclick={() => actions.choose(stuckRestart, record, piece, goal)}>{stuckRestart.label}</button> ends its session and runs the stage again in a new one. It asks first.</p>{/if}
     {#if item.kind === 'delivery'}<p class="hint">{changedAfterAccept(piece.note) ? 'The work changed after you accepted it, so your acceptance and any merge approval were withdrawn. Review what is there now.' : 'The pipeline’s work is ready to be checked against the criteria you agreed.'} The delivery review is below. Accepting the delivery is not approving the merge.</p>{/if}
     {#if lost}<p class="hint">A new session works in the same folder and branch. Moving on starts the next stage in a session of its own.</p>{/if}
-  </section>{/if}
+  </section>{@render skills()}{/if}
 
   {#if piece.criteria?.length || hadCriteria}<DeliveryReview {record} {piece} {archived} {reviewShown} when={helpers.when} onchanged={actions.changed}/>{/if}
 

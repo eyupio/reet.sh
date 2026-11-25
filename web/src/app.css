@@ -103,10 +103,12 @@ body { padding-left: env(safe-area-inset-left, 0px); padding-right: env(safe-are
 code, kbd { font-family: var(--mono); }
 a { color: var(--accent-text); text-underline-offset: 3px; }
 input:not([type='checkbox']):not([type='radio']):hover, select:hover, textarea:hover { border-color: var(--muted); }
-input:not([type='checkbox']):not([type='radio']):focus, select:focus, textarea:focus { border-color: var(--accent); }
+input:not([type='checkbox']):not([type='radio']):focus, select:focus, textarea:focus { border-color: var(--focus); }
 input[type='checkbox'], input[type='radio'] { accent-color: var(--accent); }
 input[aria-invalid='true'] { border-color: var(--bad); }
-:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* The focus ring is the accent text colour: the accent itself is only 2.7:1 on the dark cards, the text tone clears 3:1 in both themes. */
+:root { --focus: var(--accent-text); }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 /* A field already turns its border to the accent on focus, so the outline joins that border rather than floating beside it as a second ring. */
 input:not([type='checkbox']):not([type='radio']):focus-visible, select:focus-visible, textarea:focus-visible { outline-offset: 0; }
 button, input, select, textarea { font: inherit; color: inherit; }

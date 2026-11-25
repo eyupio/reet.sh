@@ -1,6 +1,7 @@
 <script lang="ts">
   // One decision a pipeline is waiting on the person for: why, what Gaffer would do, and the choices as buttons with
-  // the recommended one first. The same block is shown at the head of an outcome's card and in the pipeline's session.
+  // the recommended one first, shown in the pipeline's session. It sits above the conversation, so it can be minimised
+  // to one line, and a long instruction starts short.
   import type { Need, NeedChoice } from '../gafferOutcome'
 
   let { title, stage = '', href = '', need, choices = need.choices, note = '', review = '', busy = false, onchoose }: {
@@ -14,23 +15,32 @@
   } = $props()
   // The instruction Gaffer would give is only worth showing when telling the agent is what it recommends.
   const advice = $derived(need.recommend?.by === 'gaffer' && choices[0]?.recommended ? need.recommend : undefined)
+  let minimised = $state(false), whole = $state(false)
+  const long = $derived((advice?.text?.length ?? 0) > 240)
 </script>
 
 <section class="decision" aria-label={`Decision for ${title}`}>
-  <p class="about">{#if href}<a href={href}>{title}</a>{:else}<strong>{title}</strong>{/if}{#if stage}<span class="stage">{stage} stage</span>{/if}</p>
+  <p class="about">{#if href}<a href={href}>{title}</a>{:else}<strong>{title}</strong>{/if}{#if stage}<span class="stage">{stage} stage</span>{/if}{#if minimised}<span class="stage">Waiting for your decision</span>{/if}
+    <button class="fold" type="button" aria-expanded={!minimised} onclick={() => minimised = !minimised}>{minimised ? 'Show decision' : 'Minimise'}</button></p>
+  {#if !minimised}
   <p class="why">{need.why}</p>
-  {#if advice}<p class="advice"><strong>Gaffer recommends: {advice.label.replace(/…$/, '')}.</strong> {advice.why}{#if advice.text}<span class="text">It would say: “{advice.text}”</span>{/if}</p>{/if}
+  {#if advice}<p class="advice"><strong>Gaffer recommends: {advice.label.replace(/…$/, '')}.</strong> {advice.why}{#if advice.text}<span class="text" class:clamp={long && !whole}>It would say: “{advice.text}”</span>{#if long}<button class="fold" type="button" aria-expanded={whole} onclick={() => whole = !whole}>{whole ? 'Show less' : 'Read all of it'}</button>{/if}{/if}</p>{/if}
   {#if review}<details class="review"><summary>Gaffer’s latest review</summary><p>{review}</p></details>{/if}
   {#if note}<p class="note">{note}</p>{/if}
   {#if choices.length}<div class="choices" role="group" aria-label={`Choices for ${title}`} data-floating-clearance>
     {#each choices as choice (choice.id)}<button class="btn" class:primary={choice.recommended} type="button" disabled={busy} onclick={() => onchoose(choice)}>{choice.label}{#if choice.recommended}{' '}<span class="rec">Recommended</span>{/if}</button>{/each}
   </div>{/if}
+  {/if}
 </section>
 
 <style>
   .decision{display:grid;gap:8px;padding:12px 14px;border-radius:10px;background:var(--card);border:1px solid var(--accent);min-width:0}
   .about{margin:0;display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;font-weight:600}.about a{color:var(--ink);text-decoration:underline;text-underline-offset:3px}.about a:hover{color:var(--accent-text)}
   .stage{font-weight:500;color:var(--muted)}
+  .fold{border:0;background:none;padding:0;font:inherit;font-weight:600;color:var(--accent-text);cursor:pointer}.fold:hover{text-decoration:underline}.fold:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  .about .fold{margin-left:auto}
+  .advice .text.clamp{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;line-clamp:3;overflow:hidden}
+  @media(pointer:coarse){.fold{min-height:44px}}
   .why{margin:0;color:var(--ink);overflow-wrap:anywhere}
   .advice{margin:0;padding:8px 10px;border-radius:8px;background:var(--tint);color:var(--ink);overflow-wrap:anywhere}.advice .text{display:block;margin-top:4px;color:var(--muted)}
   .review{margin:0;color:var(--muted)}.review summary{cursor:pointer;color:var(--ink-soft);font-weight:500}.review p{margin:6px 0 0;color:var(--ink);overflow-wrap:anywhere;white-space:pre-wrap}

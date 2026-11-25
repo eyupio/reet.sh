@@ -8,6 +8,8 @@
   export const mergesByItself = (record: Outcome, piece: GafferOutcomeSession) => !!piece.autoMerge && (!record.yolo || !!piece.yoloMergeOk)
   /** An objective can run to paragraphs; a title or a notice names it in a line. */
   export const short = shortObjective
+  /** What running a stage again does while its session is still open, said before the person confirms it. */
+  export const RESTART_BODY = 'This ends the session doing this stage now and starts the stage again in a new one, in the same folder and branch. Files the agent has written stay there. The new agent starts from the stage’s instruction, not from what was said in this session, which is kept in its history.'
   /** The choices a pipeline can actually take right now: no moving on without a stage in hand, no telling an agent that
    *  is not there, no opening a session that was removed. */
   export const usable = (choice: NeedChoice, piece: GafferOutcomeSession) => {
@@ -25,8 +27,8 @@
   // what changed is said through `onchanged`, and what happened through `onnotice`. A choice that was carried out also
   // tells the app's attention read (the bell, the title), while `busy` is still set, so a page that listens and shares
   // `busy` can leave that signal to its own `onchanged`.
-  import { approveGafferMerge, controlGafferGoal, getGafferGoal, moveGafferPipelineOn, recoverGafferPipeline, retryGafferPipeline, stopFollowingGafferOutcome, tellGafferPipelineAgent, type GafferGoalOverview } from '../api'
-  import { heldStops, stageLabel } from '../gafferOutcome'
+  import { approveGafferMerge, controlGafferGoal, getGafferGoal, moveGafferPipelineOn, recoverGafferPipeline, restartGafferPipeline, retryGafferPipeline, stopFollowingGafferOutcome, tellGafferPipelineAgent, type GafferGoalOverview } from '../api'
+  import { heldStops, sessionLost, stageLabel } from '../gafferOutcome'
   import { toolName } from '../agentLaunch'
   import { signalAttentionChanged } from '../attentionSignal'
   import ConfirmDialog from '../ConfirmDialog.svelte'
@@ -56,6 +58,8 @@
   type Pair = { record: Outcome; piece: GafferOutcomeSession }
   let moving = $state<Pair | null>(null), telling = $state<Pair | null>(null), merging = $state<Pair | null>(null)
   let replacing = $state<Pair | null>(null)
+  // The stage's session is still open: running it again ends that session, so the person confirms first.
+  let restarting = $state<Pair | null>(null)
   let managing = $state<GafferGoalOverview | null>(null), releasing = $state<Outcome | null>(null)
   // What Gaffer would say to the agent, as the words the Tell dialog starts from.
   let tellStart = $state('')
@@ -78,6 +82,7 @@
     else if (choice.id === 'move') moving = { record, piece }
     else if (choice.id === 'budget') { if (goal) managing = goal }
     else if (choice.id === 'replace-worker') replacing = { record, piece }
+    else if (choice.id === 'restart' && piece.state === 'following' && piece.sessionId && !sessionLost(piece)) restarting = { record, piece }
     else if (choice.id === 'restart' || choice.id === 'backup') void retry(record, piece, choice.id === 'backup')
     else if (choice.id === 'stop') releasing = record
   }
@@ -103,14 +108,15 @@
     busy = false
     await onchanged()
   }
-  async function retry(record: Outcome, piece: GafferOutcomeSession, backup = false) {
+  async function retry(record: Outcome, piece: GafferOutcomeSession, backup = false, end = false) {
     if (busy) return
     busy = true; onnotice('')
     try {
       if (backup && piece.sessionId) await recoverGafferPipeline(latest(record), piece.key, piece.sessionId)
+      else if (end && piece.sessionId) await restartGafferPipeline(latest(record), piece.key, piece.sessionId)
       else await retryGafferPipeline(latest(record), piece.key)
       signalAttentionChanged()
-      onnotice(backup ? 'Gaffer is continuing this stage on its backup.' : `Trying “${piece.title}” again.`)
+      onnotice(backup ? 'Gaffer is continuing this stage on its backup.' : end ? `Running “${piece.title}” again in a new session. The old one is ending.` : `Trying “${piece.title}” again.`)
     }
     catch (e) { fail(e, 'That pipeline was not tried again.') }
     busy = false
@@ -165,6 +171,7 @@
   <RecoverWorker record={latest(replacing.record)} piece={replacing.piece} oncancel={() => replacing = null}
     onstarted={async () => { replacing = null; signalAttentionChanged(); onnotice('Gaffer is continuing this stage with the model you chose.'); await onchanged() }}/>
 {/if}
+{#if restarting}{@const pair = restarting}<ConfirmDialog title={`Run “${pair.piece.title}” again in a new session?`} body={RESTART_BODY} confirmLabel="Run again" oncancel={() => restarting = null} onconfirm={() => { restarting = null; void retry(pair.record, pair.piece, false, true) }}/>{/if}
 {#if releasing}<ConfirmDialog title={`Stop following “${short(releasing.objective)}”?`} body="Gaffer and the controller stop looking after every unfinished pipeline in this outcome and start nothing more for it. Sessions that still exist keep running, and nothing is merged or closed. Use this when a session was lost or removed, or the work is no longer wanted; you can then archive or delete the outcome." confirmLabel="Stop following" oncancel={() => releasing = null} onconfirm={() => releasing && void stopFollowing(releasing)}/>{/if}
 {#if moving}{@const at = moving.piece.stages?.[moving.piece.stage ?? 0]?.kind ?? ''}{@const inHand = moving.piece.stages?.[moving.piece.stage ?? 0]}{@const heldNow = inHand?.agentState === 'background'}{@const next = moving.piece.stages?.[(moving.piece.stage ?? 0) + 1]?.kind ?? ''}<ConfirmDialog title={next ? `Move “${moving.piece.title}” on to ${stageLabel(next).toLowerCase()}?` : `Finish the ${stageLabel(at).toLowerCase()} stage of “${moving.piece.title}”?`} body={`${heldNow ? `${heldStops(toolName(inHand?.tool ?? ''), inHand?.agentHeldSince, Date.now())} ` : ''}This is your call: the ${stageLabel(at).toLowerCase()} stage is closed as it stands, without waiting for Gaffer to find it done${next ? `, and the controller starts the ${stageLabel(next).toLowerCase()} stage with Gaffer’s last review as its handover` : ''}. ${next === 'merge' && !mergesByItself(moving.record, moving.piece) ? 'It then stops at Ready to merge and waits for you.' : next === 'merge' ? 'This pipeline merges by itself once every check passes.' : 'Nothing is merged by this.'}`} confirmLabel={next ? 'Move on' : 'Finish stage'} oncancel={() => moving = null} onconfirm={() => void moveOn()}/>{/if}
 {#if telling}<PipelineNote title={`Tell the agent of “${telling.piece.title}”`} intro="Your words go to this pipeline’s working agent for its next turn, exactly as you write them. It cannot interrupt the agent or answer an approval." label="Instruction" placeholder="Write the plan as text now: files, approach, risks. Change no code." initial={tellStart} confirmLabel="Send to the agent" {busy} error={dialogError} oncancel={() => telling = null} onconfirm={text => void tell(text)}/>{/if}

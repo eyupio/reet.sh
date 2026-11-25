@@ -576,11 +576,13 @@
   .below-head:has(.question) { max-height: 33dvh; overflow-y: auto; overscroll-behavior: contain; }
   /* The long dialog is the thing to read: the holder allows it more of a phone's height. */
   @media (max-width: 767px), (max-height: 500px) and (pointer: coarse) and (orientation: landscape) { .below-head:has(.question) { max-height: 70dvh; } }
-  /* A long Factory decision sits above the conversation. On a phone (or a sideways one) it keeps a bounded height and
-     scrolls itself, so its own choices stay reachable instead of being clipped by the fixed-height workspace. */
-  @media (max-width: 767px), (max-height: 500px) and (pointer: coarse) and (orientation: landscape) {
-    .below-head { max-height: 55dvh; overflow-y: auto; overscroll-behavior: contain; }
-    /* While a long decision scrolls, its choices stay at the foot of the block: the next step is always in reach. */
+  /* A Factory decision sits above the conversation and never squeezes it below a usable height, at any width: the
+     holder takes what is left and scrolls itself, so the composer stays in reach instead of being clipped. */
+  .body:has(:global(.session-decision)) { grid-template-rows: auto minmax(0, auto) minmax(min(26rem, 40dvh), 1fr); }
+  .below-head:has(:global(.session-decision)) { overflow-y: auto; overscroll-behavior: contain; }
+  /* While a long decision scrolls, its choices stay at the foot of the block where they sit in a row. Stacked on a
+     phone they would fill the block, so there they scroll with it. */
+  @media (min-width: 561px) {
     .below-head :global(.choices) { position: sticky; bottom: 0; z-index: 1; background: var(--card); box-shadow: 0 -10px 14px -10px var(--scrim); }
   }
   .stage { grid-column: 1; grid-row: 3; }

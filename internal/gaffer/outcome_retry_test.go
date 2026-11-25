@@ -474,3 +474,48 @@ func TestRetryingAPipelineStoppedAtReadyToMergeStartsTheMergeStageInItsOwnSessio
 		t.Fatalf("merge launch: %+v", last)
 	}
 }
+
+// A stage whose agent is stuck while its session is still open waits for the
+// person. Their restart ends that session and starts the stage in a new one,
+// in the same folder. It is refused while the stage is not waiting for them,
+// so an agent that is working is never ended by it.
+func TestRestartingAStuckStageEndsItsSessionAndStartsANewOne(t *testing.T) {
+	r := outcomeFixture(t)
+	r.s.StartGoalSupervisor()
+	created, err := r.s.CreateOutcome(r.p.UserID, pipelineInput(r, false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	code := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
+	o := r.settle(t, created.ID)
+	if _, err = r.s.RestartPipelineStage(r.p.UserID, created.ID, code.Key, code.SessionID, o.Revision); err == nil || !r.s.sessionRunning(r.p.UserID, code.SessionID) {
+		t.Fatalf("a stage that was not waiting for the person was restarted: %v", err)
+	}
+	g, err := r.st.GafferGoalFor(r.p.UserID, code.ConversationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = r.st.ObserveGafferGoal(g, "needs_user", "Gaffer needs your decision. Read its latest review.", 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = r.s.RestartPipelineStage(r.p.UserID, created.ID, code.Key, "another-session", o.Revision); err == nil {
+		t.Fatal("a session that is not the stage's own was named")
+	}
+	before := len(r.starter.asked())
+	if _, err = r.s.RestartPipelineStage(r.p.UserID, created.ID, code.Key, code.SessionID, o.Revision); err != nil {
+		t.Fatal(err)
+	}
+	again := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool {
+		return p.State == "following" && p.SessionID != code.SessionID
+	})
+	asked := r.starter.asked()
+	if len(asked) != before+1 || again.Stage != 0 || asked[len(asked)-1].Dir != code.WorkDir {
+		t.Fatalf("the stage in a new session: launches %d was %d, piece %+v", len(asked), before, again)
+	}
+	if r.s.sessionRunning(r.p.UserID, code.SessionID) {
+		t.Fatal("the stuck session was left running")
+	}
+	if old, err := r.st.GafferGoalFor(r.p.UserID, code.ConversationID); err != nil || old.State != "stopped" {
+		t.Fatalf("the goal of the session left behind still waits: %+v %v", old, err)
+	}
+}

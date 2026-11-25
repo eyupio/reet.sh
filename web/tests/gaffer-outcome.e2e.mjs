@@ -69,15 +69,17 @@ function fixture({planFails=false,settles=true,crew=null,crewFails=false,crewEmp
     '/api/v2/gaffer/goals':()=>({goals:box.goals,readAt:now}),
     '/api/v2/gaffer/conversations':request=>new URL(request.url()).searchParams.get('all')==='true'?{conversations:[general.conversation]}:general,
     '/api/v2/terminal/sessions':request=>{expect(request.method()).toBe('GET');return {sessions:(box.record?.sessions??[]).filter(s=>s.sessionId).map(s=>({id:s.sessionId,agentId:'a1',title:s.title,state:'running',structured:true,tool:'claude',dir:'/work/billing',createdAt:now,updatedAt:now,exitCode:null}))}},
-    [`/api/v2/gaffer/providers/${pid}/plan`]:request=>{
+    [`/api/v2/gaffer/providers/${pid}/plan`]:async request=>{
       expect(request.method()).toBe('POST');const input=request.postDataJSON();box.plans.push(input)
+      await box.planHold
       if(input.reply)box.replies.push(input)
       if(box.planFails)return{status:502,json:{error:'This model did not return a plan. Choose a model that supports tools, or write the plan yourself.'}}
       planAnswer=input.reply?revised:proposed
       // A plan is asked for in the background so a proxy in front of reet never holds the request open.
       return {status:202,json:{id:planId,state:'running'}}
     },
-    [`/api/v2/gaffer/providers/${pid}/plan/${planId}`]:()=>planAnswer,
+    // box.planStep holds the plan at a step, as a slow provider would; box.planBreaks fails it there.
+    [`/api/v2/gaffer/providers/${pid}/plan/${planId}`]:request=>{if(request.method()==='DELETE')return{status:204,json:{}};if(box.planBreaks)return{status:500,json:{error:'The provider could not plan this outcome: 503 from the provider.'}};return box.planStep?{state:'running',phase:box.planStep}:planAnswer},
     '/api/v2/gaffer/outcomes':request=>{
       if(request.method()!=='POST')return {outcomes:box.record?[box.record]:[]}
       const input=request.postDataJSON();box.approved.push(input)
@@ -150,6 +152,16 @@ try {
       const thinking=outcome.getByRole('combobox',{name:'Heavy model',exact:true})
       await expect(thinking.getByRole('option')).toHaveText(['Agent’s default model','starred-model (not in workshop’s list)','claude/on-the-machine','sonnet (not in workshop’s list)','opus (not in workshop’s list)','haiku (not in workshop’s list)','Other…'])
       await expect(outcome.getByRole('combobox',{name:'Model',exact:true}).getByRole('option',{name:'claude/on-the-machine',exact:true})).toBeAttached()
+      // A tier nobody has changed offers nothing to undo. Changed, it can be put back as the dialog started it: here,
+      // with no saved crew, on the outcome's own agent and model, which it then follows again.
+      const undo=outcome.getByRole('button',{name:'Put the Heavy crew back to the outcome’s agent',exact:true})
+      await expect(undo).toHaveCount(0)
+      await thinking.selectOption('sonnet');await expect(undo).toHaveText('Back to the outcome’s agent')
+      await expect(outcome.getByRole('button',{name:/^Put the (Standard|Light) crew back/})).toHaveCount(0)
+      await undo.click()
+      await expect(thinking).toHaveValue('');await expect(undo).toHaveCount(0)
+      await outcome.getByRole('combobox',{name:'Model',exact:true}).selectOption('haiku');await expect(thinking).toHaveValue('haiku')
+      await outcome.getByRole('combobox',{name:'Model',exact:true}).selectOption('');await expect(thinking).toHaveValue('')
       // A name none of them has can still be typed.
       await thinking.selectOption({label:'Other…'});await outcome.getByRole('textbox',{name:'Heavy model name',exact:true}).fill('private-model')
       await thinking.selectOption('opus');await expect(outcome.getByRole('textbox',{name:'Heavy model name',exact:true})).toHaveCount(0)
@@ -1004,6 +1016,40 @@ try {
         }finally{await w.context.close()}
       }
     }
+  }
+  // While Gaffer plans, the dialog shows the step the controller reports and how long it has been. Stop ends the plan
+  // on the controller; a plan that fails keeps its step and says why.
+  for(const [width,theme] of [[1440,'light'],[390,'dark']]){
+    const f=fixture(),w=await openWorkspace(browser,{width,height:1000,theme,terminalMachines:machines,routes:f.routes})
+    watch(w,f.box);f.box.planStep='sending'
+    try {
+      const {outcome}=await openOutcome(w)
+      await outcome.getByRole('textbox',{name:'Outcome',exact:true}).fill('Ship CSV export for billing.')
+      await outcome.getByRole('combobox',{name:'Project',exact:true}).selectOption('p-billing')
+      const ask=outcome.getByRole('button',{name:'Ask Gaffer for a plan',exact:true}),progress=outcome.getByRole('status',{name:'Gaffer’s progress on the plan',exact:true}),steps=progress.getByRole('listitem')
+      await ask.click()
+      await expect(steps).toHaveText(['…Sending to Workshop Gaffer','·gaffer-model is writing the plan','·Checking the plan'])
+      f.box.planStep='writing'
+      await expect(steps).toHaveText(['✓Sent to Workshop Gaffer, done','…gaffer-model is writing the plan','·Checking the plan'])
+      await expect(steps.nth(1)).toHaveAttribute('aria-current','step')
+      await expect(outcome.getByText(/^0:0\d · at most 1:30$/)).toBeVisible()
+      const stop=outcome.getByRole('button',{name:'Stop',exact:true});expect((await stop.boundingBox()).height).toBeGreaterThanOrEqual(44)
+      expect(await outcome.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
+      await outcome.screenshot({path:`${shots}/gaffer-outcome-planning-${width}-${theme}.png`})
+      await stop.click()
+      await expect(progress).toHaveCount(0);await expect(ask).toBeEnabled();await expect(outcome.getByRole('alert')).toHaveCount(0)
+      await expect.poll(()=>f.box.writes).toEqual([`POST /api/v2/gaffer/providers/${pid}/plan`,`DELETE /api/v2/gaffer/providers/${pid}/plan/${planId}`])
+      // Stopped while the start is still on its way back: the job that start made is stopped all the same.
+      let release;f.box.planHold=new Promise(done=>{release=done});await ask.click();await stop.click();release();f.box.planHold=null
+      await expect.poll(()=>f.box.writes).toEqual([`POST /api/v2/gaffer/providers/${pid}/plan`,`DELETE /api/v2/gaffer/providers/${pid}/plan/${planId}`,`POST /api/v2/gaffer/providers/${pid}/plan`,`DELETE /api/v2/gaffer/providers/${pid}/plan/${planId}`])
+      await expect(progress).toHaveCount(0);await expect(ask).toBeEnabled();await expect(outcome.getByRole('alert')).toHaveCount(0)
+      f.box.planBreaks=true;await ask.click()
+      await expect(steps).toHaveText(['✕Sending to Workshop Gaffer, failed','·gaffer-model is writing the plan','·Checking the plan'])
+      await expect(outcome.getByRole('alert')).toHaveText('The provider could not plan this outcome: 503 from the provider.')
+      await expect(stop).toHaveCount(0);await expect(ask).toBeEnabled()
+      await outcome.screenshot({path:`${shots}/gaffer-outcome-plan-failed-${width}-${theme}.png`})
+      expect(w.errors).toEqual([])
+    } finally { await w.context.close() }
   }
   console.log('Gaffer outcome on the Factory page: objective gates, the crew and stages per pipeline, auto-merge as the outcome’s own choice, plan from the typed objective only, editable plan, refused prompts and limits caught first, nothing saved before approval, one approved plan handed to the controller, progress read from its record, partial results, the record on the floor, closing while it starts, stopping unstarted sessions, a model that cannot plan and a hand-written plan, the optional image attach/remove/upload, several images at once, and replying to or declining a proposal, and a repository from GitHub cloned (or reused) as the project, launch readiness before approval (ready, saved agent missing, no sign-in, unreadable sign-ins, old backup figures kept quiet, a backup gone, agent or machine gone with its button to the crew), passed on desktop and phone.')
 } finally { await browser.close() }

@@ -1194,6 +1194,9 @@ const promptBlocked = $derived(!!locked || reattaching || sending || uploading |
  .log > * { flex: none; min-width: 0; max-width: 100%; box-sizing: border-box; }
  /* Everything around the log keeps its height too, so a long reply can never squash or overlay the notice, queue or composer. */
  .chat-pane > :not(.log) { flex: none; min-width: 0; }
+ /* The one exception: in a pane too short for all of it, the queue (which scrolls) gives way before the composer is pushed out of reach. */
+ .chat-pane > .composer { flex: 0 1 auto; min-height: 0; }
+ .composer > :global(:not(.server-queue)) { flex-shrink: 0; }
  .empty { margin: auto; max-width: 40ch; text-align: center; color: var(--muted); }
  .empty h3 { margin: 0 0 6px; font: 600 17px/1.3 var(--serif); color: var(--ink); }
  .empty p { margin: 0; font-size: 14px; line-height: 1.55; }

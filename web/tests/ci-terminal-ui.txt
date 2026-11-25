@@ -37,6 +37,7 @@ account-security
 account-mcp
 library
 fleet-software
+fleet-setup
 skill-card
 skills-prune
 skills-new

@@ -619,6 +619,33 @@ func pauseWork(ctx context.Context, tx *sql.Tx, gaffer int) ([]string, error) {
 			lines = append(lines, fmt.Sprintf("software batch %s (%s): stopped with %s machine(s) waiting; retry the first machine to continue.", h[0], h[1], h[2]))
 		}
 	}
+	if tableExists(ctx, tx, "setup_batches") {
+		// A backup never holds the copied setup text, so an unfinished setup
+		// batch cannot continue: it is abandoned, and the person reads the
+		// source machine again. Undo still works from each machine's journal.
+		held, err := rows(`SELECT id,source_host,CAST(COUNT(*) AS TEXT) FROM setup_batches b JOIN setup_batch_members m ON m.batch_id=b.id AND m.user_id=b.user_id
+			WHERE b.state IN('pending','running','stopped') AND m.state IN('pending','running','failed') GROUP BY b.user_id,b.id ORDER BY b.created_at,b.rowid`)
+		if err != nil {
+			return nil, err
+		}
+		const active = `batch_id IN(SELECT id FROM setup_batches WHERE state IN('pending','running','stopped'))`
+		for _, stmt := range []string{
+			`UPDATE setup_batch_members SET state='skipped',code='` + PausedByRestore + `',updated_at=? WHERE state IN('pending','running','failed') AND ` + active,
+			`UPDATE setup_batches SET state='abandoned',updated_at=? WHERE state IN('pending','running','stopped')`,
+		} {
+			if _, err := tx.ExecContext(ctx, stmt, now()); err != nil {
+				return nil, err
+			}
+		}
+		if tableExists(ctx, tx, "setup_batch_content") {
+			if _, err := tx.ExecContext(ctx, `DELETE FROM setup_batch_content`); err != nil {
+				return nil, err
+			}
+		}
+		for _, h := range held {
+			lines = append(lines, fmt.Sprintf("setup batch %s (from %s): abandoned with %s machine(s) not copied; backups hold no setup text, so read the source machine again.", h[0], h[1], h[2]))
+		}
+	}
 	if tableExists(ctx, tx, "mail_outbox") {
 		var n int
 		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM mail_outbox WHERE state IN('queued','sending')`).Scan(&n); err != nil {

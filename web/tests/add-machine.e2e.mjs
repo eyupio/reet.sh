@@ -44,6 +44,7 @@ await page.route('**/api/**',async route=>{
  else if(path==='/api/v2/sync/skills')data={active:1,activity:[],work:{},machines:agents.map(a=>({agentId:a.id,host:a.host,state:a.paused?'paused':'ok',waiting:[],failed:[]}))}
  else if(path==='/api/v2/models')data={machines:[{agentId:'agent-ws',host:'workstation',state:'listed',models:[{id:'anthropic/claude-sonnet-4-5',provider:'anthropic'},{id:'openai/gpt-5',provider:'openai'}],more:false,source:'opencode models',version:'',fetchedAt:Date.now()-3*3600000,checkedAt:Date.now()-3*3600000,reason:'',sentence:''}]}
  else if(path==='/api/v2/machines/health')data={serverNow:Date.now(),machines:[]}
+ else if(path==='/api/v2/setup/fleet/batches/active')data=null
  else if(path==='/api/v2/setup/profiles')data={profiles:[]}
  else if(path==='/api/v2/terminal/machines')data={machines:[]}
  // Machines reads the server's terminal status for a writer in accounts mode: the first-terminal checklist moved here from

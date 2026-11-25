@@ -51,6 +51,10 @@ type ManagerOptions struct {
 	// Locked re-reads the machine's local lock (reet agent lock). While it
 	// reports true, Run closes every attachment; sessions keep running.
 	Locked func() bool
+	// ApplyConsent re-reads the machine's local allow-apply opt-in
+	// (reet agent allow-apply on|off), the one skills use, before a setup
+	// copy is planned, applied or undone. nil or an error refuses it.
+	ApplyConsent func() error
 }
 
 type Manager struct {

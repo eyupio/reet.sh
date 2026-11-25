@@ -254,6 +254,13 @@ type Capabilities struct {
 	// SoftwareMirrorFirst is sent only when software-mirror-first-v1 was
 	// negotiated, beside SoftwareApply: an apply may then ask for the mirror first.
 	SoftwareMirrorFirst bool `json:"softwareMirrorFirst,omitempty"`
+	// SetupRead, SetupApply and SetupRollback are sent only when
+	// setup-read-v1, setup-apply-v1 and setup-rollback-v1 were negotiated
+	// and terminal access is on. Each is a separate permission: reading a
+	// machine's setup, planning and writing a copy, and undoing one.
+	SetupRead     bool `json:"setupRead,omitempty"`
+	SetupApply    bool `json:"setupApply,omitempty"`
+	SetupRollback bool `json:"setupRollback,omitempty"`
 	// Locked is sent only when machine-lock-v1 was negotiated: the machine is
 	// locked locally (reet agent lock) and refuses everything a controller
 	// starts. It is never sent beside Readiness ready.
@@ -502,6 +509,9 @@ func (c Capabilities) ValidateFor(features string) error {
 		return ErrInvalid
 	}
 	if c.SoftwareMirrorFirst && !(c.SoftwareApply && SupportsSoftwareMirrorFirst(features)) {
+		return ErrInvalid
+	}
+	if (c.SetupRead || c.SetupApply || c.SetupRollback) && !c.TerminalControl {
 		return ErrInvalid
 	}
 	validVersion := c.ProtocolVersion >= 1 && c.ProtocolVersion <= 65535
@@ -1079,6 +1089,10 @@ func Decode(data []byte) (Message, error) {
 		b = &SoftwareApply{}
 	case "software_apply_result":
 		b = &SoftwareApplyResult{}
+	case "setup_fleet":
+		b = &SetupFleet{}
+	case "setup_fleet_result":
+		b = &SetupFleetResult{}
 	case "result":
 		b = &Result{}
 	case "session_changed":

@@ -657,7 +657,7 @@ func (p *Peer) Receive(m terminalproto.Message) error {
 		return nil
 	case *terminalproto.BaseCheckResult, *terminalproto.BranchSyncResult, *terminalproto.BranchPrunePlanResult, *terminalproto.BranchPruneResult,
 		*terminalproto.SoftwareApplyResult, *terminalproto.RepoCloneResult, *terminalproto.NativeViewResult, *terminalproto.AccountsResult,
-		*terminalproto.RepoCloneState, *terminalproto.RepoCloneRemoved:
+		*terminalproto.RepoCloneState, *terminalproto.RepoCloneRemoved, *terminalproto.SetupFleetResult:
 		// An answer whose call already gave up. Refusing it here would end the
 		// machine's connection over an answer that merely came late, so it is
 		// counted and dropped. For a check, a plan, a sync, a view or a clone

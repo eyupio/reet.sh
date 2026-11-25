@@ -715,7 +715,8 @@ func (s *Store) SetUserPasswordKeep(id int64, hash string) error {
 
 // VacuumInto writes a consistent copy of the live database to dest. It uses
 // SQLite's own VACUUM INTO, which includes committed WAL pages and never
-// copies a half-written file.
+// copies a half-written file. The copy never holds setup text: the setup
+// batch content table is emptied in it before it is used.
 func (s *Store) VacuumInto(ctx context.Context, dest string) error {
 	u := url.URL{Scheme: "file", Path: filepath.Join(s.dir, "reet.db")}
 	q := url.Values{"mode": {"ro"}, "_pragma": {"busy_timeout(3000)"}}
@@ -729,7 +730,7 @@ func (s *Store) VacuumInto(ctx context.Context, dest string) error {
 	if _, err := db.ExecContext(ctx, "VACUUM INTO ?", dest); err != nil {
 		return err
 	}
-	return nil
+	return scrubSetupContent(ctx, dest)
 }
 
 // CheckDatabaseFile runs SQLite's integrity check against a file.

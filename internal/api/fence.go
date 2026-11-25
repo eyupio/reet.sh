@@ -210,6 +210,11 @@ func (s *server) resumeAfterFence() {
 			log.Printf("software batches: resume after the fence was lifted: %v", err)
 		}
 	}
+	if s.setupRuns != nil {
+		if err := s.setupRuns.Resume(); err != nil {
+			log.Printf("setup batches: resume after the fence was lifted: %v", err)
+		}
+	}
 }
 
 // fenceMessage says that the controller has moved, when, and to where.

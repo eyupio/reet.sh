@@ -52,7 +52,7 @@ Without --preview, write a passphrase-encrypted local setup snapshot.
 list and inspect read clear headers; inspect opens the payload only with a passphrase.
 restore previews a mapped plan; --apply creates or replaces conflicts when chosen, with optional per-path choices.
 verify compares the selected fields in the destination without repairing them.
-rollback reverses a completed create/replace journal after checking it against the snapshot; --last picks the newest completed one.
+rollback reverses a completed create/replace journal after checking it against the snapshot; --last picks the newest completed one. --journal FILE alone checks the journal's own digests, as for a copy made from another machine.
 journals lists local apply/rollback records without opening snapshots.
 health gives conservative local evidence and authentication guidance.
 fetch downloads a snapshot from the configured S3 destination.
@@ -484,6 +484,19 @@ func runRollback(args []string, out io.Writer) error {
 			return nil
 		}
 		return err
+	}
+	// A journal on its own is enough: it holds the applied and rollback-copy
+	// digests, so a copy applied from another machine, which has no snapshot
+	// here, can still be reversed.
+	if *journal != "" && *profile == "" && f.NArg() == 0 && *revision == 0 {
+		result, err := RollbackJournal(*journal, RestoreRollbackOptions{})
+		if err != nil {
+			return err
+		}
+		if *asJSON {
+			return writeJSON(out, result)
+		}
+		return renderRestoreRollback(out, result)
 	}
 	validPair := (*profile == "") == (f.NArg() == 1)
 	invalidSource := (*journal == "" && !*last) || (*journal != "" && *last)

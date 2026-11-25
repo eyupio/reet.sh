@@ -77,6 +77,12 @@ func BlockedReason(f skillbundle.ContentFile) string {
 	}
 	return ""
 }
+
+// LooksLikeCredential reports whether data holds a common credential shape:
+// private key blocks and well-known token prefixes. It detects hazards, not
+// every secret.
+func LooksLikeCredential(data []byte) bool { return credential.Match(data) }
+
 func BlockDescription(code string) string {
 	switch code {
 	case "credential_path":

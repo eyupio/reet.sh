@@ -1,4 +1,4 @@
-## REVIEW-FIXES-1: twenty-one findings from a review of the machines and skills features are fixed (25 November 2026)
+## REVIEW-FIXES-1: twenty-one findings, and the leads the review left, from a review of the machines and skills features are fixed (25 November 2026)
 
 A review of the machines and skills code (store, API, fetch and install, web client) found twenty-one things to fix. Each
 was re-read against the source before it was accepted, and each fix has a test that failed before it and passes after.
@@ -55,6 +55,34 @@ Web client.
   `privateSkillFiles` and `stageSkillFiles`), the never-set `direct` import mode, six unused helpers in `machines.ts`
   and the `sessionId` prop of `SkillPicker`.
 
+The leads, fixed afterwards. The review listed these without confirming them. Each was re-read before it was changed.
+
+- Import limits. `POST /api/import` is refused with 413 when its items, text lines, environments and their skills come to more
+  than `importMaxEntries` (16,384, twice the most a machine reports), before `importMu` is taken. A name over 255 bytes
+  (`store.MaxLibrarySkillNameBytes`, the limit `ValidLibrarySkillName` had as a literal) is skipped with an entry in `errors`,
+  whatever it was read as, so a pasted line over 255 bytes is skipped too.
+- Shelf notes. A note is at most 20,000 characters (`shelfNoteMax`), refused with 400. The review said 4,000, the limit of the
+  note box; `TestMCPWriteResponseLimits` and the MCP tools take 20,000, so 4,000 would have broken them.
+- Repeated work. The Skills page checks the public page only of the rows it returns, not the other tab's. A copy run plans once
+  (`SkillCopyPlanFor`, `MarkSkillsUnsourcedFor`) instead of twice. The page still reads on the single write connection.
+- Skill Buddy. Asking again for a suggestion already held writes nothing, and the 90 day purge runs once per call, not once per
+  suggestion. The web client still asks after each pause in typing, and each ask still reads the catalogue and library.
+- Retry list. `pollSkillsAgent` takes the retries after the job is claimed, so a failed claim leaves them for the next poll. If
+  taking them fails after the claim, the job is still sent and they wait.
+- Polling. The Skills page numbers its reads per tab and its poll skips a tab that has a read on its way; the Sync page skips a tick
+  while its read runs. Only the poll skips: a read after something the person did always runs.
+- Touch targets and copy in the machine dialogs. The switches (a larger hit area, same look), icon buttons, tabs, step buttons and
+  links reach 44 px on a coarse pointer. Em dashes in those screens are gone and they say "enrolment". The command text is unchanged.
+- The set-server proof is bound to the controller's address (decided with the owner: bind it and require it). A machine sends the
+  address it dialled; the controller signs over its own configured public URL (`REET_PUBLIC_URL` or the admin setting) and answers
+  409 `wrong_address` for any other and `no_public_url` when it has none. The machine accepts only that bound proof, so
+  `set-server` and following a move need a controller of this release with its public URL set. A request that names no address, from
+  an older machine, still gets the unbound proof; machines older than this stay open to the relay until updated.
+- The proof route and a code enrolment with an unknown code are answered from the read pool, so guesses cannot queue on the write
+  connection. `refuseMachine` answers 500, not 403, when the machine check itself fails, in the private control, private hello,
+  terminal and software mirror routes too. A branch origin does not have is `no_remote` (by `git ls-remote --exit-code`), not
+  `fetch_failed`.
+
 Decisions made along the way.
 
 - Finding 6 was a choice, not a plain bug: the documented `--bundle` command worked with the machine's secret alone. The
@@ -64,12 +92,13 @@ Decisions made along the way.
 
 Checked.
 
-- `go vet ./...` clean. `go test ./...`: every package passed except `internal/gaffer`, where
-  `TestAStopIsNotAskedAgainWhileClaimedOrOnceAnswered` failed once while the whole suite ran in parallel. It passes 15 of 15
-  alone and the whole package passes alone (87 s). Nothing in `internal/gaffer` refers to code changed here, and the
-  directory is unchanged. It is not in `flaky-tests.md`; it needs an owner to look at it.
-- The web unit tests (127 files) and `svelte-check` (537 files, no errors or warnings) pass.
-- Browser suites against a built UI, all passing: `machine-import`, `add-machine`, `machines-fleet`, `library-machine-flow`,
+- `go vet ./...` clean. `go test ./...` passes in every package, run twice: once for the twenty-one findings, once again after
+  the leads were added. In the first run `internal/gaffer`'s `TestAStopIsNotAskedAgainWhileClaimedOrOnceAnswered` failed once
+  while the whole suite ran in parallel; it passed 15 of 15 alone, the whole package passed alone, and it did not fail in the
+  second run. Nothing in `internal/gaffer` refers to code changed here. It is not in `flaky-tests.md`; it needs an owner to look
+  at it.
+- The web unit tests (128 files) and `svelte-check` (537 files, no errors or warnings) pass.
+- Browser suites against a built UI (twenty-seven in all, across the web changes and again on the merged tree), all passing, among them: `machine-import`, `add-machine`, `machines-fleet`, `library-machine-flow`,
   `machines-search`, `first-machine`, `skill-buddy`, `library`, `chat` and `session-workspace`. `library-machine-flow` failed
   first, which is how the part of finding 16 above was found to be wrong.
 - Under `-race`, `internal/store`, `internal/scan` and `internal/skillfetch` pass with no race reported. `internal/api`
@@ -81,10 +110,8 @@ Not checked.
 
 - No test drives the Library double change, the Skill Buddy over-limit message or the Machines page polling directly. The
   suites above cover the behaviour around them, and these three were checked by reading only.
-- The leads the review listed but did not confirm are untouched: no limit on `POST /api/import` items or names, the Skills
-  page and copy planner repeating work, Skill Buddy posting on every typing pause, pages that start a poll while one runs,
-  touch targets and copy in the machine dialogs, the controller proof that can be relayed by a rogue `set-server` target,
-  the unauthenticated `agent-proof` and code routes using the single write connection, and a branch never pushed reporting
-  `fetch_failed`.
-- The other callers of `AuthenticateRemoteAgent` (`private_control.go`, `software_mirror.go`, `terminal.go`, `private.go`,
-  `machineUser`) still answer a refusal for a storage error. The agent only drops its result on `/api/v2/sync/result`.
+- Not changed, on purpose: `installCopy` (an open API route with no caller in the web client, MCP or docs), the write-only
+  `keep_synced` field and the exported store functions only tests call. Removing them changes API fields and test seams; say if
+  they should go. `SkillsPageFor` still reads on the write connection, and Skill Buddy still reads on every ask.
+- `machineUser`, which returns a bool, still treats any error as "not a machine" and falls through to the normal sign-in checks.
+- No test asserts the 44 px sizes; they were measured with a throwaway script in Chromium with touch on, at 390 and 1280 px.

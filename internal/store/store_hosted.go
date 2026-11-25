@@ -41,13 +41,16 @@ func ValidHostedName(name string) bool {
 	return len(name) > 0 && len(name) <= 64 && hostedName.MatchString(name)
 }
 
+// MaxLibrarySkillNameBytes is the longest a library skill's name may be.
+const MaxLibrarySkillNameBytes = 255
+
 // ValidLibrarySkillName reports whether a library skill can be named name:
 // any name a machine can keep a skill folder under, the agent's own rule
 // (scan.skillNameProblem): one plain path element, not starting with a dot,
 // with no NUL and at most 255 bytes. reet's copy of an imported or machine
 // skill takes such a name; hosting one (ValidHostedName) needs more.
 func ValidLibrarySkillName(name string) bool {
-	return name != "" && len(name) <= 255 && utf8.ValidString(name) && !strings.HasPrefix(name, ".") && !strings.ContainsAny(name, "/\\\x00")
+	return name != "" && len(name) <= MaxLibrarySkillNameBytes && utf8.ValidString(name) && !strings.HasPrefix(name, ".") && !strings.ContainsAny(name, "/\\\x00")
 }
 
 // NormalizeHostedPrefix accepts a profile prefix such as "acme" or "acme-"

@@ -54,6 +54,29 @@ func (s *Store) migrateSkillBuddy() error {
 // RecordSkillBuddyFor keeps one receipt per skill and work scope, not one per page refresh.
 // Suggestions never replace a person's decision or its pinned instructions.
 func (s *Store) RecordSkillBuddyFor(uid int64, scope, session, stage string, sk skillbuddy.Skill) error {
+	if err := s.recordSkillBuddy(uid, scope, session, stage, sk); err != nil {
+		return err
+	}
+	return s.purgeSkillBuddy(uid)
+}
+
+// RecordSkillBuddySuggestionsFor records sks as suggested for a scope. The
+// chat composer asks after every pause in typing, so a receipt already held
+// is not written again, and the purge runs once for the lot.
+func (s *Store) RecordSkillBuddySuggestionsFor(uid int64, scope, session, stage string, sks []skillbuddy.Skill) error {
+	for _, sk := range sks {
+		sk.State = "suggested"
+		if err := s.recordSkillBuddy(uid, scope, session, stage, sk); err != nil {
+			return err
+		}
+	}
+	if len(sks) == 0 {
+		return nil
+	}
+	return s.purgeSkillBuddy(uid)
+}
+
+func (s *Store) recordSkillBuddy(uid int64, scope, session, stage string, sk skillbuddy.Skill) error {
 	if len(scope) > 200 || scope == "" || len(sk.ID) > 300 || sk.ID == "" || len(sk.Instructions) > 12000 {
 		return errors.New("invalid skill receipt")
 	}
@@ -72,11 +95,13 @@ func (s *Store) RecordSkillBuddyFor(uid int64, scope, session, stage string, sk 
 	instructions=CASE WHEN excluded.state='suggested' THEN instructions ELSE excluded.instructions END,
 	attribution=CASE WHEN excluded.state='suggested' THEN attribution ELSE excluded.attribution END,
 	state=CASE WHEN excluded.state='suggested' THEN state ELSE excluded.state END,
-	at=CASE WHEN excluded.state='suggested' THEN at ELSE excluded.at END`, uid, scope, sk.ID, sk.Name, sk.Source, sk.Revision, sk.Reason, stage, session, sk.Instructions, sk.Attribution, sk.State, now())
-	if err != nil {
-		return err
-	}
-	_, err = s.db.Exec(`DELETE FROM skill_buddy_choices WHERE user_id=? AND at<?`, uid, now()-90*24*60*60*1000)
+	at=CASE WHEN excluded.state='suggested' THEN at ELSE excluded.at END
+	WHERE excluded.state<>'suggested'`, uid, scope, sk.ID, sk.Name, sk.Source, sk.Revision, sk.Reason, stage, session, sk.Instructions, sk.Attribution, sk.State, now())
+	return err
+}
+
+func (s *Store) purgeSkillBuddy(uid int64) error {
+	_, err := s.db.Exec(`DELETE FROM skill_buddy_choices WHERE user_id=? AND at<?`, uid, now()-90*24*60*60*1000)
 	return err
 }
 

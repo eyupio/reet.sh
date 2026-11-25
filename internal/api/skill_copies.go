@@ -211,10 +211,15 @@ func (s *server) runSkillCopies(uid int64) {
 	if err := s.st.PurgeDeletedSkillsFor(uid, time.Now()); err != nil {
 		log.Printf("skill copies: purge: %v", err)
 	}
-	needs, err := s.st.SkillsNeedingCopyFor(uid)
+	needs, unsourced, err := s.st.SkillCopyPlanFor(uid)
 	if err != nil {
 		log.Printf("skill copies: %v", err)
 		return
+	}
+	// From the plan just made, before the fetches: a plan kept through them
+	// would be stale, and the skills it marks do not depend on them.
+	if _, err = s.st.MarkSkillsUnsourcedFor(uid, unsourced); err != nil {
+		log.Printf("skill copies: %v", err)
 	}
 	s.fetchSkillCopies(uid, needs)
 	for _, n := range needs {
@@ -227,9 +232,6 @@ func (s *server) runSkillCopies(uid int64) {
 		if err != nil && !errors.Is(err, store.ErrRemoteImport) && !errors.Is(err, store.ErrRemoteImportCapacity) && !errors.Is(err, store.ErrSkillNoCaptureSource) {
 			log.Printf("skill copies: capture %s: %v", n.Name, err)
 		}
-	}
-	if _, err = s.st.MarkUnsourcedSkillsFor(uid); err != nil {
-		log.Printf("skill copies: %v", err)
 	}
 }
 

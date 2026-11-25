@@ -115,3 +115,9 @@ Not checked.
   they should go. `SkillsPageFor` still reads on the write connection, and Skill Buddy still reads on every ask.
 - `machineUser`, which returns a bool, still treats any error as "not a machine" and falls through to the normal sign-in checks.
 - No test asserts the 44 px sizes; they were measured with a throwaway script in Chromium with touch on, at 390 and 1280 px.
+- Still under 44 px on a coarse pointer, outside what the review named: `MachineSetup`'s `.advanced > summary`, `.modes` and
+  `.setup > summary` rows, the 16 px checkboxes in the skill import file table, and `MachineSettings`' `.confirm-actions .btn`
+  and typed-confirm input (read from the CSS, not measured).
+- Left alone: "enrollment" in the copy of `UpdateReview.svelte`, `sessions/SessionsPage.svelte` and `terminal/TerminalWorkspace.svelte`,
+  and em dashes in about two dozen other `.svelte` and `.ts` files (the count includes comments; copy and comments were not told
+  apart).

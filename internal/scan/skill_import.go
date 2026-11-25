@@ -133,7 +133,7 @@ func skillImportRequest(ctx context.Context, c agentConfig, method string, body,
 		case 401, 403:
 			message = "an active write-role account and its owned machine enrollment are required"
 		case 409:
-			message = "check the machine pause state, reported scope, expected bundle revision and original request ID"
+			message = "check the machine pause state, reported scope, expected bundle revision and original request ID, and that this machine started the bundle"
 		}
 		return fmt.Errorf("skill import controller status %d: %s", resp.StatusCode, message)
 	}

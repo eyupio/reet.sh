@@ -174,8 +174,8 @@ const parts=dialog=>({
  name:dialog.getByLabel('Machine name',{exact:true}),
  commands:dialog.locator('pre.commands'),
  status:dialog.locator('.join-status'),
- use:name=>dialog.getByRole('button',{name:`Done — show ${name}`,exact:true}),
- anyUse:dialog.getByRole('button',{name:/^Done — show /}),
+ use:name=>dialog.getByRole('button',{name:`Done, show ${name}`,exact:true}),
+ anyUse:dialog.getByRole('button',{name:/^Done, show /}),
 })
 const words=async dialog=>{const text=await dialog.innerText();expect(text).not.toMatch(/verified|healthy/i);return text}
 // Setting the value the way a paste would, which can carry what typing cannot.

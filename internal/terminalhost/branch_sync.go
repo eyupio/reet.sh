@@ -2,8 +2,11 @@ package terminalhost
 
 import (
 	"context"
+	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -75,6 +78,7 @@ func SyncBranch(ctx context.Context, home string, req terminalproto.BranchSync, 
 		// GitHub was not reached and the folder is left exactly as it is.
 		return answer(terminalproto.BranchSyncFetchFailed)
 	}
+	lsArgs := append(slices.Clone(fetchArgs), "ls-remote", "--exit-code", "--heads", from, "refs/heads/"+base)
 	fetchArgs = append(fetchArgs, "fetch", "--no-tags", "--no-write-fetch-head", from, "+refs/heads/"+base+":"+remoteRef)
 	// One fetch per repository at a time, as a base resolve does: concurrent
 	// fetches of the same refspec make all but one fail.
@@ -82,6 +86,14 @@ func SyncBranch(ctx context.Context, home string, req terminalproto.BranchSync, 
 	_, fetchErr := git(fetchCtx, dir, fetchArgs...)
 	release()
 	if fetchErr != nil || ctx.Err() != nil {
+		// A branch origin does not have is no remote branch, not a failed fetch. ls-remote says so by its
+		// exit status (2), which git's message, translated by LANG, cannot.
+		if ctx.Err() == nil {
+			var exit *exec.ExitError
+			if _, err := git(fetchCtx, dir, lsArgs...); errors.As(err, &exit) && exit.ExitCode() == 2 {
+				return answer(terminalproto.BranchSyncNoRemote)
+			}
+		}
 		return answer(terminalproto.BranchSyncFetchFailed)
 	}
 	remote, err := git(ctx, dir, "rev-parse", "--verify", "--quiet", remoteRef+"^{commit}")

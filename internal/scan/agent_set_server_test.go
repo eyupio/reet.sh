@@ -58,12 +58,12 @@ func newController(t *testing.T, handler func(c *controller, w http.ResponseWrit
 // honest holds this machine's record: it proves it, and names the machine for
 // its credentials.
 func honest(t *testing.T) *controller {
-	return newController(t, func(_ *controller, w http.ResponseWriter, r *http.Request, body []byte) {
+	return newController(t, func(c *controller, w http.ResponseWriter, r *http.Request, body []byte) {
 		switch r.URL.Path {
 		case syncproof.Path:
 			var in struct{ ID, Nonce string }
 			json.Unmarshal(body, &in)
-			json.NewEncoder(w).Encode(map[string]string{"proof": syncproof.Compute(syncproof.HashSecret(testMachineSecret), in.ID, in.Nonce)})
+			json.NewEncoder(w).Encode(map[string]string{"proof": syncproof.ComputeBound(syncproof.HashSecret(testMachineSecret), in.ID, in.Nonce, syncproof.Origin(c.URL))})
 		case "/api/v2/sync/identity":
 			if r.Header.Get("X-Reet-Agent") != testMachineID || r.Header.Get("X-Reet-Agent-Key") != testMachineSecret {
 				w.WriteHeader(http.StatusUnauthorized)
@@ -166,11 +166,11 @@ func TestSetServerRefusesAForgedProof(t *testing.T) {
 	config := enrolledMachine(t, "https://old.example.com")
 	before := fileBytes(t, config)
 	restarts := withRestart(t, nil)
-	impostor := newController(t, func(_ *controller, w http.ResponseWriter, r *http.Request, body []byte) {
+	impostor := newController(t, func(c *controller, w http.ResponseWriter, r *http.Request, body []byte) {
 		var in struct{ ID, Nonce string }
 		json.Unmarshal(body, &in)
-		// It knows the id and the nonce, and guesses at the hash.
-		json.NewEncoder(w).Encode(map[string]string{"proof": syncproof.Compute("a-guess", in.ID, in.Nonce)})
+		// It knows the id, the nonce and its own address, and guesses at the hash.
+		json.NewEncoder(w).Encode(map[string]string{"proof": syncproof.ComputeBound("a-guess", in.ID, in.Nonce, syncproof.Origin(c.URL))})
 	})
 	_, err := setServer(t, config, impostor.URL)
 	if err == nil || !strings.Contains(err.Error(), "Check 1 of 2") || !strings.Contains(err.Error(), "does not hold it") {
@@ -187,8 +187,10 @@ func TestSetServerRefusesAReplayedProof(t *testing.T) {
 	config := enrolledMachine(t, "https://old.example.com")
 	before := fileBytes(t, config)
 	withRestart(t, nil)
-	stale := syncproof.Compute(syncproof.HashSecret(testMachineSecret), testMachineID, strings.Repeat("a", 64))
-	replayer := newController(t, func(_ *controller, w http.ResponseWriter, r *http.Request, _ []byte) {
+	var replayer *controller
+	replayer = newController(t, func(_ *controller, w http.ResponseWriter, r *http.Request, _ []byte) {
+		// A real proof made for this machine and this address, but for an earlier nonce.
+		stale := syncproof.ComputeBound(syncproof.HashSecret(testMachineSecret), testMachineID, strings.Repeat("a", 64), syncproof.Origin(replayer.URL))
 		json.NewEncoder(w).Encode(map[string]string{"proof": stale})
 	})
 	if _, err := setServer(t, config, replayer.URL); err == nil || !strings.Contains(err.Error(), "Check 1 of 2") {
@@ -272,11 +274,11 @@ func TestSetServerNamesTheSecondCheckWhenTheCredentialsAreRefused(t *testing.T) 
 	config := enrolledMachine(t, "https://old.example.com")
 	before := fileBytes(t, config)
 	restarts := withRestart(t, nil)
-	c := newController(t, func(_ *controller, w http.ResponseWriter, r *http.Request, body []byte) {
+	c := newController(t, func(c *controller, w http.ResponseWriter, r *http.Request, body []byte) {
 		if r.URL.Path == syncproof.Path {
 			var in struct{ ID, Nonce string }
 			json.Unmarshal(body, &in)
-			json.NewEncoder(w).Encode(map[string]string{"proof": syncproof.Compute(syncproof.HashSecret(testMachineSecret), in.ID, in.Nonce)})
+			json.NewEncoder(w).Encode(map[string]string{"proof": syncproof.ComputeBound(syncproof.HashSecret(testMachineSecret), in.ID, in.Nonce, syncproof.Origin(c.URL))})
 			return
 		}
 		w.WriteHeader(http.StatusUnauthorized)

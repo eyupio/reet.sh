@@ -88,19 +88,23 @@ func (s *Store) migrateSkillContent() error {
 
 // SkillSourceFor is the public source an imported skill came from, read from
 // the shelf row it was added by. ok is false when it has none to fetch from.
+// A skill published on this server by someone else is a "hosted" source, whose
+// files come from PublishedHostedFiles and which has no original to download;
+// the account's own written skills are not, they are already in its library.
 func (s *Store) SkillSourceFor(uid int64, item string) (r ref.Ref, ok bool, err error) {
 	err = s.db.QueryRow(`SELECT k.id,k.source,k.slug,k.source_type,k.url FROM library_items i JOIN library_aliases a ON a.user_id=i.user_id AND a.item_id=i.id AND a.kind='shelf' JOIN skills k ON k.id=a.reference
- WHERE i.user_id=? AND i.id=? AND i.item_type=? AND i.deleted_at=0 AND k.source_type IN ('github','well-known') ORDER BY a.reference LIMIT 1`, uid, item, LibrarySkill).Scan(&r.ID, &r.Source, &r.Slug, &r.SourceType, &r.URL)
+ WHERE i.user_id=? AND i.id=? AND i.item_type=? AND i.deleted_at=0 AND (k.source_type IN ('github','well-known') OR k.source_type='hosted' AND NOT EXISTS(SELECT 1 FROM library_aliases h WHERE h.user_id=i.user_id AND h.item_id=i.id AND h.kind='hosted')) ORDER BY a.reference LIMIT 1`, uid, item, LibrarySkill).Scan(&r.ID, &r.Source, &r.Slug, &r.SourceType, &r.URL)
 	if errors.Is(err, sql.ErrNoRows) {
 		return r, false, nil
 	}
 	return r, err == nil, err
 }
 
-// skillCopyPlan sorts the live skills that have no content and no problem
+// SkillCopyPlanFor sorts the live skills that have no content and no problem
 // recorded (or only SkillNoSourceProblem, which it clears once a source appears): those reet can fetch, those a machine can send, and the Active
-// ones with neither.
-func (s *Store) skillCopyPlan(uid int64) (needs []SkillCopyNeed, unsourced []string, err error) {
+// ones with neither. It walks every such skill, so a caller that needs both
+// lists takes them from one plan (MarkSkillsUnsourcedFor takes the second).
+func (s *Store) SkillCopyPlanFor(uid int64) (needs []SkillCopyNeed, unsourced []string, err error) {
 	rows, err := s.db.Query(`SELECT id,name,status,copy_problem FROM library_items WHERE user_id=? AND item_type=? AND deleted_at=0 AND revision_id='' AND copy_problem IN ('',?) ORDER BY lower(name),id`, uid, LibrarySkill, SkillNoSourceProblem)
 	if err != nil {
 		return nil, nil, err
@@ -216,19 +220,25 @@ func (s *Store) captureSource(uid int64, item, agentID, kind string) (skill, env
 // one of now. Archived ones are included: their name joins the removal list
 // only once reet has the copy.
 func (s *Store) SkillsNeedingCopyFor(uid int64) ([]SkillCopyNeed, error) {
-	needs, _, err := s.skillCopyPlan(uid)
+	needs, _, err := s.SkillCopyPlanFor(uid)
 	return needs, err
 }
 
 // MarkUnsourcedSkillsFor records, on each Active skill with no content that
 // nothing can supply, why it will not get any. It returns how many it marked.
 func (s *Store) MarkUnsourcedSkillsFor(uid int64) (int, error) {
-	_, unsourced, err := s.skillCopyPlan(uid)
+	_, unsourced, err := s.SkillCopyPlanFor(uid)
 	if err != nil {
 		return 0, err
 	}
+	return s.MarkSkillsUnsourcedFor(uid, unsourced)
+}
+
+// MarkSkillsUnsourcedFor marks the unsourced skills of a plan (SkillCopyPlanFor)
+// as MarkUnsourcedSkillsFor does, so a run that holds the plan makes no second.
+func (s *Store) MarkSkillsUnsourcedFor(uid int64, unsourced []string) (int, error) {
 	for _, id := range unsourced {
-		if err = s.SetSkillCopyProblemFor(uid, id, SkillNoSourceProblem); err != nil {
+		if err := s.SetSkillCopyProblemFor(uid, id, SkillNoSourceProblem); err != nil {
 			return 0, err
 		}
 	}

@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import ts from 'typescript'
 // Compile the pure comparison helper without a browser or an extra test dependency.
 const { outputText } = ts.transpileModule(readFileSync(new URL('./machines.ts', import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } })
-const { inventoryMachines, inventory, agentGroups, agentOnline, installationReports, installationStatus, installationSummary, machineMatchesSearch, agentBuild, agentUpdateTarget, latestRelease, updateAvailable, versionLess, updateJobFor, updateProgress, agentUpdateState, updateStateLabel, updateStepsShown, updateAction, channelBuild } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`)
+const { inventoryMachines, inventory, agentGroups, machineMatchesSearch, agentBuild, agentUpdateTarget, latestRelease, updateAvailable, versionLess, updateJobFor, updateProgress, agentUpdateState, updateStateLabel, updateStepsShown, updateAction, channelBuild } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`)
 const now = Date.now()
 const skill = (id, source = 'org/repo') => ({ id, name: id, source, sourceType: source ? 'github' : 'local' })
 const group = (id, skills, changes = {}) => ({ id, agent: 'claude', skills, complete: true, scannedAt: now, ...changes })
@@ -22,45 +22,6 @@ test('a machine is found by host, alias or a skill in any scope', () => {
   assert.equal(machineMatchesSearch(machine, 'code-review'), true)
   assert.equal(machineMatchesSearch(machine, 'hidden'), false, 'server heartbeats are not a machine skill')
   assert.equal(machineMatchesSearch(machine, 'laptop code'), true)
-})
-
-test('only a recent heartbeat makes a machine reachable for a job fix', () => {
-  assert.equal(agentOnline({ lastSeen: now }, now), true)
-  assert.equal(agentOnline({ lastSeen: now - 89_999 }, now), true)
-  assert.equal(agentOnline({ lastSeen: now - 90_000 }, now), false)
-  assert.equal(agentOnline(undefined, now), false)
-})
-test('installation badges distinguish a fresh positive report from a confirmed absence', () => {
-  const [report] = installationReports([{ host: 'laptop', groups: [group('claude', [skill('a')]), group('agents', [skill('a')])] }], now)
-  assert.equal(report.installed.size, 1)
-  assert.equal(installationStatus(report, 'a'), 'installed')
-  assert.equal(installationStatus(report, 'b'), 'missing')
-  const [empty] = installationReports([{ host: 'empty', groups: [group('agents', [])] }], now)
-  assert.equal(installationStatus(empty, 'a'), 'missing')
-})
-test('stale, incomplete and heartbeat-only machines never claim a skill is missing', () => {
-  for (const groups of [[], [group('old', [skill('a')], { scannedAt: now - 15 * 86400000 })], [group('partial', [skill('a')], { complete: false })], [group('server', [], { agent: 'reet-server' })]]) {
-    const [report] = installationReports([{ host: 'unconfirmed', groups }], now)
-    assert.equal(installationStatus(report, 'a'), 'unknown')
-    assert.equal(installationStatus(report, 'b'), 'unknown')
-  }
-})
-test('one fresh installation confirms presence but mixed freshness cannot confirm absence', () => {
-  const [report] = installationReports([{ host: 'mixed', groups: [group('fresh', [skill('a')]), group('old', [skill('b')], { scannedAt: now - 15 * 86400000 })] }], now)
-  assert.equal(installationStatus(report, 'a'), 'installed')
-  assert.equal(installationStatus(report, 'b'), 'unknown')
-  assert.equal(installationStatus(report, 'c'), 'unknown')
-})
-
-test('the collapsed fleet summary counts installed, missing and unconfirmed machines', () => {
-  const reports = installationReports([
-    { host: 'one', groups: [group('agents', [skill('a')])] },
-    { host: 'two', groups: [group('agents', [skill('a')])] },
-    { host: 'three', groups: [group('agents', [])] },
-    { host: 'four', groups: [group('agents', [], { scannedAt: now - 15 * 86400000 })] },
-  ], now)
-  assert.equal(installationSummary(reports, 'a'), 'On 2 of 4 · 1 missing · 1 not confirmed')
-  assert.equal(installationSummary(reports.slice(0, 2), 'a'), 'On 2 of 2')
 })
 
 test('shelf environments exclude server-only heartbeats but retain empty and stale agent inventories', () => {

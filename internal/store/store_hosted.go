@@ -8,6 +8,7 @@ import (
 	"path"
 	"regexp"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/eyupio/reet.sh/internal/ref"
@@ -40,13 +41,16 @@ func ValidHostedName(name string) bool {
 	return len(name) > 0 && len(name) <= 64 && hostedName.MatchString(name)
 }
 
+// MaxLibrarySkillNameBytes is the longest a library skill's name may be.
+const MaxLibrarySkillNameBytes = 255
+
 // ValidLibrarySkillName reports whether a library skill can be named name:
 // any name a machine can keep a skill folder under, the agent's own rule
 // (scan.skillNameProblem): one plain path element, not starting with a dot,
 // with no NUL and at most 255 bytes. reet's copy of an imported or machine
 // skill takes such a name; hosting one (ValidHostedName) needs more.
 func ValidLibrarySkillName(name string) bool {
-	return name != "" && len(name) <= 255 && utf8.ValidString(name) && !strings.HasPrefix(name, ".") && !strings.ContainsAny(name, "/\\\x00")
+	return name != "" && len(name) <= MaxLibrarySkillNameBytes && utf8.ValidString(name) && !strings.HasPrefix(name, ".") && !strings.ContainsAny(name, "/\\\x00")
 }
 
 // NormalizeHostedPrefix accepts a profile prefix such as "acme" or "acme-"
@@ -292,6 +296,15 @@ func (s *Store) SaveHostedSkill(userID int64, sk HostedSkill) (HostedSkill, erro
 
 func (s *Store) DeleteHostedSkill(userID int64, slug, skillID string) error {
 	return s.withTx(func(tx *sql.Tx) error {
+		// Found before the row goes: the delete trigger retires its alias.
+		var item skillStateItem
+		if id, err := libraryAliasID(tx, userID, "hosted", slug); err == nil {
+			if item, err = skillStateItemTx(tx, userID, id); err != nil {
+				return err
+			}
+		} else if !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
 		result, err := tx.Exec(`DELETE FROM hosted_skills WHERE user_id=? AND slug=?`, userID, slug)
 		if err != nil {
 			return err
@@ -302,6 +315,13 @@ func (s *Store) DeleteHostedSkill(userID int64, slug, skillID string) error {
 		}
 		if n == 0 {
 			return ErrNotFound
+		}
+		// The name goes on the removal list, as a delete from Skills puts it. An
+		// item already deleted from there is on it.
+		if item.id != "" && item.deletedAt == 0 {
+			if err = deleteSkillItemTx(tx, userID, item, time.Now()); err != nil {
+				return err
+			}
 		}
 		if _, err := tx.Exec(`DELETE FROM hosted_sync_sources WHERE user_id=? AND slug=?`, userID, slug); err != nil {
 			return err
@@ -445,6 +465,12 @@ func (s *Store) RenameHostedSkill(userID int64, slug, newSlug string, oldRef, ne
 		if taken {
 			return ErrSkillNameTaken
 		}
+		var oldItem skillStateItem
+		if own != "" {
+			if oldItem, err = skillStateItemTx(tx, userID, own); err != nil {
+				return err
+			}
+		}
 		files, err := json.Marshal(old.Files)
 		if err != nil {
 			return err
@@ -473,6 +499,12 @@ func (s *Store) RenameHostedSkill(userID int64, slug, newSlug string, oldRef, ne
 		}
 		if err := moveHostedReferencesTx(tx, oldRef, newRef); err != nil {
 			return err
+		}
+		// The folder of the old name goes off every machine.
+		if oldItem.id != "" {
+			if err = addSkillRemovalTx(tx, userID, oldItem, "deleted", at); err != nil {
+				return err
+			}
 		}
 		renamed = HostedSkill{Slug: newSlug, Description: old.Description, Content: content, Files: old.Files, Published: old.Published, CreatedAt: old.CreatedAt, UpdatedAt: at}
 		return nil

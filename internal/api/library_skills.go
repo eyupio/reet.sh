@@ -2,10 +2,12 @@ package api
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/eyupio/reet.sh/internal/ref"
 	"github.com/eyupio/reet.sh/internal/store"
@@ -250,6 +252,21 @@ func stageKey(sk store.Skill) string {
 	return "shelf"
 }
 
+// shelfNoteMax is how many characters a skill's note may hold: the most the
+// MCP tools take (notes in mcp/src/server.ts), which is more than the note box
+// on the Skills page does (4000). A note comes back on every list and is
+// searched by every query, so it is bounded.
+const shelfNoteMax = 20000
+
+// noteTooLong refuses a patch whose note is over shelfNoteMax, and says so.
+func noteTooLong(w http.ResponseWriter, p store.Patch) bool {
+	if p.Notes == nil || utf8.RuneCountInString(*p.Notes) <= shelfNoteMax {
+		return false
+	}
+	writeErrCode(w, 400, errInvalidField, "notes", fmt.Sprintf("A note is at most %d characters.", shelfNoteMax), "Shorten the note and try again.")
+	return true
+}
+
 func (s *server) add(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Input string `json:"input"`
@@ -264,6 +281,9 @@ func (s *server) add(w http.ResponseWriter, r *http.Request) {
 	}
 	if in.Status != "" && in.Status != store.SkillActive && in.Status != store.SkillArchived {
 		writeErr(w, 400, "status must be active or archived")
+		return
+	}
+	if noteTooLong(w, in.Patch) {
 		return
 	}
 	rf, err := s.parseSkillInput(r, in.Input)
@@ -318,7 +338,7 @@ func (s *server) patch(w http.ResponseWriter, r *http.Request) {
 		ID string `json:"id"`
 		store.Patch
 	}
-	if !decode(w, r, &in) {
+	if !decode(w, r, &in) || noteTooLong(w, in.Patch) {
 		return
 	}
 	old, _, _ := s.st.GetFor(s.uid(r), in.ID)

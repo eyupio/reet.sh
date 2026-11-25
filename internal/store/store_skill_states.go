@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"slices"
+	"strings"
 	"time"
 )
 
@@ -297,10 +298,24 @@ func skillStateItemTx(tx *sql.Tx, uid int64, id string) (skillStateItem, error) 
 	return it, err
 }
 
+// skillNameTakenTx compares names as machines do, in Go: SQL lower() leaves a
+// letter such as É alone, so "École" and "école" would both be let in.
 func skillNameTakenTx(tx *sql.Tx, uid int64, itemType, name, except string) (bool, error) {
-	var n int
-	err := tx.QueryRow(`SELECT count(*) FROM library_items WHERE user_id=? AND item_type=? AND deleted_at=0 AND lower(name)=lower(?) AND id<>?`, uid, itemType, name, except).Scan(&n)
-	return n > 0, err
+	rows, err := tx.Query(`SELECT name FROM library_items WHERE user_id=? AND item_type=? AND deleted_at=0 AND id<>?`, uid, itemType, except)
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var other string
+		if err = rows.Scan(&other); err != nil {
+			return false, err
+		}
+		if strings.ToLower(other) == strings.ToLower(name) {
+			return true, nil
+		}
+	}
+	return false, rows.Err()
 }
 
 // linkedSkillNameFree refuses a pasted or linked source whose name the library

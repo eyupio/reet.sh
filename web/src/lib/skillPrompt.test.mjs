@@ -5,7 +5,7 @@ import ts from 'typescript'
 
 const source = readFileSync(new URL('./skillPrompt.ts', import.meta.url), 'utf8')
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText
-const { insertSkillPrompt } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`)
+const { insertSkillPrompt, skillPromptFits } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`)
 
 const RUN = 'Run `npx skills use "https://example.test/skill" --skill "demo"` and follow it.'
 
@@ -44,6 +44,22 @@ test('a missing caret falls back to the end of the prompt, and out-of-range valu
   assert.equal(missing.caret, missing.text.length)
   assert.equal(insertSkillPrompt('Prompt', RUN, -4, 0).text, `${RUN}\n\nPrompt`)
   assert.equal(insertSkillPrompt('Prompt', RUN, 500, 900).text, `Prompt\n\n${RUN}`)
+})
+
+test('a skill prompt fits when the whole message, break included, stays within the byte limit', () => {
+  assert.equal(skillPromptFits('', 'x'.repeat(2000), 2000), true)
+  assert.equal(skillPromptFits('', 'x'.repeat(2001), 2000), false)
+  // 800 + the blank line + 1,198 is exactly 2,000; one byte more does not fit.
+  assert.equal(skillPromptFits('d'.repeat(800), 'x'.repeat(1198), 2000), true)
+  assert.equal(skillPromptFits('d'.repeat(800), 'x'.repeat(1199), 2000), false)
+  // The case behind the Skill Buddy fix: an 800-byte draft and 1,400 bytes of guidance.
+  assert.equal(skillPromptFits('d'.repeat(800), 'x'.repeat(1400), 2000), false)
+})
+
+test('the fit is counted in bytes, not characters', () => {
+  // 1,000 euro signs are 1,000 characters but 3,000 bytes.
+  assert.equal(skillPromptFits('', '€'.repeat(1000), 2000), false)
+  assert.equal(skillPromptFits('', '€'.repeat(666), 2000), true)
 })
 
 const installSource = readFileSync(new URL('./install.ts', import.meta.url), 'utf8')

@@ -46,6 +46,11 @@ export class SkillsPageState {
   /** The page has gone: an answer that lands after that starts no read. */
   destroyed = false
   #generation = 0
+  // Reads are numbered per tab as they start. A read's answer is dropped once a later read of its tab has been shown, so
+  // answers that cross never put an older page back. `#reading` counts the reads of a tab on their way (see poll).
+  #readSeq: Record<Tab, number> = { active: 0, archived: 0 }
+  #shownSeq: Record<Tab, number> = { active: 0, archived: 0 }
+  #reading: Record<Tab, number> = { active: 0, archived: 0 }
   // Writes are numbered as they start. `#finishedPage` is the newest one with page data (Archive, Restore and their
   // Undo) whose answer has been shown.
   #started = 0
@@ -102,9 +107,12 @@ export class SkillsPageState {
   async read(status: Tab, quiet = false): Promise<boolean> {
     if (this.destroyed) return false
     const at = this.#generation
+    const seq = ++this.#readSeq[status]
+    this.#reading[status]++
     try {
       const data = await loadSkillsPage(status)
-      if (at !== this.#generation) return false
+      if (at !== this.#generation || seq < this.#shownSeq[status]) return false
+      this.#shownSeq[status] = seq
       this.apply(data, status)
       this.#stale.delete(status)
       if (status === this.tab) this.error = ''
@@ -112,7 +120,17 @@ export class SkillsPageState {
     } catch (e) {
       if (at === this.#generation && (!quiet || e instanceof UnauthorizedError)) this.fail(e)
       return false
+    } finally {
+      this.#reading[status]--
     }
+  }
+
+  /**
+   * The poll's tick: reads both tabs, each unless a read of it is still on its way, so a controller slower than the poll
+   * is never asked twice for the same tab. Only the poll skips: a read after something the person did always runs.
+   */
+  poll() {
+    for (const tab of [this.tab, other(this.tab)]) if (!this.#reading[tab]) void this.read(tab, true)
   }
 
   /**

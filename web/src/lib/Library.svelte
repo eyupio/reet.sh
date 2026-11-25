@@ -99,7 +99,7 @@
               {#if rowError[item.id]}<p class="notice bad" role="alert">{rowError[item.id]}</p>{/if}
             </div>
             <div class="side">
-              <label class="status">Status<select aria-label={`Status of ${item.name}`} value={item.status} disabled={busy === item.id} onchange={event => void change(item, event.currentTarget.value, event.currentTarget)}>
+              <label class="status">Status<select aria-label={`Status of ${item.name}`} value={item.status} disabled={!!busy} onchange={event => void change(item, event.currentTarget.value, event.currentTarget)}>
                 {#each STATUSES as option (option.id)}<option value={option.id}>{option.label}</option>{/each}
                 {#if !STATUSES.some(option => option.id === item.status)}<option value={item.status}>{statusLabel(item.status)}</option>{/if}
               </select></label>

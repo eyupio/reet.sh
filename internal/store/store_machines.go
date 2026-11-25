@@ -11,6 +11,9 @@ import (
 
 var ErrMachineName = errors.New("machine names must be non-empty, at most 200 characters and contain no control characters")
 
+// ErrMergeTwoAgents is a merge of two machines that each have an installed agent.
+var ErrMergeTwoAgents = errors.New("revoke one enrollment before merging two installed agents")
+
 type machineQuerier interface{ QueryRow(string, ...any) *sql.Row }
 
 func resolveMachineHost(q machineQuerier, userID int64, host string) (string, error) {
@@ -67,29 +70,17 @@ func (s *Store) MergeMachinesFor(userID int64, from, to string) error {
 			destination = to
 		}
 		// Enrolled identities may be renamed, but two installations cannot be merged.
-		var enrollments, running int
+		var enrollments int
 		if err := tx.QueryRow(`SELECT COUNT(*) FROM sync_agents WHERE user_id=? AND (host=? COLLATE NOCASE OR host=? COLLATE NOCASE)`, userID, source, destination).Scan(&enrollments); err != nil {
 			return err
 		}
 		if enrollments > 1 {
-			return errors.New("revoke one enrollment before merging two installed agents")
+			return ErrMergeTwoAgents
 		}
-		if err := tx.QueryRow(`SELECT COUNT(*) FROM sync_jobs j JOIN sync_agents a ON a.id=j.agent_id WHERE a.user_id=? AND (a.host=? COLLATE NOCASE OR a.host=? COLLATE NOCASE) AND j.status='running'`, userID, source, destination).Scan(&running); err != nil {
-			return err
-		}
-		if running > 0 {
-			return errors.New("wait for the machine's running job before renaming its reports")
-		}
+		// Jobs need nothing here either: an update job holds the agent id, not its host.
 		// Desks need nothing here: a pane holds the enrolment id, which a rename keeps.
 		// An alias belonging to another report selects that report’s preferred name.
 		to = destination
-		// Pending work is cancelled before the reports move, so an install's
-		// revert still finds the saved set it changed.
-		if !strings.EqualFold(source, to) {
-			if err := endSyncJobsTx(tx, "cancelled", "Machine renamed; preview again.", `j.agent_id IN (SELECT id FROM sync_agents WHERE user_id=? AND host=? COLLATE NOCASE) AND j.status IN ('queued','awaiting-approval')`, userID, source); err != nil {
-				return err
-			}
-		}
 		rows, err := tx.Query(`SELECT e.id,e.agent,e.project,e.path,e.first_seen,e.last_seen,COALESCE(sc.scanned_at,e.last_seen) FROM environments e LEFT JOIN environment_scans sc ON sc.env_id=e.id WHERE e.user_id=? AND e.host=? COLLATE NOCASE`, userID, source)
 		if err != nil {
 			return err

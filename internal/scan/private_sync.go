@@ -82,37 +82,6 @@ func checkSkillFiles(files []skillbundle.ContentFile, digest string) ([]skillbun
 	return files, nil
 }
 
-// Download only immutable account-owned revisions from the configured controller.
-// Every path, byte count, digest and executable flag is checked before writing.
-func installPrivateSkill(server, token string, skill store.SyncSkill, targetPath string, beforeInstall ...func([]skillbundle.ContentFile) error) error {
-	files, err := privateSkillFiles(agentConfig{Server: server, Token: token}, skill)
-	if err != nil {
-		return err
-	}
-
-	staging, err := stageSkillFiles(filepath.Dir(targetPath), files)
-	if err != nil {
-		return err
-	}
-	defer os.RemoveAll(staging)
-	// The caller has already backed up a reviewed replacement. Refuse a new
-	// entry that appeared while downloading; never merge into an existing tree.
-	destination := filepath.Join(targetPath, skill.Slug)
-	_, err = os.Lstat(destination)
-	if err == nil {
-		return errors.New("local skill appeared during transfer; preview again")
-	}
-	if !os.IsNotExist(err) {
-		return err
-	}
-	for _, record := range beforeInstall {
-		if err = record(files); err != nil {
-			return err
-		}
-	}
-	return os.Rename(staging, destination)
-}
-
 // makeStaging is os.MkdirTemp; tests replace it to stand for a folder whose
 // parent reet cannot write in.
 var makeStaging = os.MkdirTemp

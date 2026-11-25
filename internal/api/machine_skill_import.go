@@ -34,6 +34,10 @@ func (s *server) machineSkillImport(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 409, "Contents differ from the reviewed digest; preview again.")
 		return
 	}
+	if errors.Is(err, store.ErrMachineBundleNotOwned) {
+		writeErr(w, 409, "This machine did not start that skill, so it cannot add to it. Import it as a new skill, or add to it from the web app.")
+		return
+	}
 	if errors.Is(err, store.ErrRemoteNotFound) || errors.Is(err, store.ErrContentObservationStale) {
 		writeErr(w, 409, "Enrollment or scope unavailable; scan again before importing.")
 		return

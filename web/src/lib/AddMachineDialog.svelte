@@ -261,8 +261,8 @@
   <small data-shell-aside>Active skills follow your library. Sync continues after you close this dialog.</small>
   <div class="actions">
    {#if reenrolled}<button type="button" class="btn primary" onclick={close}>Done</button>
-   {:else if host && !canUse}<button type="button" class="btn" onclick={checkAgain}>I've run it — check again</button>{/if}
-   {#if canUse}<button type="button" class="btn primary" onclick={use}>Done — show {canonical}</button>{/if}
+   {:else if host && !canUse}<button type="button" class="btn" onclick={checkAgain}>I've run it, check again</button>{/if}
+   {#if canUse}<button type="button" class="btn primary" onclick={use}>Done, show {canonical}</button>{/if}
   </div>
  </footer>
 </dialog>
@@ -305,5 +305,6 @@
  footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; padding: 14px 22px; border-top: 1px solid var(--line); border-radius: 0 0 16px 16px; }
  footer small { margin: 0; }
  .actions { display: flex; flex-wrap: wrap; gap: 10px; }
+ @media (pointer: coarse) { .linklike { min-height: 44px; } }
  @media (max-width: 500px) { header, .body { padding: 16px; } footer { padding: 12px 16px; } h2 { font-size: 1.35rem; } .command :global(button) { width: 100%; } }
 </style>

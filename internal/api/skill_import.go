@@ -12,6 +12,13 @@ import (
 	"github.com/eyupio/reet.sh/internal/store"
 )
 
+// importMaxEntries is the most an import may hold in all: its items, the lines
+// of its text, its environments and the skills they list. A machine's scan
+// names each skill twice, as an item and in its environment, and
+// skillReportMaxEntries is the most skills a machine reports, so a real scan
+// stays within it.
+const importMaxEntries = 2 * skillReportMaxEntries
+
 type importItem struct {
 	Name    string `json:"name"`
 	Source  string `json:"source"`
@@ -28,6 +35,11 @@ func (s *server) importEntry(userID int64, item importItem, newItems bool, reque
 	name, source := strings.TrimSpace(item.Name), strings.TrimSpace(item.Source)
 	if name == "" {
 		return "", false, errors.New("empty name")
+	}
+	// Whatever it is read as, a name becomes a library skill's name or slug, so it is bounded as one is (a pasted line
+	// longer than that is no skill address either).
+	if len(name) > store.MaxLibrarySkillNameBytes {
+		return "", false, fmt.Errorf("%q is longer than the %d bytes a skill name can have", truncate(name, 40), store.MaxLibrarySkillNameBytes)
 	}
 	var rf ref.Ref
 	local := false
@@ -162,8 +174,6 @@ func (s *server) importEntry(userID int64, item importItem, newItems bool, reque
 }
 
 func (s *server) importSkills(w http.ResponseWriter, r *http.Request) {
-	s.importMu.Lock()
-	defer s.importMu.Unlock()
 	var in struct {
 		Machine      store.MachineInfo `json:"machine"`
 		Items        []importItem      `json:"items"`
@@ -181,6 +191,21 @@ func (s *server) importSkills(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &in) {
 		return
 	}
+	// Refused before the lock: every entry is written one at a time while every other import, merge and forget waits.
+	entries := len(in.Items) + len(in.Environments)
+	if in.Text != "" {
+		entries += strings.Count(in.Text, "\n") + 1
+	}
+	for _, env := range in.Environments {
+		entries += len(env.Skills)
+	}
+	if entries > importMaxEntries {
+		writeErr(w, http.StatusRequestEntityTooLarge, fmt.Sprintf("An import holds at most %d entries and this one holds %d. Send it in parts.", importMaxEntries, entries))
+		return
+	}
+	// Taken after the body is read: a stalled upload must not block every other import and merge.
+	s.importMu.Lock()
+	defer s.importMu.Unlock()
 	// Resolve legacy names once before IDs, pruning and inventories are computed.
 	aliases, err := s.st.MachineAliasesFor(s.uid(r))
 	if err != nil {

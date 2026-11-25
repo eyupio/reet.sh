@@ -153,7 +153,7 @@ func (s *Store) RecordSkillReportFor(uid int64, agentID string, rep SkillReport,
 		}
 		prev := map[string]reportedRow{}
 		prevAt := map[string]int64{} // when each row was first seen in its present state
-		rows, err := tx.Query(`SELECT folder,lower(name),state,digest,detail,at FROM machine_skills WHERE user_id=? AND agent_id=?`, uid, agentID)
+		rows, err := tx.Query(`SELECT folder,name,state,digest,detail,at FROM machine_skills WHERE user_id=? AND agent_id=?`, uid, agentID)
 		if err != nil {
 			return err
 		}
@@ -164,6 +164,7 @@ func (s *Store) RecordSkillReportFor(uid int64, agentID string, rep SkillReport,
 			if err = rows.Scan(&folder, &name, &r.state, &r.digest, &r.detail, &seen); err != nil {
 				break
 			}
+			name = strings.ToLower(name)
 			prev[folder+"\x00"+name] = r
 			prevAt[folder+"\x00"+name] = seen
 		}
@@ -174,17 +175,17 @@ func (s *Store) RecordSkillReportFor(uid int64, agentID string, rep SkillReport,
 		if err != nil {
 			return err
 		}
-		removals := map[string]string{}
-		rrows, err := tx.Query(`SELECT lower(name),reason FROM skill_removals WHERE user_id=?`, uid)
+		removals := map[string]string{} // name folded in Go -> name as stored
+		rrows, err := tx.Query(`SELECT name FROM skill_removals WHERE user_id=?`, uid)
 		if err != nil {
 			return err
 		}
 		for rrows.Next() {
-			var name, reason string
-			if err = rrows.Scan(&name, &reason); err != nil {
+			var name string
+			if err = rrows.Scan(&name); err != nil {
 				break
 			}
-			removals[name] = reason
+			removals[strings.ToLower(name)] = name
 		}
 		if err == nil {
 			err = rrows.Err()
@@ -248,8 +249,8 @@ func (s *Store) RecordSkillReportFor(uid int64, agentID string, rep SkillReport,
 			return err
 		}
 		cut := rep.Cut()
-		for name := range removals {
-			if present[name] {
+		for folded, name := range removals {
+			if present[folded] {
 				// It is back on this machine, so an earlier confirmation is void.
 				_, err = tx.Exec(`DELETE FROM skill_removal_confirms WHERE user_id=? AND name=? AND agent_id=?`, uid, name, agentID)
 			} else if cut {
@@ -459,7 +460,7 @@ func skillHealth(q privateSkillQuery, uid int64, now time.Time) (map[string]Skil
 	}
 	reported := map[string]map[string][]reportedRow{}
 	hostsOf := map[string][]string{} // name -> hosts of the counted machines that have it
-	rows, err = q.Query(`SELECT a.id,a.host,lower(m.name),`+reportedState+`,m.digest,m.detail FROM machine_skills m JOIN sync_agents a ON a.id=m.agent_id WHERE m.user_id=? AND a.paused=0 AND a.skills_protocol=2 ORDER BY a.host`, retryCutoff(now), uid)
+	rows, err = q.Query(`SELECT a.id,a.host,m.name,`+reportedState+`,m.digest,m.detail FROM machine_skills m JOIN sync_agents a ON a.id=m.agent_id WHERE m.user_id=? AND a.paused=0 AND a.skills_protocol=2 ORDER BY a.host`, retryCutoff(now), uid)
 	if err != nil {
 		return nil, work, err
 	}
@@ -469,6 +470,7 @@ func skillHealth(q privateSkillQuery, uid int64, now time.Time) (map[string]Skil
 		if err = rows.Scan(&id, &host, &name, &r.state, &r.digest, &r.detail); err != nil {
 			break
 		}
+		name = strings.ToLower(name)
 		if reported[id] == nil {
 			reported[id] = map[string][]reportedRow{}
 		}

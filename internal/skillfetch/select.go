@@ -4,6 +4,8 @@ import (
 	"path"
 	"strings"
 	"unicode"
+
+	"gopkg.in/yaml.v3"
 )
 
 type held struct {
@@ -39,18 +41,25 @@ func sameSquashed(a, b string) bool {
 // fetch matches a folder to a skill: case, spaces and punctuation aside.
 func SameName(a, b string) bool { return normalize(a) == normalize(b) || sameSquashed(a, b) }
 
-func frontMatterName(data []byte) string {
+// SkillName is the name in the YAML front matter of a SKILL.md, or "" when it
+// has none or the front matter cannot be read. A fetch picks a skill's folder
+// by it and the copy checks the files against it, so both read it this way.
+func SkillName(data []byte) string {
 	lines := strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")
-	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "---" {
+	if strings.TrimSpace(lines[0]) != "---" {
 		return ""
 	}
-	for _, l := range lines[1:] {
-		if strings.TrimSpace(l) == "---" {
-			break
+	for end, l := range lines[1:] {
+		if strings.TrimSpace(l) != "---" {
+			continue
 		}
-		if v, ok := strings.CutPrefix(l, "name:"); ok {
-			return strings.Trim(strings.TrimSpace(v), `"'`)
+		var header struct {
+			Name string `yaml:"name"`
 		}
+		if yaml.Unmarshal([]byte(strings.Join(lines[1:1+end], "\n")), &header) != nil {
+			return ""
+		}
+		return header.Name
 	}
 	return ""
 }
@@ -67,18 +76,22 @@ func pickFolder(skillDirs map[string]bool, all map[string]held, slug string) (st
 	best, bestRank := "", none
 	for dir := range skillDirs {
 		rank := none
-		name := frontMatterName(all[join(dir, "SKILL.md")].data)
 		switch {
 		case dir == "skills/"+slug:
 			rank = 0
 		case dir != "" && path.Base(dir) == slug:
 			rank = 1
-		case normalize(name) == norm:
-			rank = 2
-		case dir != "" && normalize(path.Base(dir)) == norm:
-			rank = 3
-		case sameSquashed(name, slug):
-			rank = 4
+		default:
+			// Only a folder the cheap matches left open is worth reading.
+			name := SkillName(all[join(dir, "SKILL.md")].data)
+			switch {
+			case normalize(name) == norm:
+				rank = 2
+			case dir != "" && normalize(path.Base(dir)) == norm:
+				rank = 3
+			case sameSquashed(name, slug):
+				rank = 4
+			}
 		}
 		if rank == none {
 			continue

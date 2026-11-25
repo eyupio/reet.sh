@@ -146,7 +146,7 @@ func (s *Service) PlanOutcome(parent context.Context, p Principal, id string, in
 		return OutcomePlan{}, err
 	}
 	defer done()
-	return s.executePlan(ctx, parent, p, request)
+	return s.executePlan(ctx, parent, p, request, func(string) {})
 }
 
 func (s *Service) preparePlan(p Principal, id string, in OutcomePlanInput) (planRequest, error) {
@@ -210,7 +210,9 @@ func (s *Service) preparePlan(p Principal, id string, in OutcomePlanInput) (plan
 	return planRequest{old: old, cfg: cfg, ask: ask, sessions: in.Sessions}, nil
 }
 
-func (s *Service) executePlan(ctx context.Context, outer context.Context, p Principal, request planRequest) (OutcomePlan, error) {
+// step is told where the plan has got to: PlanSending until the provider accepts the request, PlanWriting while it
+// answers, PlanChecking once the answer is in.
+func (s *Service) executePlan(ctx context.Context, outer context.Context, p Principal, request planRequest, step func(string)) (OutcomePlan, error) {
 	var plan OutcomePlan
 	if err := s.current(p, request.old); err != nil {
 		return plan, err
@@ -225,6 +227,7 @@ func (s *Service) executePlan(ctx context.Context, outer context.Context, p Prin
 		return plan, planFailure(outer, err)
 	}
 	defer stream.Close()
+	step(PlanWriting)
 	var calls []elicore.ToolCall
 	cut := false
 	for {
@@ -246,6 +249,7 @@ func (s *Service) executePlan(ctx context.Context, outer context.Context, p Prin
 			break
 		}
 	}
+	step(PlanChecking)
 	if outer.Err() != nil {
 		return plan, outer.Err()
 	}
@@ -271,9 +275,18 @@ func (s *Service) executePlan(ctx context.Context, outer context.Context, p Prin
 // again.
 const planJobTTL = 5 * time.Minute
 
+// The steps of a plan job, as the browser is told them.
+const (
+	PlanSending  = "sending"
+	PlanWriting  = "writing"
+	PlanChecking = "checking"
+)
+
 type planJob struct {
 	uid      int64
 	provider string
+	phase    string
+	cancel   context.CancelFunc
 	ready    bool
 	plan     OutcomePlan
 	err      error
@@ -298,7 +311,8 @@ func (s *Service) StartPlan(p Principal, id string, in OutcomePlanInput) (string
 		done()
 		return "", err
 	}
-	job := &planJob{uid: p.UserID, provider: id}
+	ctx, cancel := context.WithCancel(ctx)
+	job := &planJob{uid: p.UserID, provider: id, phase: PlanSending, cancel: cancel}
 	s.mu.Lock()
 	s.prunePlansLocked(time.Now())
 	s.plans[jobID] = job
@@ -309,7 +323,11 @@ func (s *Service) StartPlan(p Principal, id string, in OutcomePlanInput) (string
 
 func (s *Service) runPlan(ctx context.Context, done func(), job *planJob, p Principal, request planRequest) {
 	defer done()
-	plan, err := s.executePlan(ctx, context.Background(), p, request)
+	plan, err := s.executePlan(ctx, context.Background(), p, request, func(phase string) {
+		s.mu.Lock()
+		job.phase = phase
+		s.mu.Unlock()
+	})
 	s.mu.Lock()
 	job.plan, job.err, job.ready, job.finished = plan, err, true, time.Now()
 	s.mu.Unlock()
@@ -332,6 +350,30 @@ func (s *Service) PlanResult(p Principal, providerID, jobID string) (OutcomePlan
 		return OutcomePlan{}, false, job.err
 	}
 	return job.plan, true, nil
+}
+
+// PlanPhase is the step a plan job is on, or the step it failed on. It is empty for a job this person cannot read.
+func (s *Service) PlanPhase(p Principal, providerID, jobID string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if job := s.plans[jobID]; job != nil && job.uid == p.UserID && job.provider == providerID {
+		return job.phase
+	}
+	return ""
+}
+
+// StopPlan gives up a plan the person no longer wants: the provider request is cancelled, which frees its place, and
+// the job is forgotten.
+func (s *Service) StopPlan(p Principal, providerID, jobID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	job := s.plans[jobID]
+	if job == nil || job.uid != p.UserID || job.provider != providerID {
+		return store.ErrNotFound
+	}
+	job.cancel()
+	delete(s.plans, jobID)
+	return nil
 }
 
 func (s *Service) prunePlansLocked(now time.Time) {

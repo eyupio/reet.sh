@@ -278,7 +278,7 @@ test('rollback and remove batches touch only reet copies and say why not', async
   assert.match(fleetSoftwareCannot({ ...row, managed: false }, 'remove'), /installed outside reet/)
   assert.equal(fleetSoftwareCannot({ ...row, managed: false, version: undefined }, 'remove'), "OpenCode isn't installed.")
   assert.match(fleetSoftwareCannot({ ...row, sessionsRunning: 1 }, 'rollback'), /refuses to roll back until it stops/)
-  assert.equal(fleetSoftwareActionLabel(row, 'rollback'), 'Roll back to 1.18.0')
+  assert.equal(fleetSoftwareActionLabel(row, 'rollback'), 'Roll back 1.19.5 to 1.18.0')
   assert.equal(batchActionButton('remove', 2), "Remove reet's copy from 2 machines")
   const removing = { id: 'b', tool: 'opencode', state: 'running', action: 'remove', createdAt: 1, updatedAt: 1, members: [{ position: 0, agentId: 'a', host: 'Laptop', action: 'remove', state: 'running' }] }
   assert.equal(fleetSoftwareSummary([], removing).headline, "Removing reet's copy from Laptop…")

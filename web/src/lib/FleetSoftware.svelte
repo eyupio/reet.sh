@@ -383,7 +383,7 @@
                 <div class="order-actions">
                   <button class="icon small" type="button" aria-label={`Move ${row.host} earlier`} disabled={index === 0} onclick={() => moveSelection(index, -1)}>↑</button>
                   <button class="icon small" type="button" aria-label={`Move ${row.host} later`} disabled={index === selection.length - 1} onclick={() => moveSelection(index, 1)}>↓</button>
-                  <button class="btn quiet" type="button" onclick={() => toggleSelection(row.agentId)} aria-label={`Leave ${row.host} out of the batch`}>Leave out</button>
+                  <button class="btn quiet" type="button" onclick={() => toggleSelection(row.agentId)} aria-label={`Leave out ${row.host}`}>Leave out</button>
                 </div>
               </li>
             {/each}
@@ -490,7 +490,7 @@
 <dialog bind:this={batchDialog} class="confirm" aria-labelledby={`${id}-batch`} onclose={() => { batchError = ''; confirming = []; typedWord = '' }}>
   <div class="confirm-body">
     <h2 id={`${id}-batch`}>{confirmButton}?</h2>
-    <p>{confirming.length} {confirming.length === 1 ? 'machine' : 'machines'} will be applied in this order, one at a time. A machine that isn't connected is skipped. reet stops at the first failure.</p>
+    <p>{confirmingAction === 'remove' ? "reet will remove its copy of OpenCode from" : confirmingAction === 'rollback' ? 'reet will roll back OpenCode on' : ''}{confirmingAction === 'update' ? `${confirming.length} ${confirming.length === 1 ? 'machine' : 'machines'} will be applied` : ` ${confirming.length} ${confirming.length === 1 ? 'machine' : 'machines'}`} in this order, one at a time. A machine that isn't connected is skipped. reet stops at the first failure.</p>
     <ol class="ordered compact">
       {#each confirmRows as row, index (row.agentId)}
         <li>
@@ -509,7 +509,7 @@
       {/if}
       <p class="hint">Each machine re-checks its own installation first. A machine whose installation changed since this review refuses and stops the batch.</p>
       <label class="typed-confirm"><span>Type <code>{confirmingAction}</code> to confirm</span>
-        <input bind:value={typedWord} autocomplete="off" autocapitalize="off" spellcheck="false" placeholder={confirmingAction} />
+        <input bind:value={typedWord} autocomplete="off" autocapitalize="off" spellcheck="false" onkeydown={(event) => { if (event.key === 'Enter' && confirmReady && !batchBusy && confirming.length) void startBatch(confirming, () => batchDialog?.close()) }} />
       </label>
     {/if}
     {#if batchError}<p class="error" role="alert">{batchError}</p>{/if}
@@ -599,7 +599,7 @@
   .confirm-actions .primary.danger { border-color: var(--bad); background: var(--bad); color: var(--bg); }
   .confirm-actions .primary:disabled { opacity: 0.55; cursor: not-allowed; }
   .typed-confirm { display: grid; gap: 6px; color: var(--muted); font-size: 0.875rem; }
-  .typed-confirm input { height: 38px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); font: 14px var(--mono, monospace); }
+  .typed-confirm input { height: 38px; padding: 0 10px; border: 1px solid var(--line-deep); border-radius: 8px; background: var(--bg); color: var(--ink); font: 14px var(--mono, monospace); }
   .what { display: grid; gap: 8px; margin-bottom: 12px; }
   .what-title { font-size: 0.875rem; font-weight: 600; }
   .what-options { display: flex; flex-wrap: wrap; gap: 8px; }

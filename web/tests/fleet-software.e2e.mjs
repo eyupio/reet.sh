@@ -209,7 +209,7 @@ try {
       await expect(dialog.getByRole('checkbox', { name: 'Include Build server in a batch' })).toHaveCount(0)
       await expect(dialog.locator('li[data-machine="Build server"]')).toContainText('No earlier version is kept.')
       await expect(dialog.locator('li[data-machine="Desktop"]')).toContainText('installed outside reet')
-      await expect(dialog.locator('li[data-machine="Laptop"]')).toContainText('Roll back to 1.18.0')
+      await expect(dialog.locator('li[data-machine="Laptop"]')).toContainText('Roll back 1.19.5 to 1.18.0')
 
       // Remove: both reet copies can; the copy reet did not install is never touched.
       await choice.getByRole('radio', { name: "Remove reet's copy" }).check()

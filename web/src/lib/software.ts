@@ -68,7 +68,7 @@ export function fleetSoftwareCannot(row: Pick<FleetSoftwareRow, 'state' | 'manag
 
 /** What the chosen batch action would do on this machine. */
 export function fleetSoftwareActionLabel(row: Pick<FleetSoftwareRow, 'state' | 'version' | 'target' | 'previous'>, action: SoftwareBatchAction): string {
-  if (action === 'rollback') return `Roll back to ${row.previous ?? 'the kept version'}`
+  if (action === 'rollback') return row.version && row.previous ? `Roll back ${row.version} to ${row.previous}` : `Roll back to ${row.previous ?? 'the kept version'}`
   if (action === 'remove') return `Remove reet's copy${row.version ? ` ${row.version}` : ''}`
   return fleetSoftwareLabel(row)
 }

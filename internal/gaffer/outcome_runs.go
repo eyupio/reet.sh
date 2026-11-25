@@ -247,7 +247,7 @@ func DefaultStageTier(kind string) string {
 	switch kind {
 	case "plan", "design", "review":
 		return "heavy"
-	case "code", "test":
+	case "code", "test", "custom":
 		return "standard"
 	}
 	return "light"

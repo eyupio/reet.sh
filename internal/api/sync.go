@@ -79,6 +79,8 @@ func (s *server) mergeMachines(w http.ResponseWriter, r *http.Request) {
 		code := http.StatusInternalServerError
 		if errors.Is(err, store.ErrMachineName) {
 			code = http.StatusBadRequest
+		} else if errors.Is(err, store.ErrMergeTwoAgents) {
+			code = http.StatusConflict
 		}
 		writeErr(w, code, err.Error())
 		return

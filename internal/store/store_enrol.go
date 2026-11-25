@@ -35,35 +35,37 @@ func (s *Store) CreateEnrolCode(uid int64, hash string, expiresAt int64, max int
 }
 
 // EnrolWithCode spends a code and enrols a machine for the code's account.
-// The claim is one conditional UPDATE, so of two enrolments racing for a code
-// only one gets it. A machine of that name already enrolled is enrolled again
-// in place: same id, a new secret (the old one stops working), and now by
-// code. So the answer never says whether a name was taken, and the code is
-// spent on every decision. Only a name that could never be valid is refused
-// before the code is touched. replaced says the machine existed.
+// The claim is one conditional UPDATE in the same transaction as the
+// enrolment, so of two enrolments racing for a code only one gets it, and a
+// storage failure rolls the claim back. A machine of that name already enrolled
+// is enrolled again in place: same id, a new secret (the old one stops
+// working), and now by code. So the answer never says whether a name was
+// taken, and the code is spent on every decision. Only a name that could never
+// be valid is refused before the code is touched. replaced says the machine
+// existed.
 func (s *Store) EnrolWithCode(hash, host, version, commit string) (uid int64, a SyncAgent, secret string, replaced bool, err error) {
 	host = strings.TrimSpace(host)
 	if !validMachineName(host) {
 		return 0, a, "", false, ErrMachineName
 	}
-	at := now()
-	res, err := s.db.Exec(`UPDATE enrol_codes SET used_at=? WHERE hash=? AND used_at=0 AND expires_at>?
-		AND user_id IN (SELECT id FROM users WHERE disabled_at=0)`, at, hash, at)
-	if err != nil {
-		return 0, a, "", false, err
-	}
-	if n, _ := res.RowsAffected(); n != 1 {
-		return 0, a, "", false, ErrEnrolCodeInvalid
-	}
-	if err = s.db.QueryRow(`SELECT user_id FROM enrol_codes WHERE hash=?`, hash).Scan(&uid); err != nil {
-		return 0, a, "", false, err
-	}
-	canonical, err := s.ResolveMachineHostFor(uid, host)
-	if err != nil {
-		return 0, a, "", false, err
-	}
 	secret = syncID()
 	err = s.withTx(func(tx *sql.Tx) error {
+		at := now()
+		res, err := tx.Exec(`UPDATE enrol_codes SET used_at=? WHERE hash=? AND used_at=0 AND expires_at>?
+			AND user_id IN (SELECT id FROM users WHERE disabled_at=0)`, at, hash, at)
+		if err != nil {
+			return err
+		}
+		if n, _ := res.RowsAffected(); n != 1 {
+			return ErrEnrolCodeInvalid
+		}
+		if err = tx.QueryRow(`SELECT user_id FROM enrol_codes WHERE hash=?`, hash).Scan(&uid); err != nil {
+			return err
+		}
+		canonical, err := resolveMachineHost(tx, uid, host)
+		if err != nil {
+			return err
+		}
 		existing, err := scanAgent(tx.QueryRow(`SELECT `+agentCols+` FROM sync_agents WHERE user_id=? AND host=? COLLATE NOCASE`, uid, canonical))
 		if errors.Is(err, sql.ErrNoRows) {
 			a = SyncAgent{ID: syncID(), Host: canonical, Version: cleanAgentBuild(version), Commit: cleanAgentBuild(commit), LastSeen: now(), AutoUpdate: true}
@@ -81,8 +83,6 @@ func (s *Store) EnrolWithCode(hash, host, version, commit string) (uid int64, a 
 		return err
 	})
 	if err != nil {
-		// A storage failure is not a decision about the machine.
-		_, _ = s.db.Exec(`UPDATE enrol_codes SET used_at=0 WHERE hash=? AND agent_id=''`, hash)
 		return 0, a, "", false, err
 	}
 	return uid, a, secret, replaced, nil

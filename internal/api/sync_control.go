@@ -162,7 +162,12 @@ func (s *server) controlSyncJob(w http.ResponseWriter, r *http.Request) {
 func (s *server) agentIdentity(w http.ResponseWriter, r *http.Request) (store.SyncAgent, bool) {
 	a, err := s.st.AuthenticateSyncAgentBuild(s.uid(r), r.Header.Get("X-Reet-Agent"), r.Header.Get("X-Reet-Agent-Key"), r.Header.Get("X-Reet-Version"), r.Header.Get("X-Reet-Commit"))
 	if err != nil {
-		writeErr(w, 403, err.Error())
+		// Only a refusal is final for the agent: it drops its durable result on a 403.
+		if errors.Is(err, store.ErrUnknownMachine) {
+			writeErr(w, 403, err.Error())
+		} else {
+			writeErr(w, 500, "Could not check this machine's enrollment. It will try again.")
+		}
 		return a, false
 	}
 	return a, true

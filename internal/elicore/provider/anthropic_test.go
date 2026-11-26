@@ -179,6 +179,42 @@ func TestAnthropicCountsCachedInputAsInput(t *testing.T) {
 	}
 }
 
+// A turn may send something before its prompt that the next request does not
+// repeat, such as a context snapshot. A mark on the newest message alone then
+// caches a prefix that never comes back, so the last finished answer is marked
+// as well: everything up to it is sent again next turn.
+func TestAnthropicMarksTheEndOfTheEarlierTurnsToo(t *testing.T) {
+	tool := elicore.Tool{Name: "echo", Description: "Echo", Parameters: json.RawMessage(`{"type":"object"}`)}
+	raw, err := NewAnthropic(Config{BaseURL: "https://api.anthropic.com", Model: "m"}).body(elicore.Request{System: "Be brief.", Tools: []elicore.Tool{tool}, Messages: []elicore.Message{
+		{Role: elicore.RoleUser, Content: "hi"},
+		{Role: elicore.RoleAssistant, Content: "hello"},
+		{Role: elicore.RoleUser, Content: "a snapshot read just now"},
+		{Role: elicore.RoleUser, Content: "And now?"},
+	}}, 4096)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body struct {
+		Messages []struct {
+			Content json.RawMessage `json:"content"`
+		} `json:"messages"`
+	}
+	if err = json.Unmarshal(raw, &body); err != nil {
+		t.Fatal(err)
+	}
+	marked := ""
+	for _, m := range body.Messages {
+		if strings.Contains(string(m.Content), "cache_control") {
+			marked += "1"
+		} else {
+			marked += "0"
+		}
+	}
+	if marked != "0101" || strings.Count(string(raw), "cache_control") != 4 {
+		t.Fatalf("marks on messages %s, %d in all: %s", marked, strings.Count(string(raw), "cache_control"), raw)
+	}
+}
+
 func TestAnthropicSaysAKeyIsNeededWhenNoneIsConfigured(t *testing.T) {
 	srv := newAnthropicServer(t)
 	srv.Status, srv.Body = 401, `{"type":"error","error":{"message":"missing key"}}`

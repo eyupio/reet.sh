@@ -49,17 +49,20 @@ func ephemeralCache() map[string]any {
 	return map[string]any{"type": "ephemeral"}
 }
 
-// cacheLastMessage puts one breakpoint at the end of the newest turn, which
-// is what lets the next turn reuse the whole conversation so far. Anthropic
-// accepts the mark on a text, tool_use or tool_result block, so the content is
-// always sent as blocks here rather than as a bare string.
-func cacheLastMessage(msgs []map[string]any) {
-	if len(msgs) == 0 {
+// cacheMessage puts one breakpoint at the end of message i, which is what lets
+// a later request reuse the conversation up to there. Anthropic accepts the
+// mark on a text, tool_use or tool_result block, so the content is always sent
+// as blocks here rather than as a bare string.
+func cacheMessage(msgs []map[string]any, i int) {
+	if i < 0 || i >= len(msgs) {
 		return
 	}
-	last := msgs[len(msgs)-1]
+	last := msgs[i]
 	switch content := last["content"].(type) {
 	case string:
+		if content == "" {
+			return
+		}
 		last["content"] = []any{map[string]any{"type": "text", "text": content, "cache_control": ephemeralCache()}}
 	case []any:
 		if len(content) == 0 {
@@ -79,6 +82,8 @@ func (p *Anthropic) body(req elicore.Request, maxTokens int) ([]byte, error) {
 	// The API refuses tool_use and tool_result blocks in a request that defines
 	// no tools, so a call made earlier and its answer then go as plain text.
 	plain := len(req.Tools) == 0
+	// answered is the last finished answer: where the turns before this one end.
+	answered := -1
 	for _, m := range req.Messages {
 		switch m.Role {
 		case elicore.RoleSystem:
@@ -95,6 +100,7 @@ func (p *Anthropic) body(req elicore.Request, maxTokens int) ([]byte, error) {
 			}})
 		case elicore.RoleAssistant:
 			if len(m.ToolCalls) == 0 {
+				answered = len(msgs)
 				msgs = append(msgs, map[string]any{"role": "assistant", "content": m.Content})
 				continue
 			}
@@ -120,7 +126,12 @@ func (p *Anthropic) body(req elicore.Request, maxTokens int) ([]byte, error) {
 			msgs = append(msgs, map[string]any{"role": "user", "content": m.Content})
 		}
 	}
-	cacheLastMessage(msgs)
+	cacheMessage(msgs, len(msgs)-1)
+	// The newest turn can hold what the next request will not repeat, such as a
+	// snapshot sent before the prompt, so the end of the earlier turns is marked
+	// too: that prefix does repeat. With the system prompt and the tools that
+	// makes four marks, the most the API takes.
+	cacheMessage(msgs, answered)
 	out := map[string]any{"model": p.model(req.Model), "max_tokens": maxTokens, "messages": msgs, "stream": true}
 	system := req.System
 	for _, m := range req.Messages {

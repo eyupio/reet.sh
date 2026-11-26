@@ -508,5 +508,70 @@ try{
    expect(w.errors).toEqual([])
   } finally { await w.context.close() }
  }
+ // 13. A pathway's tier stage runs on the saved crew's agent for that tier, as the controller resolves it, even when the
+ //     machine does not have it (the outcome's agent is used only for a tier that is not saved), and on that tier's
+ //     backups too: they count for folder trust.
+ {
+  const approve=outcome=>outcome.getByRole('button',{name:'Approve and start 2 pipelines',exact:true})
+  const choose=(scope,name)=>scope.getByRole('radiogroup',{name:'Pathway',exact:true}).getByRole('radio',{name:new RegExp(`^${name}`)}).check()
+  const MISSING='Your Standard crew is Codex, which is not on workshop. This pathway’s Code, PR and Merge stages run on it. Install or sign in to Codex there, change your saved crew in Gaffer settings, or change the stage in the pathway.'
+  // (a) A saved Standard crew on an agent the machine does not have holds the start, naming the stages and the tier.
+  {
+   const {f,w,page}=await open(1280,'light',{crew:{standard:{tool:'codex'}}})
+   try{
+    const outcome=await toPlan(page)
+    await choose(outcome,'Quick fix')
+    await expect(outcome.locator('p.status')).toHaveText(MISSING)
+    await expect(approve(outcome)).toBeDisabled()
+    await expect(outcome.getByRole('region',{name:'Launch readiness',exact:true}).getByRole('listitem').filter({hasText:'Codex is not on workshop now.'})).toContainText('Used by Code, PR and Merge.')
+    await expect(outcome.getByRole('link',{name:'Edit pathway',exact:true})).toHaveAttribute('href','/factory/pathways/p1')
+    // Standard stages keep the crew editor's fallback to the outcome's agent.
+    await choose(outcome,STANDARD)
+    await expect(approve(outcome)).toBeEnabled()
+    expect(w.errors).toEqual([])
+   } finally { await w.context.close() }
+  }
+  // (b) A saved tier whose backup is Google Antigravity, on a first choice that needs no trust: the trust box shows, Approve
+  //     waits for it, and the start carries the trust.
+  {
+   const {f,w,page}=await open(1280,'light',{tools:['claude','antigravity'],crew:{standard:{tool:'claude',backup:{tool:'antigravity'}}}})
+   try{
+    const outcome=await toPlan(page)
+    await choose(outcome,'Quick fix')
+    const trust=outcome.getByRole('checkbox',{name:/^I trust this folder: Google Antigravity/})
+    await expect(trust).toBeVisible()
+    await expect(outcome.locator('p.status')).toHaveText('Google Antigravity starts only in a folder you trust. Tick the folder trust box below, or change the stage in the pathway.')
+    await expect(approve(outcome)).toBeDisabled()
+    await trust.check()
+    await approve(outcome).click()
+    await expect.poll(()=>f.box.starts.length).toBe(1)
+    expect(f.box.starts[0].pathway).toBe('p1')
+    expect(f.box.starts[0].trust).toBe(true)
+    expect(w.errors).toEqual([])
+   } finally { await w.context.close() }
+  }
+  // (c) Add pipelines: the same saved crew agent that is not on the machine holds the add, with the same sentence.
+  {
+   const {f,w,page}=await open(1280,'light',{crew:{standard:{tool:'codex'}}})
+   try{
+    const add=await toAdd(page)
+    await choose(add,'Quick fix')
+    await expect(add.getByRole('alert')).toHaveText(MISSING)
+    await expect(add.getByRole('button',{name:'Add pipeline',exact:true})).toBeDisabled()
+    expect(w.errors).toEqual([])
+   } finally { await w.context.close() }
+  }
+  // (d) Add pipelines on an outcome approved without trust: a tier backup on Google Antigravity is refused, as the controller would.
+  {
+   const {f,w,page}=await open(1280,'light',{tools:['claude','antigravity'],crew:{standard:{tool:'claude',backup:{tool:'antigravity'}}}})
+   try{
+    const add=await toAdd(page)
+    await choose(add,'Quick fix')
+    await expect(add.getByRole('alert')).toHaveText('Google Antigravity starts only in a folder you have trusted, and this outcome was approved without folder trust. This pathway’s Code, PR and Merge stages can run on it from your saved Standard crew: change that crew in Gaffer settings, change the stage in the pathway, or choose standard stages.')
+    await expect(add.getByRole('button',{name:'Add pipeline',exact:true})).toBeDisabled()
+    expect(w.errors).toEqual([])
+   } finally { await w.context.close() }
+  }
+ }
  console.log('pathways-choice: ok')
 } finally { await browser.close() }

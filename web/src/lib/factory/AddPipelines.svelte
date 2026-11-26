@@ -6,12 +6,12 @@
   import { chatToolName, machineModels, structuredAgent, terminalMachines, type TerminalMachine } from '../terminal/api'
   import WorkspaceDialog from '../terminal/WorkspaceDialog.svelte'
   import GafferModelSelect from '../GafferModelSelect.svelte'
-  import { CREW_TIERS, DEFAULT_STAGES, STAGES, cleanCriteria, criteriaBlocker, defaultTier, partsBlocker, stagePlan, stageParts, stageTakesParts, withNewPart, withPart, withoutParts, withReportedEfforts, type Crew, type CrewSpare, type StagePart } from '../gafferOutcome'
+  import { CREW_TIERS, DEFAULT_STAGES, STAGES, cleanCriteria, criteriaBlocker, defaultTier, partsBlocker, stagePlan, tierLabel, stageParts, stageTakesParts, withNewPart, withPart, withoutParts, withReportedEfforts, type Crew, type CrewSpare, type StagePart } from '../gafferOutcome'
   import StageParts from './StageParts.svelte'
   import CriteriaEditor from './CriteriaEditor.svelte'
   import PathwayChoice, { stageLine } from './pathways/PathwayChoice.svelte'
   import { stageTitle } from './pathways'
-  import { inWords } from './launchReadiness'
+  import { inWords, missingCrewLine } from './launchReadiness'
   import type { MachineModels, ModelFavourite } from '../models'
   import { START_EFFORTS, reportedEfforts } from '../terminal/launchOptions'
 
@@ -82,11 +82,20 @@
   // The acceptance criteria the person agrees for each added pipeline, as for a new outcome's.
   let criteria = $state<Record<number, string[]>>({})
   const blocked = $derived(pathway ? proposals.map((item, at) => criteriaBlocker(criteria[at], `“${item.title}”`)).find(Boolean) || '' : partsBlocker(proposals.map(item => ({ title: item.title, stages: kinds(item), parts: splits[item.title] }))) || proposals.map((item, at) => criteriaBlocker(criteria[at], `“${item.title}”`)).find(Boolean) || '')
-  // With a pathway, each stage runs on its own agent, else its tier in the saved crew where this machine can run that,
-  // else the outcome's own agent. Nothing chosen in this dialog is sent.
-  const pathwayRuns = $derived(!pathway ? [] : pathway.stages.map(stage => ({ stage, tool: stage.agent?.tool ?? (savedHere(stage.tier ?? defaultTier(stage.kind)) ? savedCrew![stage.tier ?? defaultTier(stage.kind)]!.tool! : record.tool) })))
-  const runsOn = (id: string) => pathwayRuns.filter(run => run.tool === id).map(run => stageTitle(run.stage))
-  const usedTools = (title: string) => pathway ? pathwayRuns.map(run => run.tool) : CREW_TIERS.map(item => crewOf(title)[item.tier].tool)
+  // With a pathway, each stage runs as the controller resolves it (outcomePieces): on its own agent, else on its tier's
+  // saved crew member and that member's backups whether or not this machine has them, else (a tier not saved) on the
+  // outcome's own agent. Nothing chosen in this dialog is sent.
+  const pathwayRuns = $derived(!pathway ? [] : pathway.stages.map(stage => {
+    if (stage.agent) return { stage, tier: '', tool: stage.agent.tool, all: [stage.agent.tool] }
+    const tier = stage.tier ?? defaultTier(stage.kind), member = savedCrew?.[tier as keyof Crew]
+    if (!member?.tool) return { stage, tier: '', tool: record.tool, all: [record.tool] }
+    return { stage, tier, tool: member.tool, all: [member.tool, ...[member.backup, ...(member.moreBackups ?? [])].flatMap(one => one?.tool ? [one.tool] : [])] }
+  }))
+  // The stages that can start on an agent, backups included, as outcomeRunsOn counts them.
+  const runsOn = (id: string) => pathwayRuns.filter(run => run.all.includes(id)).map(run => stageTitle(run.stage))
+  const crewRunsOn = (id: string) => [...new Set(pathwayRuns.filter(run => run.tier && run.all.includes(id)).map(run => tierLabel(run.tier)))]
+  const firstOn = (id: string) => pathwayRuns.filter(run => run.tool === id)
+  const usedTools = (title: string) => pathway ? pathwayRuns.flatMap(run => run.all) : CREW_TIERS.map(item => crewOf(title)[item.tier].tool)
   // What this machine offers is known once it has been read with its capabilities. Until then (or when the read failed,
   // or the outcome's machine is gone) the start levels are offered and every effort is sent as chosen: the controller
   // starts a stage on the agent's default effort by itself when its effort is not offered.
@@ -216,11 +225,11 @@
       </li>{/each}
     </ul>
     {#if !pathway}<p class="hint">Stages use your saved crew where available. Unset tiers use this outcome’s agent and model.</p>{/if}
-    {#if refused}<p class="warning" role="alert">Google Antigravity starts only in a folder you have trusted, and this outcome was approved without folder trust. {pathway ? `This pathway’s ${inWords(runsOn('antigravity'))} ${runsOn('antigravity').length === 1 ? 'stage runs' : 'stages run'} on it: change ${runsOn('antigravity').length === 1 ? 'that stage' : 'them'} in the pathway, or choose standard stages.` : 'Choose another agent here, or give Gaffer a new outcome with folder trust ticked.'}</p>
+    {#if refused}<p class="warning" role="alert">Google Antigravity starts only in a folder you have trusted, and this outcome was approved without folder trust. {pathway ? crewRunsOn('antigravity').length ? `This pathway’s ${inWords(runsOn('antigravity'))} ${runsOn('antigravity').length === 1 ? 'stage' : 'stages'} can run on it from your saved ${inWords(crewRunsOn('antigravity'))} ${crewRunsOn('antigravity').length === 1 ? 'crew' : 'crews'}: change that crew in Gaffer settings, change the stage in the pathway, or choose standard stages.` : `This pathway’s ${inWords(runsOn('antigravity'))} ${runsOn('antigravity').length === 1 ? 'stage runs' : 'stages run'} on it: change ${runsOn('antigravity').length === 1 ? 'that stage' : 'them'} in the pathway, or choose standard stages.` : 'Choose another agent here, or give Gaffer a new outcome with folder trust ticked.'}</p>
     {:else if needsTrust}<p class="warning" role="status">This outcome was approved without folder trust. OpenCode is refused in a folder that has plugins of its own.</p>{/if}
     {#if !pathway && proposals.some(item => usedTools(item.title).includes('cline'))}<p class="hint">{record.tool === 'cline' && record.provider ? 'Cline stages keep this outcome’s billing source.' : 'Cline stages run on the billing source Cline has saved on that machine. To choose another, give Gaffer a new outcome.'}</p>{/if}
     {#if known && !tools.length}<p class="warning" role="alert">This machine reports no agent that can run a Gaffer chat. Update reet on the machine, or choose another project for a new outcome.</p>
-    {:else if unoffered.length}<p class="warning" role="alert">{#if pathway}{#each unoffered as id (id)}This pathway’s {inWords(runsOn(id))} {runsOn(id).length === 1 ? 'stage runs' : 'stages run'} on {chatToolName(id)}, which is not on {machine?.host || 'this machine'} now. Install it there, or change the stage in the pathway. {/each}{:else}{unoffered.map(chatToolName).join(' and ')} {unoffered.length === 1 ? 'is' : 'are'} not on this machine now. Choose another agent for the pipeline.{/if}</p>{/if}
+    {:else if unoffered.length}<p class="warning" role="alert">{#if pathway}{#each unoffered as id (id)}{@const runs = firstOn(id)}{@const crew = runs.find(run => run.tier)}{#if crew}{missingCrewLine(tierLabel(crew.tier), chatToolName(id), runs.filter(run => run.tier === crew.tier).map(run => stageTitle(run.stage)), machine?.host || 'this machine')} {/if}{#if runs.some(run => !run.tier)}This pathway’s {inWords(runs.filter(run => !run.tier).map(run => stageTitle(run.stage)))} {runs.filter(run => !run.tier).length === 1 ? 'stage runs' : 'stages run'} on {chatToolName(id)}, which is not on {machine?.host || 'this machine'} now. Install it there, or change the stage in the pathway. {/if}{/each}{:else}{unoffered.map(chatToolName).join(' and ')} {unoffered.length === 1 ? 'is' : 'are'} not on this machine now. Choose another agent for the pipeline.{/if}</p>{/if}
     {#if blocked}<p class="warning" role="status">{blocked}</p>{/if}
     {#if error}<p class="warning" role="alert">{error}</p>{/if}
     <div class="actions"><button class="btn primary" type="button" disabled={busy || crewLoading || !capabilitiesRead || refused || !!blocked || unoffered.length > 0} onclick={approve}>{proposals.length === 1 ? 'Add pipeline' : 'Add pipelines'}</button><button class="btn quiet" type="button" disabled={busy} onclick={oncancel}>Cancel</button></div>

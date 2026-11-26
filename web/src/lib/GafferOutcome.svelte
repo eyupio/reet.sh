@@ -34,7 +34,7 @@
   import { attemptIds, mayHaveArrived } from './factory/delivery'
   import { changesSince, changesWords, conflictWords, mergeLine, refusedGaps, skippedKeys, tierCrew } from './factory/templates'
   import { reveal } from './dialogShell'
-  import { inWords, launchReadiness, launchSummary, type ModelsRead } from './factory/launchReadiness'
+  import { inWords, launchReadiness, missingCrewLine, launchSummary, type ModelsRead } from './factory/launchReadiness'
   import type { MachineAccounts } from './agentAccounts'
   import CriteriaEditor from './factory/CriteriaEditor.svelte'
   import { gafferAutoMerge } from './gafferMotion'
@@ -352,23 +352,29 @@
       return [tier, launchReadiness({ machine, tools, efforts, models: modelsFor, accounts: machine ? accounts[machine.agentId] : undefined, now, member: { tool: one.tool, model: one.model, effort: asked }, spares, saved: savedFor(tier), edited: !!chosenRoles[tier] })]
     })) as Record<'heavy' | 'standard' | 'light', ReturnType<typeof launchReadiness>>
   })
-  // With a pathway, what each of its stages runs on, as the controller resolves it: the stage's own agent, else its tier
-  // in the saved crew where this machine can run that, else the outcome's own agent. The crew edited here is not sent.
-  const savedSpares = (tier: keyof Crew) => { const member = savedCrew?.[tier]; return [member?.backup, ...(member?.moreBackups ?? [])].flatMap(one => one?.tool && tools.includes(one.tool) ? [{ tool: one.tool, model: one.model ?? '', effort: one.effort ?? '' }] : []) }
+  // With a pathway, what each of its stages runs on, as the controller resolves it (outcomePieces): the stage's own agent
+  // with no backups, else its tier's saved crew member with that member's backups, whether or not this machine has them,
+  // else (a tier not saved) the outcome's own agent. The crew edited here is not sent.
   const pathwayRuns = $derived(!pathway ? [] : pathway.stages.map(stage => {
-    if (stage.agent) return { stage, tier: null, member: { tool: stage.agent.tool, model: stage.agent.model ?? '', effort: stage.agent.effort ?? '' } }
+    if (stage.agent) return { stage, tier: null, saved: false, member: { tool: stage.agent.tool, model: stage.agent.model ?? '', effort: stage.agent.effort ?? '' }, spares: [] }
     const tier = (stage.tier ?? defaultTier(stage.kind)) as keyof Crew, member = savedCrew?.[tier]
-    return { stage, tier, member: savedHere(tier) ? { tool: member!.tool!, model: member!.model ?? '', effort: member!.effort ?? '' } : { tool, model, effort } }
+    if (!member?.tool) return { stage, tier, saved: false, member: { tool, model, effort }, spares: [] }
+    const spares = [member.backup, ...(member.moreBackups ?? [])].flatMap(one => one?.tool ? [{ tool: one.tool, model: one.model ?? '', effort: one.effort ?? '' }] : [])
+    return { stage, tier, saved: true, member: { tool: member.tool, model: member.model ?? '', effort: member.effort ?? '' }, spares }
   }))
-  const runTools = $derived(pathway ? [...new Set(pathwayRuns.map(run => run.member.tool))] : crewTools)
+  // Every agent a stage can start on, backups included, as outcomeRunsOn counts them for folder trust and YOLO.
+  const runTools = $derived(pathway ? [...new Set(pathwayRuns.flatMap(run => [run.member.tool, ...run.spares.map(one => one.tool)]))] : crewTools)
   const pathwayLaunch = $derived.by(() => {
     if (!pathway) return null
     const now = Date.now(), held = machine ? accounts[machine.agentId] : undefined
     const summary = launchSummary(pathwayRuns.map(run => ({ stage: stageTitle(run.stage), crew: run.tier ? tierLabel(run.tier) : chatToolName(run.member.tool),
-      readiness: launchReadiness({ machine, tools, efforts, models: modelsFor, accounts: held, now, member: run.member, spares: run.tier ? savedSpares(run.tier) : [], saved: run.tier ? savedFor(run.tier) : undefined, edited: run.tier ? savedHere(run.tier) : true }) })))
-    // There is no crew to change here: what holds a stage is fixed where the stage is, in the pathway or on the machine.
+      readiness: launchReadiness({ machine, tools, efforts, models: modelsFor, accounts: held, now, member: run.member, spares: run.spares, saved: run.tier ? savedFor(run.tier) : undefined, edited: run.saved || !run.tier }) })))
+    // There is no crew to change here: what holds a stage is fixed where the stage is, in the pathway, the saved crew or on the machine.
     const first = summary.causes.find(cause => cause.level === 'blocked')
-    return { ...summary, blocker: !first ? '' : first.machine ? first.text : `${first.text} This pathway’s ${inWords(first.stages)} ${first.stages.length === 1 ? 'stage runs' : 'stages run'} on it. Install it there, or change the stage in the pathway.` }
+    const away = first && !first.machine ? pathwayRuns.find(run => run.saved && first.stages.includes(stageTitle(run.stage)) && !tools.includes(run.member.tool)) : undefined
+    const blocker = !first ? '' : first.machine ? first.text : away ? missingCrewLine(tierLabel(away.tier!), chatToolName(away.member.tool), pathwayRuns.filter(run => run.tier === away.tier && run.saved).map(run => stageTitle(run.stage)), machine?.host || 'this machine')
+      : `${first.text} This pathway’s ${inWords(first.stages)} ${first.stages.length === 1 ? 'stage runs' : 'stages run'} on it. Install it there, or change the stage in the pathway.`
+    return { ...summary, blocker }
   })
   // Every stage, and every part of a split stage, with the readiness of the tier it is on.
   const launch = $derived(pathwayLaunch ?? launchSummary(sessions.flatMap(item => (item.stages ?? []).flatMap(kind => {

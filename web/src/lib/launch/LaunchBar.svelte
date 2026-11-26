@@ -241,6 +241,7 @@
       named = want
       const next = withProject(choice!, p, profile, { machines: machines ?? [], favourites, explicitModel, explicitEffort })
       if (next.agent !== choice!.agent) { explicitModel = false; explicitEffort = false }
+      yoloConfirmed = false
       choice = next
     })
   })
@@ -252,7 +253,7 @@
     if (!choice || !list || locked) return
     untrack(() => {
       if (choice!.projectIds.every(pid => list.some(p => p.id === pid))) return
-      explicitModel = false; explicitEffort = false
+      explicitModel = false; explicitEffort = false; yoloConfirmed = false
       choice = { ...initialChoice(list, profile, { machines: machines ?? [], favourites }), prompt: choice!.prompt }
     })
   })
@@ -641,6 +642,8 @@
   function set(slot: string, value: string) {
     if (!choice || locked) return
     message = ''
+    // A YOLO yes was given for one agent, in a chat or its terminal, in a worktree or the checkout: Start asks again.
+    if (slot === 'agent' || slot === 'chat' || slot === 'worktree') yoloConfirmed = false
     if (slot === 'agent') {
       const project = picked.length === 1 ? picked[0] : null
       explicitModel = false; explicitEffort = false

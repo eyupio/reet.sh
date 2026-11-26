@@ -1221,6 +1221,18 @@ try{
  await p.start.click()
  await expect.poll(()=>posts.length).toBe(yoloPosts+1)
  expect(JSON.parse(posts.at(-1))).toMatchObject({yolo:true})
+ // So does changing between a chat and the agent's own terminal: the confirmation's sentence was about one of them.
+ Object.assign(tmachines[0].capabilities,{acp:true,acpAgents:[{tool:'codex',adapter:'codex-acp',state:'available',minimumVersion:'1.13.1'}]})
+ d=await openAt(A);p=parts(d)
+ await p.pick('Codex')
+ await expect(d.getByLabel('Session',{exact:true})).toHaveValue('reet')
+ await d.getByRole('radio',{name:'YOLO',exact:true}).click()
+ await page.getByRole('alertdialog').getByRole('button',{name:'Start with YOLO'}).click()
+ await expect(d.getByRole('radio',{name:'YOLO',exact:true})).toBeChecked()
+ await d.getByLabel('Session',{exact:true}).selectOption('terminal')
+ await expect(d.getByRole('radio',{name:'Ask me',exact:true})).toBeChecked()
+ await page.keyboard.press('Escape')
+ delete tmachines[0].capabilities.acp;delete tmachines[0].capabilities.acpAgents
  // A machine that does not accept it says so and keeps Ask me.
  tmachines[0].capabilities.yolo=false
  d=await openAt(A);p=parts(d)

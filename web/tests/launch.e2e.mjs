@@ -602,6 +602,25 @@ try {
   await context.close()
  }
 
+ // A yes was given for one agent: after the agent changes, Start asks again before anything is sent.
+ if (run('YOLO asks again after the agent changes')) {
+  const {context,page,errors,box} = await launch()
+  await page.goto(base); await openQuick(page)
+  await pick(page,'Agent','Cline')
+  await bar(page).getByRole('radiogroup',{name:'Approvals'}).getByRole('radio',{name:'YOLO'}).click()
+  await page.getByRole('alertdialog',{name:'Turn on YOLO for this launch?'}).getByRole('button',{name:'Turn on YOLO'}).click()
+  await pick(page,'Agent','Codex')
+  await startButton(page).click()
+  const again = page.getByRole('alertdialog',{name:'Start this session on YOLO?'})
+  await expect(again).toContainText('turning its sandbox off')
+  expect(box.posts).toEqual([])
+  await again.getByRole('button',{name:'Start with YOLO'}).click()
+  await expect.poll(() => box.posts.length).toBe(1)
+  expect(box.posts[0]).toMatchObject({tool:'codex', yolo:true})
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
  // The session screen's + arrives at /#launch: the prompt takes focus and the address forgets the fragment.
  if (run('arriving from a session tab focuses the prompt')) {
   const {context,page,errors} = await launch()

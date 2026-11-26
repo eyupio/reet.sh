@@ -342,7 +342,7 @@
    { label: 'Works in the folder you chose', ok: true, warning: true, detail: 'Secrets in that folder are readable to the agent. Use a throwaway worktree if unsure.' },
   ]
  })
- $effect(() => { agentId; chosenTool; untrack(() => { yoloChosen = false }) })
+ $effect(() => { agentId; chosenTool; structured; untrack(() => { yoloChosen = false }) })
  $effect(() => { if (yoloWhy) untrack(() => { yoloChosen = false }) })
  async function loadYolo() { try { yoloSetting = await getYoloSetting() } catch { yoloSetting = null } }
  function openYolo() { if (locked || yoloWhy || yoloChosen) return; yoloOpen = true }

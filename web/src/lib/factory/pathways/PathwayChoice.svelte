@@ -16,7 +16,7 @@
   const id = $props.id()
   const FOLDED = 6, SEARCH_FROM = 12
   const offered = $derived(pathways.filter(p => p.enabled))
-  let open = $state(false), query = $state(''), said = $state('')
+  let open = $state(false), query = $state(''), said = $state(''), lifted = $state('')
   let search = $state<HTMLInputElement>()
   const chosen = $derived(offered.find(p => p.id === value))
   const searching = $derived(open && offered.length > SEARCH_FROM)
@@ -26,11 +26,14 @@
       return q ? offered.filter(p => p === chosen || p.name.toLowerCase().includes(q) || p.description.toLowerCase().includes(q)) : offered
     }
     const first = offered.slice(0, FOLDED)
-    return !chosen || first.includes(chosen) ? first : [chosen, ...offered.slice(0, FOLDED - 1)]
+    // A pathway lifted into the folded list stays there, so rows do not shift when another is chosen.
+    const lead = chosen && !first.includes(chosen) ? chosen : offered.find(p => p.id === lifted)
+    return lead && !first.includes(lead) ? [lead, ...offered.slice(0, FOLDED - 1)] : first
   })
+  $effect(() => { if (!open && chosen && !offered.slice(0, FOLDED).includes(chosen)) lifted = chosen.id })
 
   async function unfold() {
-    open = !open; query = ''
+    open = !open; query = ''; lifted = ''
     if (open) { await tick(); search?.focus() }
   }
 
@@ -70,22 +73,27 @@
     {#if searching}<input class="search" type="search" bind:this={search} bind:value={query} aria-label="Search pathways" placeholder="Search pathways" />{/if}
     <div class="rows" role="radiogroup" aria-labelledby={`${id}-label`}>
       {#each rows as p (p.id)}{@const problem = p.problems?.[0]}
-        <label class="row" class:on={value === p.id} class:off={!!problem}>
-          <input type="radio" name={id} value={p.id} bind:group={value} disabled={!!problem} onchange={() => { said = '' }}/>
-          <span class="text">
-            <strong>{p.name}</strong>
-            {#if suggested?.id === p.id}<span class="why">Gaffer suggests this: {suggested.why}</span>{/if}
-            {@render stageLine(p.name, p.stages)}
-            {#if problem}<span class="problem"><span aria-hidden="true">!</span> {problem}</span>{/if}
-          </span>
+        <div class="row" class:on={value === p.id} class:off={!!problem}>
+          <label class="pick">
+            <input type="radio" name={id} value={p.id} bind:group={value} disabled={!!problem} onchange={() => { said = '' }}/>
+            <span class="text">
+              <strong>{p.name}</strong>
+              {#if suggested?.id === p.id}<span class="why">Gaffer suggests this: {suggested.why}</span>{/if}
+              {@render stageLine(p.name, p.stages)}
+              {#if problem}<span class="problem"><span aria-hidden="true">!</span> {problem}</span>{/if}
+            </span>
+          </label>
+          <!-- Beside the label, not in it, so it is not read as part of the radio's name. -->
           {#if value === p.id}<a class="edit" href={`/factory/pathways/${encodeURIComponent(p.id)}`} target="_blank" rel="noopener">Edit pathway</a>{/if}
-        </label>
+        </div>
       {/each}
       {#if open && !rows.length}<p class="none">No pathway matches “{query.trim()}”.</p>{/if}
-      <label class="row" class:on={value === ''}>
-        <input type="radio" name={id} value="" bind:group={value} onchange={() => { said = '' }}/>
-        <span class="text"><strong>Standard stages</strong><span class="why">Choose the stages, tiers and parts yourself, as now.</span></span>
-      </label>
+      <div class="row" class:on={value === ''}>
+        <label class="pick">
+          <input type="radio" name={id} value="" bind:group={value} onchange={() => { said = '' }}/>
+          <span class="text"><strong>Standard stages</strong><span class="why">Choose the stages, tiers and parts yourself, as now.</span></span>
+        </label>
+      </div>
     </div>
     {#if offered.length > FOLDED}<button type="button" class="more" aria-expanded={open} onclick={unfold}>{open ? 'Show fewer' : `Show all ${offered.length} pathways`}</button>{/if}
     <p class="said" role="status">{said}</p>
@@ -97,11 +105,12 @@
   .label { font-size: 14px; color: var(--muted); }
   .search { width: 100%; box-sizing: border-box; font-size: 15px; }
   .rows { display: grid; gap: 8px; min-width: 0; }
-  .row { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; gap: 10px; align-items: start; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); font-weight: 400; cursor: pointer; min-width: 0; }
+  .row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); font-weight: 400; min-width: 0; }
+  .pick { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 10px; align-items: start; padding: 10px 12px; font-weight: 400; cursor: pointer; min-width: 0; }
   .row.on { border-color: var(--accent); background: var(--accent-wash); }
-  .row.off { cursor: not-allowed; }
+  .row.off .pick { cursor: not-allowed; }
   .row.off strong, .row.off .line { opacity: 0.6; }
-  .row input { width: 18px; height: 18px; min-height: 0; margin: 2px 0 0; padding: 0; accent-color: var(--accent); }
+  .pick input { width: 18px; height: 18px; min-height: 0; margin: 2px 0 0; padding: 0; accent-color: var(--accent); }
   .row:has(input:focus-visible) { outline: 2px solid var(--focus); outline-offset: 2px; }
   .text { display: grid; gap: 4px; min-width: 0; }
   .text strong { font-weight: 600; color: var(--ink); overflow-wrap: anywhere; }
@@ -114,7 +123,7 @@
   .chip { padding: 1px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--bg); color: var(--ink-soft); font-size: 14px; font-weight: 400; line-height: 20px; white-space: nowrap; }
   .chip.own { border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); background: var(--accent-wash); color: var(--accent-text); }
   /* In the chosen row, across from its name; on a touch screen it reaches 44 px without making the row taller. */
-  .edit { display: inline-flex; align-items: center; min-height: 24px; padding: 0 2px; border-radius: 4px; font-size: 14px; font-weight: 600; white-space: nowrap; }
+  .edit { display: inline-flex; align-items: center; min-height: 24px; margin: 10px 12px 0 0; padding: 0 2px; border-radius: 4px; font-size: 14px; font-weight: 600; white-space: nowrap; }
   .more { justify-self: start; min-height: 36px; padding: 0 2px; border: 0; background: none; color: var(--accent-text); font-size: 14px; font-weight: 600; cursor: pointer; }
   .more:hover, .edit:hover { text-decoration: underline; }
   .none { margin: 0; padding: 4px 2px; color: var(--muted); font-size: 14px; }
@@ -122,7 +131,7 @@
   /* Kept in the page while empty, so what it later says is read out; it takes no room until then. */
   .said:empty { margin-top: -6px; }
   @media (pointer: coarse) {
-    .edit { min-height: 44px; margin: -10px 0; }
+    .edit { min-height: 44px; margin: 0 12px 0 0; }
     .more { min-height: 44px; }
   }
 </style>

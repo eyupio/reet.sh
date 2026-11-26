@@ -129,13 +129,15 @@
   $effect(() => { ontitle?.(`${saved.name.trim() || 'New pathway'} · Pathways · reet.sh`) })
 
   // The palette's dock reaches the foot of the window wherever the page is scrolled: as tall as what is in view below its
-  // top, and the whole window once it sticks there. Its list scrolls inside it.
+  // top, and the whole window once it sticks there, less the phone's bottom tab bar where that is showing (it is fixed over
+  // the page, so the window's foot is its top). Its list scrolls inside it.
   let dock = $state<HTMLElement>()
+  const windowFoot = () => { const tabs = document.querySelector('nav.bottom-tabs'); return tabs && getComputedStyle(tabs).display !== 'none' ? tabs.getBoundingClientRect().top : innerHeight }
   $effect(() => {
     const node = dock, side = node?.parentElement
     if (!node || !side) return
     let frame = 0
-    const fit = () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(() => { node.style.maxHeight = `${innerHeight - Math.max(0, side.getBoundingClientRect().top)}px` }) }
+    const fit = () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(() => { node.style.maxHeight = `${windowFoot() - Math.max(0, side.getBoundingClientRect().top)}px` }) }
     fit()
     addEventListener('scroll', fit, { passive: true })
     addEventListener('resize', fit)
@@ -305,7 +307,7 @@
   // Over the line the ghost drops below the cards, so the card or gap it would land on stays in sight: the top it keeps clear of.
   let floor = $state(0)
   let bar = $state.raw<{ left: number; top: number; width: number; height: number } | null>(null)
-  let hintAt = $state.raw({ x: 0, y: 0 })
+  let hintAt = $state.raw({ x: 0, y: 0, above: false })
   let canvas = $state<HTMLElement>()
   let raf = 0
   const lineOf = () => canvas?.querySelector<HTMLElement>('[data-pathway-line]') ?? null
@@ -359,7 +361,10 @@
     bar = target?.type === 'slot' ? barAt(target.at, cards) : null
     const box = line.getBoundingClientRect(), bottom = Math.max(...cards.map(c => c.bottom))
     floor = !phone && cards.length && x >= box.left && x <= box.right && y >= box.top && y <= bottom ? bottom + 12 : 0
-    hintAt = { x: box.left + box.width / 2, y: floor && ghost ? floor + ghost.height + 16 : cards.length ? bottom + 18 : box.top + box.height / 2 }
+    const below = floor && ghost ? floor + ghost.height + 16 : cards.length ? bottom + 18 : box.top + box.height / 2
+    // Where it would not fit in the window it goes above the line (the pointer is over the line or below it then, never there).
+    const above = !phone && cards.length > 0 && below + (document.querySelector('[data-drag-hint]')?.getBoundingClientRect().height || 80) > windowFoot() - 8
+    hintAt = { x: box.left + box.width / 2, y: above ? box.top - 12 : below, above }
   }
   // The insertion bar, in the gap the slot is: between two cards, or just outside the first or last.
   function barAt(at: number, cards: DOMRect[]) {
@@ -604,7 +609,7 @@
     {/if}
     <!-- Over the ghost, so the gap it will land in is never hidden. -->
     {#if bar}<div class="drop-bar" data-drag-bar style:left="{bar.left}px" style:top="{bar.top}px" style:width="{bar.width}px" style:height="{bar.height}px"></div>{/if}
-    {#if hint}<p class="drag-hint" class:phone data-drag-hint style:left={phone ? undefined : `${hintAt.x}px`} style:top={phone ? undefined : `${hintAt.y}px`}>{hint}</p>{/if}
+    {#if hint}<p class="drag-hint" class:phone class:above={hintAt.above} data-drag-hint style:left={phone ? undefined : `${hintAt.x}px`} style:top={phone ? undefined : `${hintAt.y}px`}>{hint}</p>{/if}
   </div>
 {/if}
 {#if asking}
@@ -732,6 +737,7 @@
     position: fixed; translate: -50% 0; max-width: min(560px, calc(100vw - 32px)); box-sizing: border-box; margin: 0; padding: 8px 12px; border-radius: 8px;
     background: var(--ink); color: var(--bg); font-size: 14px; line-height: 1.45; text-align: center; box-shadow: 0 12px 30px -12px var(--scrim);
   }
+  .drag-hint.above { translate: -50% -100%; }
   .drag-hint.phone { left: 16px; right: 16px; bottom: calc(16px + var(--bottom-chrome, 0px)); translate: none; max-width: none; }
   :global(html[data-pathway-drag]), :global(html[data-pathway-drag] *) { cursor: grabbing !important; }
 

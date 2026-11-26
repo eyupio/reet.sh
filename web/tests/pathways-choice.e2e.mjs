@@ -169,7 +169,7 @@ try{
     await expect(edit).toHaveAttribute('href','/factory/pathways/p2')
     await expect(edit).toHaveAttribute('target','_blank')
     // It sits in the chosen pathway's own row.
-    expect(await edit.evaluate(a=>a.closest('label')?.querySelector('input:checked')?.value)).toBe('p2')
+    expect(await edit.evaluate(a=>a.closest('.row')?.querySelector('input:checked')?.value)).toBe('p2')
     await expect(outcome.getByRole('textbox',{name:'Pipeline 1 prompt',exact:true})).toBeVisible()
     await dialogFits(page)
     await bringUp(group.locator('..'));await shot(page,'outcome-pathway',width,theme)
@@ -416,6 +416,45 @@ try{
    await page.keyboard.press('ArrowDown')
    await expect(group.locator('label:has(input:checked) strong')).toHaveText('Line 1')
    if(width===1280)expect((await startOutcome(page,f,outcome)).pathway).toBe('m1')
+   expect(w.errors).toEqual([])
+  } finally { await w.context.close() }
+ }
+ // 12. The folded list holds still: a chosen pathway lifted into it stays where it is when another row is chosen, until
+ //     Show all or the dialog is reopened. Edit pathway is not part of the chosen radio's name, is the next Tab stop, and
+ //     reaches 44 px on a touch screen while staying inside the chosen row.
+ for(const [width,theme] of [[1280,'light'],[390,'dark']]){
+  const {w,page}=await open(width,theme,{pathways:MANY})
+  try{
+   const outcome=await toPlan(page)
+   const group=outcome.getByRole('radiogroup',{name:'Pathway',exact:true})
+   const names=()=>group.getByRole('radio').evaluateAll(els=>els.map(el=>el.closest('label').querySelector('strong').textContent))
+   await outcome.getByRole('button',{name:'Show all 30 pathways',exact:true}).click()
+   await group.getByRole('radio',{name:/^Line 27/}).check()
+   await outcome.getByRole('button',{name:'Show fewer',exact:true}).click()
+   await expect.poll(names).toEqual(['Line 27','Line 1','Line 2','Line 3','Line 4','Line 5',STANDARD])
+   await group.getByRole('radio',{name:/^Line 3/}).check()
+   expect(await names()).toEqual(['Line 27','Line 1','Line 2','Line 3','Line 4','Line 5',STANDARD])
+   await group.getByRole('radio',{name:new RegExp(`^${STANDARD}`)}).check()
+   expect(await names()).toEqual(['Line 27','Line 1','Line 2','Line 3','Line 4','Line 5',STANDARD])
+   await outcome.getByRole('button',{name:'Show all 30 pathways',exact:true}).click()
+   await outcome.getByRole('button',{name:'Show fewer',exact:true}).click()
+   await expect.poll(names).toEqual(['Line 1','Line 2','Line 3','Line 4','Line 5','Line 6',STANDARD])
+   // Edit pathway.
+   const radio=group.getByRole('radio',{name:/^Line 4/})
+   await radio.check()
+   await expect(radio).toHaveAccessibleName(/^Line 4/)
+   expect(await radio.evaluate(el=>el.labels[0].textContent)).not.toContain('Edit pathway')
+   const edit=group.getByRole('link',{name:'Edit pathway',exact:true})
+   await expect(edit).toHaveCount(1)
+   expect(await edit.evaluate(a=>!a.closest('label'))).toBe(true)
+   await radio.focus()
+   await page.keyboard.press('Tab')
+   await expect(edit).toBeFocused()
+   const [r,e]=[await radio.evaluate(el=>el.closest('.row').getBoundingClientRect().toJSON()),await edit.boundingBox()]
+   expect(e.x>=r.x&&e.x+e.width<=r.x+r.width&&e.y>=r.y&&e.y+e.height<=r.y+r.height,'Edit pathway sits inside the chosen row').toBe(true)
+   if(width<1000)expect(e.height).toBeGreaterThanOrEqual(44)
+   await dialogFits(page)
+   await bringUp(group.locator('..'));await shot(page,'edit-link',width,theme)
    expect(w.errors).toEqual([])
   } finally { await w.context.close() }
  }

@@ -573,5 +573,25 @@ try{
    } finally { await w.context.close() }
   }
  }
+ // 14. The chosen pathway's row is always in the folded list: after a lift and a choice in the first six, a re-read (the
+ //     window comes back) that moves it to the sixth place keeps it shown and checked.
+ {
+  const MANY=Array.from({length:30},(_,n)=>pathway(`m${n+1}`,`Line ${n+1}`,[st('code'),st('pr')]))
+  const {f,w,page}=await open(1280,'light',{pathways:MANY})
+  try{
+   const outcome=await toPlan(page)
+   const group=outcome.getByRole('radiogroup',{name:'Pathway',exact:true})
+   const names=()=>group.getByRole('radio').evaluateAll(els=>els.map(el=>el.closest('label').querySelector('strong').textContent))
+   await outcome.getByRole('button',{name:'Show all 30 pathways',exact:true}).click()
+   await group.getByRole('radio',{name:/^Line 27/}).check()
+   await outcome.getByRole('button',{name:'Show fewer',exact:true}).click()
+   await group.getByRole('radio',{name:/^Line 5/}).check()
+   f.box.pathways=[...MANY.slice(0,4),MANY[5],MANY[4],...MANY.slice(6)]
+   await page.evaluate(()=>window.dispatchEvent(new Event('focus')))
+   await expect.poll(names).toContain('Line 5')
+   await expect(group.getByRole('radio',{name:/^Line 5/})).toBeChecked()
+   expect(w.errors).toEqual([])
+  } finally { await w.context.close() }
+ }
  console.log('pathways-choice: ok')
 } finally { await browser.close() }

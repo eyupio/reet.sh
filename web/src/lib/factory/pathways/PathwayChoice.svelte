@@ -27,7 +27,8 @@
     }
     const first = offered.slice(0, FOLDED)
     // A pathway lifted into the folded list stays there, so rows do not shift when another is chosen.
-    const lead = chosen && !first.includes(chosen) ? chosen : offered.find(p => p.id === lifted)
+    // The chosen pathway is always in the list: a lift is dropped when it would push the chosen one off the sixth place.
+    const lead = chosen && !first.includes(chosen) ? chosen : !chosen || first.indexOf(chosen) < FOLDED - 1 ? offered.find(p => p.id === lifted) : undefined
     return lead && !first.includes(lead) ? [lead, ...offered.slice(0, FOLDED - 1)] : first
   })
   $effect(() => { if (!open && chosen && !offered.slice(0, FOLDED).includes(chosen)) lifted = chosen.id })

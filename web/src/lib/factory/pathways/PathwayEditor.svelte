@@ -307,7 +307,7 @@
   // Over the line the ghost drops below the cards, so the card or gap it would land on stays in sight: the top it keeps clear of.
   let floor = $state(0)
   let bar = $state.raw<{ left: number; top: number; width: number; height: number } | null>(null)
-  let hintAt = $state.raw({ x: 0, y: 0, above: false })
+  let hintAt = $state.raw({ x: 0, y: 0, above: false, side: false })
   let canvas = $state<HTMLElement>()
   let raf = 0
   const lineOf = () => canvas?.querySelector<HTMLElement>('[data-pathway-line]') ?? null
@@ -362,9 +362,12 @@
     const box = line.getBoundingClientRect(), bottom = Math.max(...cards.map(c => c.bottom))
     floor = !phone && cards.length && x >= box.left && x <= box.right && y >= box.top && y <= bottom ? bottom + 12 : 0
     const below = floor && ghost ? floor + ghost.height + 16 : cards.length ? bottom + 18 : box.top + box.height / 2
-    // Where it would not fit in the window it goes above the line (the pointer is over the line or below it then, never there).
-    const above = !phone && cards.length > 0 && below + (document.querySelector('[data-drag-hint]')?.getBoundingClientRect().height || 80) > windowFoot() - 8
-    hintAt = { x: box.left + box.width / 2, y: above ? box.top - 12 : below, above }
+    // Where it would not fit in the window it goes above the line, or above the pointer when that is higher (never under
+    // it); where there is no room above either, beside the pointer, to its right.
+    const tall = document.querySelector('[data-drag-hint]')?.getBoundingClientRect().height || 80
+    const out = !phone && cards.length > 0 && below + tall > windowFoot() - 8, lift = Math.min(box.top, y) - 12
+    const side = out && lift - tall < 8
+    hintAt = side ? { x: x + 20, y, above: false, side } : { x: box.left + box.width / 2, y: out ? lift : below, above: out, side }
   }
   // The insertion bar, in the gap the slot is: between two cards, or just outside the first or last.
   function barAt(at: number, cards: DOMRect[]) {
@@ -609,7 +612,7 @@
     {/if}
     <!-- Over the ghost, so the gap it will land in is never hidden. -->
     {#if bar}<div class="drop-bar" data-drag-bar style:left="{bar.left}px" style:top="{bar.top}px" style:width="{bar.width}px" style:height="{bar.height}px"></div>{/if}
-    {#if hint}<p class="drag-hint" class:phone class:above={hintAt.above} data-drag-hint style:left={phone ? undefined : `${hintAt.x}px`} style:top={phone ? undefined : `${hintAt.y}px`}>{hint}</p>{/if}
+    {#if hint}<p class="drag-hint" class:phone class:above={hintAt.above} class:side={hintAt.side} data-drag-hint style:left={phone ? undefined : `${hintAt.x}px`} style:top={phone ? undefined : `${hintAt.y}px`} style:max-width={hintAt.side ? `min(560px, ${innerWidth - hintAt.x - 16}px)` : undefined}>{hint}</p>{/if}
   </div>
 {/if}
 {#if asking}
@@ -738,6 +741,7 @@
     background: var(--ink); color: var(--bg); font-size: 14px; line-height: 1.45; text-align: center; box-shadow: 0 12px 30px -12px var(--scrim);
   }
   .drag-hint.above { translate: -50% -100%; }
+  .drag-hint.side { translate: 0 -50%; }
   .drag-hint.phone { left: 16px; right: 16px; bottom: calc(16px + var(--bottom-chrome, 0px)); translate: none; max-width: none; }
   :global(html[data-pathway-drag]), :global(html[data-pathway-drag] *) { cursor: grabbing !important; }
 

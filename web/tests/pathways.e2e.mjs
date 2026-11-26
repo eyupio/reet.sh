@@ -1003,6 +1003,32 @@ async function editorHintShort(theme){
   }finally{await w.context.close()}
  }
 }
+// The pointer above the line on a short window: the hint is above the pointer or beside it, inside the window, never over it.
+async function editorHintAbovePointer(theme){
+ const {w,page}=await open(900,theme,{list:[...three(),planFirst()]},{touch:true,height:500})
+ try{
+  await goEditor(page,'p6')
+  const cdp=await page.context().newCDPSession(page)
+  const touchAt=(type,p)=>cdp.send('Input.dispatchTouchEvent',{type,touchPoints:p?[{x:Math.round(p.x),y:Math.round(p.y)}]:[]})
+  await item(page,'stage:design').scrollIntoViewIfNeeded()
+  const line=await page.locator('[data-pathway-line]').boundingBox()
+  for(const [lift,name] of [[20,'design'],[line.y-50,'review']]){
+   await item(page,`stage:${name}`).scrollIntoViewIfNeeded()
+   const from=centre(await item(page,`stage:${name}`).boundingBox())
+   const to={x:line.x+line.width/2,y:line.y-lift}
+   await touchAt('touchStart',from)
+   await page.waitForTimeout(400)
+   for(let n=1;n<=10;n++)await touchAt('touchMove',{x:from.x+(to.x-from.x)*n/10,y:from.y+(to.y-from.y)*n/10})
+   await expect(hint(page)).toBeVisible()
+   const h=await hint(page).boundingBox()
+   await insideWindow(page,h)
+   expect(to.x<h.x||to.x>h.x+h.width||to.y<h.y||to.y>h.y+h.height,`the hint covers the pointer at ${to.y}`).toBe(true)
+   if(lift===20)await held(page,'p3-drag-hint-pointer-above',900,theme)
+   await touchAt('touchEnd')
+  }
+  expect(w.errors).toEqual([])
+ }finally{await w.context.close()}
+}
 async function editorDockTabs(theme){
  {
   const {w,page}=await open(900,theme,{list:[...three(),planFirst()],shelf:many},{touch:true,height:480})
@@ -1100,7 +1126,7 @@ try{
  await tabletTargets()
  await editorShelf(1280,'light')
  await editorShelf(1024,'dark',true)
- for(const theme of ['light','dark']){await editorHintShort(theme);await editorDockTabs(theme)}
+ for(const theme of ['light','dark']){await editorHintShort(theme);await editorHintAbovePointer(theme);await editorDockTabs(theme)}
  for(const [width,theme] of [[1280,'light'],[390,'dark']]){
   await editorGone(width,theme)
   await editorNotAPathway(width,theme)

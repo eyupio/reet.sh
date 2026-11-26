@@ -1250,7 +1250,9 @@ func (s *Session) handlePermission(rpcID json.RawMessage, raw json.RawMessage) {
 	}
 	s.pending[permissionID] = pending
 	pending.timer = time.AfterFunc(s.opts.permissionTimeout(), func() {
-		s.resolve(permissionID, "cancelled", "timeout")
+		if s.resolve(permissionID, "cancelled", "timeout") != nil {
+			return // answered as the timer fired: the answer stands
+		}
 		s.emit(Event{Kind: "notice", Text: "The approval request timed out, so " + s.opts.Agent.displayName() + " was stopped.", Bad: true})
 		_ = s.sendCancel()
 	})

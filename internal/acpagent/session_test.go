@@ -990,6 +990,33 @@ func TestPermissionTimeout(t *testing.T) {
 	}
 }
 
+// A card answered just as its timer fires is answered. The late timer finds no
+// card, and must not then report a timeout or cancel the turn.
+func TestATimeoutThatLosesToAnAnswerDoesNotStopTheTurn(t *testing.T) {
+	opts, got := options(t, "timeout", testVersion)
+	session, err := Start(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	done := make(chan error, 1)
+	go func() { done <- session.Prompt(context.Background(), "write a file") }()
+	event := got.next(t)
+	for event.Kind != "permission" {
+		event = got.next(t)
+	}
+	// Hold the timer behind the lock past its deadline, then take the card as an answer does.
+	session.mu.Lock()
+	time.Sleep(opts.PermissionTimeout + 200*time.Millisecond)
+	delete(session.pending, event.PermissionID)
+	session.mu.Unlock()
+	select {
+	case <-done:
+		t.Fatal("the late timer stopped a turn whose card had been answered")
+	case <-time.After(500 * time.Millisecond):
+	}
+}
+
 func TestVersionAndModeRefused(t *testing.T) {
 	opts, _ := options(t, "basic", "1.15.13")
 	if _, err := Start(context.Background(), opts); !errors.Is(err, ErrVersion) {

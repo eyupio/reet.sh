@@ -563,6 +563,15 @@ func jwtClaims(token string, into any) bool {
 	return json.Unmarshal(raw, into) == nil
 }
 
+// rfc3339Millis reads a time in RFC 3339 as milliseconds since 1970. Anything
+// else is zero, "not said".
+func rfc3339Millis(text string) int64 {
+	if at, err := time.Parse(time.RFC3339, text); err == nil && at.UnixMilli() > 0 {
+		return at.UnixMilli()
+	}
+	return 0
+}
+
 // percent rounds a provider's used share to a whole percentage within 0–100.
 func percent(used float64) int {
 	switch {

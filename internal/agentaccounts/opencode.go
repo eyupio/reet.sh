@@ -222,10 +222,7 @@ func askOpenCode(ctx context.Context, r *Reader, s signIn) allowance {
 func resetTime(raw json.RawMessage) int64 {
 	var text string
 	if json.Unmarshal(raw, &text) == nil {
-		if at, err := time.Parse(time.RFC3339, text); err == nil && at.UnixMilli() > 0 {
-			return at.UnixMilli()
-		}
-		return 0
+		return rfc3339Millis(text)
 	}
 	var number float64
 	if json.Unmarshal(raw, &number) != nil || number <= 0 {

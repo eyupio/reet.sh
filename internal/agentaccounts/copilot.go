@@ -248,10 +248,8 @@ func copilotAllowance(body []byte) allowance {
 // that day in UTC) or a time in RFC 3339, in milliseconds. Anything else is
 // zero, "not said".
 func copilotDate(value string) int64 {
-	for _, layout := range []string{time.RFC3339, time.DateOnly} {
-		if at, err := time.Parse(layout, value); err == nil && at.UnixMilli() > 0 {
-			return at.UnixMilli()
-		}
+	if at, err := time.Parse(time.DateOnly, value); err == nil && at.UnixMilli() > 0 {
+		return at.UnixMilli()
 	}
-	return 0
+	return rfc3339Millis(value)
 }

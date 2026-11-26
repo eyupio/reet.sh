@@ -265,7 +265,8 @@ type ContextReply struct {
 // latestReply reads the reply. It needs history and text sharing, like the
 // event text it repeats at greater length.
 func (s *Service) latestReply(uid int64, session string) (*ContextReply, error) {
-	parts, first, last, at, err := s.store.ContextLatestReplyFor(uid, session)
+	// Twice what is kept is read, so a credential the read's own start cut in two is outside the kept end.
+	parts, first, last, at, more, err := s.store.ContextLatestReplyFor(uid, session, 2*MaxLatestReplyBytes)
 	if err != nil || len(parts) == 0 {
 		return nil, err
 	}
@@ -273,7 +274,7 @@ func (s *Service) latestReply(uid int64, session string) (*ContextReply, error) 
 	if text == "" {
 		return nil, nil
 	}
-	r := &ContextReply{FromSeq: first, ToSeq: last, At: at, Text: text}
+	r := &ContextReply{FromSeq: first, ToSeq: last, At: at, Text: text, StartOmitted: more}
 	if len(text) > MaxLatestReplyBytes {
 		text = text[len(text)-MaxLatestReplyBytes:]
 		for !utf8.ValidString(text) {

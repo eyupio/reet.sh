@@ -498,3 +498,54 @@ func TestContextOfALatePipelineStageStillFits(t *testing.T) {
 		t.Fatal("the newest handover was dropped before older ones")
 	}
 }
+
+// An agent's reply arrives as many small chunks of one message. They read as
+// one text, however many there are, and a reply too long to read whole says
+// that its start is missing.
+func TestContextJoinsAReplysChunksAndSaysWhenItsStartIsMissing(t *testing.T) {
+	s, st, p := settingsFixture(t)
+	row := contextSessionFixture(t, st, p)
+	provider, err := s.Save(p, Input{Name: "Reply", Kind: "openai_compatible", BaseURL: "http://127.0.0.1:1", LocalOnly: true, Enabled: true, Model: "fake-model", AllowStatus: true, AllowSessions: true, AllowCode: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := s.CreateConversation(p.UserID, ConversationInput{SessionID: row.ID, ProviderID: provider.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	seq := int64(0)
+	add := func(kind, message, text string) {
+		t.Helper()
+		seq++
+		raw, _ := json.Marshal(map[string]any{"kind": kind, "messageId": message, "text": text})
+		if err := st.AppendTerminalChatEventFor(p.UserID, row.ID, seq, time.Now().UnixMilli(), raw); err != nil {
+			t.Fatal(err)
+		}
+	}
+	reply := func() *ContextReply {
+		t.Helper()
+		x, err := s.PreviewContext(p.UserID, "gaffer", c.Conversation.ID, row.ID, store.ContextFlags{History: true, Text: true})
+		if err != nil || x.LatestReply == nil {
+			t.Fatalf("reply: %+v %v", x.LatestReply, err)
+		}
+		return x.LatestReply
+	}
+	add("user", "", "Write the plan.")
+	add("agent", "m1", "PLAN_START step one is to re")
+	for i := 0; i < 70; i++ {
+		add("agent", "m1", "name the file, and then to re")
+	}
+	add("agent", "m2", "Plan written.")
+	if r := reply(); r.StartOmitted || r.FromSeq != 2 || !strings.HasPrefix(r.Text, "PLAN_START step one is to rename the file") || !strings.HasSuffix(r.Text, "and then to re\nPlan written.") || strings.Count(r.Text, "\n") != 1 {
+		t.Fatalf("short reply: omitted=%v from=%d %q", r.StartOmitted, r.FromSeq, r.Text)
+	}
+	add("user", "", "Now the long report.")
+	add("agent", "m3", "REPORT_START")
+	for i := 0; i < 400; i++ {
+		add("agent", "m3", " another fifty bytes or so of the closing report...")
+	}
+	add("agent", "m3", " REPORT_END")
+	if r := reply(); !r.StartOmitted || strings.Contains(r.Text, "REPORT_START") || !strings.HasSuffix(r.Text, "REPORT_END") || len(r.Text) < MaxLatestReplyBytes-4 || strings.Contains(r.Text, "\n") {
+		t.Fatalf("long reply: omitted=%v len=%d", r.StartOmitted, len(r.Text))
+	}
+}

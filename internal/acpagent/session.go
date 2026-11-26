@@ -578,6 +578,11 @@ func (s *Session) emitLocked(event Event) {
 	s.opts.OnEvent(event)
 }
 
+// writeTimeout bounds one frame to the agent. An agent that is alive but has
+// stopped reading would otherwise hold the write lock, and a prompt's turn
+// lock, for good: Stop, the turn deadlines and End would all wait behind it.
+var writeTimeout = 15 * time.Second
+
 func (s *Session) nextRequestID() int64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -599,7 +604,15 @@ func (s *Session) write(message any) error {
 	if closed {
 		return ErrClosed
 	}
+	if pipe, ok := s.stdin.(interface{ SetWriteDeadline(time.Time) error }); ok {
+		_ = pipe.SetWriteDeadline(time.Now().Add(writeTimeout))
+	}
 	_, err = s.stdin.Write(data)
+	if errors.Is(err, os.ErrDeadlineExceeded) {
+		// A frame cut short cannot be resumed, so the agent is ended; the waiter then releases every call and card.
+		s.killGroup()
+		return ErrExited
+	}
 	return err
 }
 

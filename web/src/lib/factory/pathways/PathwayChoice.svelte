@@ -19,6 +19,7 @@
   let open = $state(false), query = $state(''), said = $state(''), lifted = $state('')
   let search = $state<HTMLInputElement>()
   const chosen = $derived(offered.find(p => p.id === value))
+  const hinted = $derived(offered.find(p => p.id === suggested?.id))
   const searching = $derived(open && offered.length > SEARCH_FROM)
   const rows = $derived.by(() => {
     if (open) {
@@ -29,7 +30,11 @@
     // A pathway lifted into the folded list stays there, so rows do not shift when another is chosen.
     // The chosen pathway is always in the list: a lift is dropped when it would push the chosen one off the sixth place.
     const lead = chosen && !first.includes(chosen) ? chosen : !chosen || first.indexOf(chosen) < FOLDED - 1 ? offered.find(p => p.id === lifted) : undefined
-    return lead && !first.includes(lead) ? [lead, ...offered.slice(0, FOLDED - 1)] : first
+    const folded = lead && !first.includes(lead) ? [lead, ...offered.slice(0, FOLDED - 1)] : first
+    // Gaffer's suggestion is always in the list too: it leads, in place of the last row that is not the chosen one.
+    if (!hinted || folded.includes(hinted)) return folded
+    const drop = folded.length - (folded.at(-1) === chosen ? 2 : 1)
+    return [hinted, ...folded.filter((_, i) => i !== drop)]
   })
   $effect(() => { if (!open && chosen && !offered.slice(0, FOLDED).includes(chosen)) lifted = chosen.id })
 
@@ -79,7 +84,7 @@
             <input type="radio" name={id} value={p.id} bind:group={value} disabled={!!problem} onchange={() => { said = '' }}/>
             <span class="text">
               <strong>{p.name}</strong>
-              {#if suggested?.id === p.id}<span class="why">Gaffer suggests this: {suggested.why}</span>{/if}
+              {#if suggested?.id === p.id}<span class="why">{suggested.why ? `Gaffer suggests this: ${suggested.why}` : 'Gaffer suggests this.'}</span>{/if}
               {@render stageLine(p.name, p.stages)}
               {#if problem}<span class="problem"><span aria-hidden="true">!</span> {problem}</span>{/if}
             </span>

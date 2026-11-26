@@ -64,6 +64,9 @@ function fixture({pathways=PATHWAYS,pathwayId,tools,crew,accounts,yolo=false}={}
   [`/api/v2/gaffer/outcomes/${'d'.repeat(32)}`]:()=>({...outcome,id:'d'.repeat(32),state:'running',report:undefined}),
   [`/api/v2/gaffer/outcomes/${oid}/sessions`]:r=>{const b=r.postDataJSON();box.adds.push(b);if(box.refuse)return refused();return{...outcome,revision:4,report:{...outcome.report,proposals:[]}}},
  }
+ // Gaffer's plan, asked for in the background as the server does: `box.plan` is the next answer (section 15).
+ routes[`/api/v2/gaffer/providers/${pid}/plan`]=r=>{box.asks=(box.asks??0)+1;return{status:202,json:{id:'j1',state:'running'}}}
+ routes[`/api/v2/gaffer/providers/${pid}/plan/j1`]=()=>box.plan
  if(crew)routes['/api/v2/gaffer/crew']=savedCrew(crew)
  if(accounts)routes['/api/v2/machines/a1/accounts']={state:'read',sentence:'',planLimits:false,checkedAt:now,accounts}
  if(pathways!==null)routes['/api/v2/gaffer/pathways']=Array.isArray(pathways)?()=>({pathways:box.pathways}):pathways
@@ -592,6 +595,137 @@ try{
    await expect(group.getByRole('radio',{name:/^Line 5/})).toBeChecked()
    expect(w.errors).toEqual([])
   } finally { await w.context.close() }
+ }
+
+ // 15. Gaffer's plan can suggest a pathway. An offered one (on, no problem) is chosen for an untouched dialog and says so
+ //     on its row; a choice the person made themselves stays through later plans; one that is not offered is ignored.
+ //     A plan with no suggestion, or one not offered, sends the body sent before pathways existed.
+ {
+  const SESSIONS=[{title:'Whole export',prompt:'Build the CSV export end to end. Raise a pull request. Do not merge.'},{title:'Button',prompt:'Add the export button. Raise a pull request. Do not merge.'}]
+  const planWith=pathway=>({summary:'Two pipelines: the export, then its button.',sessions:SESSIONS,model:'gaffer-model',usageReported:true,inputTokens:1,outputTokens:1,...(pathway?{pathway}:{})})
+  const radio=(outcome,name)=>outcome.getByRole('radiogroup',{name:'Pathway',exact:true}).getByRole('radio',{name:new RegExp(`^${name}\\b`)})
+  const hint=outcome=>outcome.getByRole('radiogroup',{name:'Pathway',exact:true}).getByText(/^Gaffer suggests this/)
+  const approve=outcome=>outcome.getByRole('button',{name:'Approve and start 2 pipelines',exact:true})
+  async function toAsk(page,f,plan){
+   f.box.plan=plan
+   await page.goto(base+'/factory')
+   await page.getByRole('button',{name:'New Factory outcome',exact:true}).click()
+   const outcome=page.getByRole('dialog',{name:'New Factory outcome',exact:true})
+   await outcome.getByRole('textbox',{name:'Outcome',exact:true}).fill('Ship CSV export for billing.')
+   await outcome.getByRole('combobox',{name:'Project',exact:true}).selectOption('p1')
+   await outcome.getByRole('button',{name:'Ask Gaffer for a plan',exact:true}).click()
+   await expect(outcome.getByRole('textbox',{name:'Pipeline 1 title',exact:true})).toHaveValue('Whole export')
+   return outcome
+  }
+  const reply=async(outcome,f,plan)=>{
+   f.box.plan=plan;const asks=f.box.asks
+   await outcome.getByRole('textbox',{name:'Reply to Gaffer',exact:true}).fill('Keep it as two.')
+   await outcome.getByRole('button',{name:'Send reply',exact:true}).click()
+   await expect.poll(()=>f.box.asks).toBe(asks+1)
+   await expect(outcome.getByRole('button',{name:'Send reply',exact:true})).toHaveText('Send reply')
+  }
+  // (a) With a reason, and without one; seen in light and dark, wide and narrow.
+  for(const [width,theme] of [[1280,'light'],[390,'dark']]){
+   for(const why of ['It needs a security pass before it ships.','']){
+    const {f,w,page}=await open(width,theme)
+    try{
+     const outcome=await toAsk(page,f,planWith({id:'p2',name:'Careful release',...(why?{why}:{})}))
+     await expect(radio(outcome,'Careful release')).toBeChecked()
+     await expect(hint(outcome)).toHaveText(why?`Gaffer suggests this: ${why}`:'Gaffer suggests this.')
+     await expect(hint(outcome)).toHaveCount(1)
+     // Everything a chosen pathway does: its stage line in place of the ticks, and the start names it with no stages.
+     await expect(outcome.getByRole('group',{name:'Pipeline 1 stages',exact:true})).toHaveCount(0)
+     await expect(outcome.getByText('Each pipeline follows this pathway. Its stages, models, skills and prompts come from it.',{exact:true})).toHaveCount(2)
+     await dialogFits(page)
+     const group=outcome.getByRole('radiogroup',{name:'Pathway',exact:true})
+     await bringUp(group.locator('..'))
+     await page.mouse.move(0,0);await page.waitForTimeout(300)
+     await page.screenshot({path:`${process.env.REET_SUGGEST_SHOTS||shots}/p3-suggest-${why?'why':'plain'}-${width}-${theme}.png`})
+     await approve(outcome).click()
+     await expect.poll(()=>f.box.starts.length).toBe(1)
+     const sent=noRequestId(f.box.starts[0])
+     expect(sent.pathway).toBe('p2')
+     expect(sent.sessions).toEqual(SESSIONS)
+     expect(w.errors).toEqual([])
+    } finally { await w.context.close() }
+   }
+  }
+  // (b) A person's own choice, Standard stages included, stays through a reply and a fresh ask; the suggestion still shows.
+  //     Untouched, a later plan's suggestion moves the choice.
+  {
+   const {f,w,page}=await open(1280,'light')
+   try{
+    const outcome=await toAsk(page,f,planWith({id:'p1',name:'Quick fix',why:'A small change.'}))
+    await expect(radio(outcome,'Quick fix')).toBeChecked()
+    await reply(outcome,f,planWith({id:'p2',name:'Careful release',why:'Safer.'}))
+    await expect(radio(outcome,'Careful release')).toBeChecked()
+    await expect(hint(outcome)).toHaveText('Gaffer suggests this: Safer.')
+    await radio(outcome,STANDARD).check()
+    await reply(outcome,f,planWith({id:'p1',name:'Quick fix',why:'A small change.'}))
+    await expect(radio(outcome,STANDARD)).toBeChecked()
+    await expect(hint(outcome)).toHaveText('Gaffer suggests this: A small change.')
+    await expect(radio(outcome,'Quick fix').locator('xpath=ancestor::label')).toContainText('Gaffer suggests this: A small change.')
+    await outcome.getByRole('button',{name:'Back',exact:true}).click()
+    f.box.plan=planWith({id:'p2',name:'Careful release',why:'Safer.'})
+    await outcome.getByRole('button',{name:'Ask Gaffer for a plan',exact:true}).click()
+    await expect(hint(outcome)).toHaveText('Gaffer suggests this: Safer.')
+    await expect(radio(outcome,STANDARD)).toBeChecked()
+    await expect(outcome.getByRole('group',{name:'Pipeline 1 stages',exact:true})).toBeVisible()
+    expect(w.errors).toEqual([])
+   } finally { await w.context.close() }
+  }
+  // (c) Not offered (a problem, switched off, unknown) or none at all: nothing is chosen or said, and the body is as before.
+  for(const suggestion of [{id:'p3',name:'Billing hotfix',why:'It is a hotfix.'},{id:'p4',name:'Docs only',why:'Docs.'},{id:'zz',name:'Gone',why:'Gone.'},undefined]){
+   const {f,w,page}=await open(1280,'light')
+   try{
+    const outcome=await toAsk(page,f,planWith(suggestion))
+    await expect(radio(outcome,STANDARD)).toBeChecked()
+    await expect(outcome.getByText(/Gaffer suggests this/)).toHaveCount(0)
+    same(await startOutcome(page,f,outcome),BASELINE_OUTCOME,'outcome')
+    expect(w.errors).toEqual([])
+   } finally { await w.context.close() }
+  }
+  // (d) A suggestion that stops being offered (read again when the window comes back) loses its line, and its preselection
+  //     goes back to Standard stages.
+  {
+   const {f,w,page}=await open(1280,'light')
+   try{
+    const outcome=await toAsk(page,f,planWith({id:'p2',name:'Careful release',why:'Safer.'}))
+    await expect(radio(outcome,'Careful release')).toBeChecked()
+    f.box.pathways=PATHWAYS.map(p=>p.id==='p2'?{...p,problems:['The skill “audit” on Review is no longer on your shelf.']}:p)
+    await page.evaluate(()=>window.dispatchEvent(new Event('focus')))
+    await expect(radio(outcome,STANDARD)).toBeChecked()
+    await expect(outcome.getByText(/Gaffer suggests this/)).toHaveCount(0)
+    expect(w.errors).toEqual([])
+   } finally { await w.context.close() }
+  }
+  // (e) The suggested row is always in the folded list: preselected beyond the first six and then another row chosen, or
+  //     suggested after the person chose Standard stages.
+  {
+   const MANY=Array.from({length:30},(_,n)=>pathway(`m${n+1}`,`Line ${n+1}`,[st('code'),st('pr')]))
+   const {f,w,page}=await open(1280,'light',{pathways:MANY})
+   try{
+    const outcome=await toAsk(page,f,planWith({id:'m27',name:'Line 27',why:'Its own line.'}))
+    const group=outcome.getByRole('radiogroup',{name:'Pathway',exact:true})
+    const names=()=>group.getByRole('radio').evaluateAll(els=>els.map(el=>el.closest('label').querySelector('strong').textContent))
+    await expect(radio(outcome,'Line 27')).toBeChecked()
+    const kept=async()=>{await expect.poll(names).toContain('Line 27');expect((await names()).length).toBe(7);await expect(hint(outcome)).toHaveText('Gaffer suggests this: Its own line.')}
+    for(const row of ['Line 5','Line 2',STANDARD]){
+     await radio(outcome,row).check()
+     await expect(radio(outcome,row)).toBeChecked()
+     await kept()
+    }
+    // Show all and Show fewer drop a lift; the suggestion stays.
+    await outcome.getByRole('button',{name:'Show all 30 pathways',exact:true}).click()
+    await outcome.getByRole('button',{name:'Show fewer',exact:true}).click()
+    await kept()
+    await reply(outcome,f,planWith({id:'m20',name:'Line 20',why:'Another line.'}))
+    await expect(radio(outcome,STANDARD)).toBeChecked()
+    await expect.poll(names).toContain('Line 20')
+    expect((await names()).length).toBe(7)
+    expect(w.errors).toEqual([])
+   } finally { await w.context.close() }
+  }
  }
  console.log('pathways-choice: ok')
 } finally { await browser.close() }

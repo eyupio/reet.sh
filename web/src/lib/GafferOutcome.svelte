@@ -4,7 +4,7 @@
   // controller start each session through the ordinary launch and put it in Gaffer's care. This dialog only watches:
   // the work carries on if it is closed. Nothing starts on the model's say-so: a proposed session is text until Approve.
   import { onMount, tick, untrack } from 'svelte'
-  import { ApiError, createGafferOutcome, diffGafferTemplate, getGafferCrew, getGafferTemplate, launchGafferTemplate, type Template, type TemplateDiff, type TemplateLaunchInput, type GafferOutcomeInput, saveGafferCrew, type GafferCrew, getGafferOutcome, getGafferSettings, getProfile, getYoloSetting, listGafferPathways, listModelFavourites, planGafferOutcome, type Pathway, type GafferPlanPhase, stopGafferOutcome, type GafferOutcome, type GafferProvider, type YoloSetting } from './api'
+  import { ApiError, createGafferOutcome, diffGafferTemplate, getGafferCrew, getGafferTemplate, launchGafferTemplate, type Template, type TemplateDiff, type TemplateLaunchInput, type GafferOutcomeInput, saveGafferCrew, type GafferCrew, getGafferOutcome, getGafferSettings, getProfile, getYoloSetting, listGafferPathways, listModelFavourites, planGafferOutcome, type GafferOutcomePlan, type Pathway, type GafferPlanPhase, stopGafferOutcome, type GafferOutcome, type GafferProvider, type YoloSetting } from './api'
   import { chatToolName, launchUpload, listFolderProjects, machineAccounts, machineModels, structuredAgent, terminalMachines, type FolderProject, type TerminalMachine } from './terminal/api'
   import { imageFiles } from './terminal/upload'
   import ImageAttachment from './ImageAttachment.svelte'
@@ -103,6 +103,18 @@
   // The pathway every pipeline follows, or '' for the stages chosen here. A failed read offers none, and the dialog is as it was.
   let pathways = $state<Pathway[]>([]), pathwayId = $state('')
   const pathway = $derived(pathways.find(p => p.id === pathwayId) ?? null)
+  // The pathway Gaffer's latest plan suggests, said on its row while it is offered. A plan chooses it only while the person
+  // has not chosen a pathway (or Standard stages) themselves in this dialog.
+  let suggestion = $state<GafferOutcomePlan['pathway']>(), pathwayTouched = $state(false)
+  const suggested = $derived.by(() => {
+    const p = pathways.find(p => p.id === suggestion?.id && p.enabled && !p.problems?.length)
+    return p && { id: p.id, why: suggestion?.why ?? '' }
+  })
+  function followPlan(plan?: GafferOutcomePlan) {
+    suggestion = plan?.pathway
+    if (!pathwayTouched) pathwayId = suggested?.id ?? ''
+  }
+  const touchPathway = (e: Event) => { if (e.target instanceof HTMLInputElement && e.target.type === 'radio') pathwayTouched = true }
   let trust = $state(false)
   // The model every stage uses unless a crew role is given its own. Empty is the agent's default.
   let model = $state(''), effort = $state('')
@@ -460,6 +472,7 @@
       const plan = await planGafferOutcome(provider, { objective: objective.trim(), project: project.name, sessions: wanted }, signal, phase => { planPhase = phase })
       summary = plan.summary
       sessions = plan.sessions.map(item => ({ key: key(), title: item.title, prompt: item.prompt, stages: item.stages?.length ? orderStages([...new Set(item.stages.map(stage => stage.kind))]) : [...DEFAULT_STAGES], ...planRatings(item.stages) }))
+      followPlan(plan)
       step = 'plan'; planPhase = ''
     } catch (e) { if (!signal.aborted) planError = e instanceof Error ? e.message : 'Gaffer could not plan this outcome.' }
     finally { planning = false; planDone() }
@@ -468,7 +481,7 @@
   async function writeOwn() {
     if (cloning || blocker) return
     if (!(await ensureProject())) return
-    summary = ''; sessions = [{ key: key(), title: '', prompt: '', stages: [...DEFAULT_STAGES] }]; planError = ''; reply = ''; planThread = []; declined = false; step = 'plan'
+    summary = ''; sessions = [{ key: key(), title: '', prompt: '', stages: [...DEFAULT_STAGES] }]; planError = ''; reply = ''; planThread = []; declined = false; followPlan(); step = 'plan'
   }
   // A reply is sent back to Gaffer with the proposal it answers, and the revised plan replaces the rows. The person's
   // words stay in the review as part of the exchange; nothing is saved or started until the existing approve action.
@@ -486,6 +499,7 @@
       const typed = sessions.map(old => ({ title: old.title.trim(), criteria: old.criteria }))
       sessions = plan.sessions.map((item, at) => ({ key: key(), title: item.title, prompt: item.prompt, stages: item.stages?.length ? orderStages([...new Set(item.stages.map(stage => stage.kind))]) : [...DEFAULT_STAGES], ...planRatings(item.stages), ...carryCriteria(typed, item.title, at) }))
       planThread = [...planThread, { from: 'gaffer', text: plan.summary }]
+      followPlan(plan)
       declined = false; planPhase = ''
     } catch (e) {
       planThread = planThread.slice(0, -1)
@@ -662,7 +676,8 @@
       {/if}
     {:else if step === 'plan'}
       <p class="objective"><span class="eyebrow">Outcome</span>{objective.trim()}</p>
-      {#if !declined}<PathwayChoice bind:pathways bind:value={pathwayId}/>{/if}
+      <!-- A click or key on any of its radios is the person's own choice. -->
+      {#if !declined}<div class="pathway-choice" onclick={touchPathway} onkeydown={touchPathway} role="presentation"><PathwayChoice bind:pathways bind:value={pathwayId} {suggested}/></div>{/if}
       {#if planThread.length}
         <section class="talk" aria-label="Conversation with Gaffer">
           {#each planThread as turn, index (index)}
@@ -905,6 +920,7 @@
   .outcome{display:grid;gap:14px;min-width:0;font-size:14px;line-height:1.5}p{margin:0;overflow-wrap:anywhere}.hint{color:var(--muted)}.warning{color:var(--bad)}
   form{display:grid;gap:12px;min-width:0}label{font-weight:600;display:grid;gap:6px;min-width:0}
   textarea,input,select{font:inherit;font-weight:400;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px 12px;min-width:0;width:100%;max-width:100%;min-height:44px;box-sizing:border-box}textarea{resize:vertical}
+  .pathway-choice{display:contents}
   .repo-field{display:grid;gap:6px;min-width:0}
   .pair{display:grid;grid-template-columns:1fr 1fr;gap:12px}.pair.two{grid-template-columns:1fr 1fr;padding-top:8px}.source-field{min-width:0}.crew-source{grid-column:1/-1;min-width:0}
   .eyebrow{display:block;font-size:0.875rem;color:var(--muted);margin-bottom:2px}.objective{white-space:pre-wrap}

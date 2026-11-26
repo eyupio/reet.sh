@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -126,9 +125,7 @@ func TestTheRunRouteIsTheOwnersEvenWithAPassword(t *testing.T) {
 func TestTheRequestPasswordIsInNoLogNoActivityEntryNoResponseAndNoRow(t *testing.T) {
 	tg := newTarget(t, false)
 	secret := "very-distinctive-password-77"
-	var logs bytes.Buffer
-	log.SetOutput(&logs)
-	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	logs := captureLog(t)
 	r := runRequest(t, tg, "owner-token", str(`{"password":"`+secret+`"}`))
 	if r.code != 200 {
 		t.Fatalf("%d %s", r.code, r.text)

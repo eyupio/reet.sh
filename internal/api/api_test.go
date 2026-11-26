@@ -1,8 +1,10 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
+	"log"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
@@ -1257,4 +1259,31 @@ func TestCanonicalShelfListingOnlyForTheUnfilteredShelf(t *testing.T) {
 			}
 		})
 	}
+}
+
+// logCapture holds what the process logs during a test. An earlier test's server can still log from a background
+// worker, so reads and writes are locked.
+type logCapture struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (c *logCapture) Write(p []byte) (int, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.buf.Write(p)
+}
+
+func (c *logCapture) String() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.buf.String()
+}
+
+func captureLog(t *testing.T) *logCapture {
+	t.Helper()
+	c, original := &logCapture{}, log.Writer()
+	log.SetOutput(c)
+	t.Cleanup(func() { log.SetOutput(original) })
+	return c
 }

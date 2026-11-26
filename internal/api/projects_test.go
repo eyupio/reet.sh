@@ -1,10 +1,8 @@
 package api
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -21,19 +19,16 @@ const projectSentinel = "zebra-sentinel shared prompt for every repository"
 
 type projectAPI struct {
 	*launchAPI
-	logs *bytes.Buffer
+	logs *logCapture
 }
 
 func projectFixture(t *testing.T) *projectAPI {
 	t.Helper()
-	var logs bytes.Buffer
-	original := log.Writer()
-	log.SetOutput(&logs)
-	t.Cleanup(func() { log.SetOutput(original) })
+	logs := captureLog(t)
 	srv, st, agent, _, _ := privateFixture(t, AuthAccounts, "")
 	srv.s.debug = true
 	uid, _ := st.DefaultOwner()
-	return &projectAPI{launchAPI: &launchAPI{srv: srv, st: st, uid: uid, agent: agent, cookie: terminalLogin(t, st, uid)}, logs: &logs}
+	return &projectAPI{launchAPI: &launchAPI{srv: srv, st: st, uid: uid, agent: agent, cookie: terminalLogin(t, st, uid)}, logs: logs}
 }
 
 func (f *projectAPI) body(members ...map[string]any) map[string]any {

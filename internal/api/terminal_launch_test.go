@@ -1,10 +1,8 @@
 package api
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"log"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -387,10 +385,7 @@ func TestTerminalLaunchFailedMapsToToolOrFolder(t *testing.T) {
 }
 
 func TestTerminalLaunchAuditsOnceWithoutThePrompt(t *testing.T) {
-	var logs bytes.Buffer
-	original := log.Writer()
-	log.SetOutput(&logs)
-	t.Cleanup(func() { log.SetOutput(original) })
+	logs := captureLog(t)
 	f := launchAPIFixture(t, launchCaps("claude", "codex"))
 	f.srv.s.debug = true
 	request := terminalbroker.ID()

@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"strconv"
 
@@ -289,46 +290,66 @@ func (s *Store) ContextFleetFor(uid int64) (ContextFleet, error) {
 }
 
 // Project in SQL before loading: payloads, arguments, files, approval bodies and
-// reasoning never leave storage through this reader. Text is separately gated.
-func (s *Store) ContextEventsFor(uid int64, session string, text bool) ([]StoredChatEvent, int64, int64, int, error) {
+// reasoning never leave storage through this reader. Text is separately gated. It returns the
+// newest 40 records, where the chunks an agent streamed for one message count as one, and whether older ones were left.
+func (s *Store) ContextEventsFor(uid int64, session string, text bool) ([]StoredChatEvent, int64, int64, int, bool, error) {
 	tx, err := s.db.Begin()
 	if err != nil {
-		return nil, 0, 0, 0, err
+		return nil, 0, 0, 0, false, err
 	}
 	defer tx.Rollback()
 	var first, last int64
 	var count int
 	if err = tx.QueryRow(`SELECT COALESCE(MIN(seq),0),COALESCE(MAX(seq),0),COUNT(*) FROM terminal_chat_events WHERE user_id=? AND session_id=?`, uid, session).Scan(&first, &last, &count); err != nil {
-		return nil, 0, 0, 0, err
+		return nil, 0, 0, 0, false, err
 	}
 	rows, err := tx.Query(`SELECT seq,at,CASE WHEN json_valid(event) THEN json_object(
  'kind',substr(json_extract(event,'$.kind'),1,32),'state',substr(json_extract(event,'$.state'),1,32),
  'status',substr(json_extract(event,'$.status'),1,32),'toolKind',substr(json_extract(event,'$.toolKind'),1,32),
- 'text',CASE WHEN ? AND json_extract(event,'$.kind') IN ('user','agent') THEN substr(json_extract(event,'$.text'),1,4096) ELSE '' END) ELSE '{}' END
- FROM terminal_chat_events WHERE user_id=? AND session_id=? ORDER BY seq DESC LIMIT 40`, text, uid, session)
+ 'text',CASE WHEN ? AND json_extract(event,'$.kind') IN ('user','agent') THEN substr(json_extract(event,'$.text'),1,4096) ELSE '' END) ELSE '{}' END,
+ CASE WHEN json_valid(event) AND json_extract(event,'$.kind')='agent' THEN COALESCE(json_extract(event,'$.messageId'),'') ELSE '' END
+ FROM terminal_chat_events WHERE user_id=? AND session_id=? ORDER BY seq DESC`, text, uid, session)
 	if err != nil {
-		return nil, 0, 0, 0, err
+		return nil, 0, 0, 0, false, err
 	}
 	out := []StoredChatEvent{}
+	message, more := "", false
 	for rows.Next() {
 		var e StoredChatEvent
-		var raw string
-		if err = rows.Scan(&e.Seq, &e.At, &raw); err != nil {
+		var raw, id string
+		if err = rows.Scan(&e.Seq, &e.At, &raw, &id); err != nil {
 			rows.Close()
-			return nil, 0, 0, 0, err
+			return nil, 0, 0, 0, false, err
 		}
+		// A stored agent event is one chunk of a message: the chunks of one message are one record, its newest seq.
+		if id != "" && id == message {
+			var whole, chunk map[string]any
+			if json.Unmarshal(out[len(out)-1].Event, &whole) == nil && json.Unmarshal([]byte(raw), &chunk) == nil {
+				head, _ := chunk["text"].(string)
+				tail, _ := whole["text"].(string)
+				joined := []rune(head + tail)
+				whole["text"] = string(joined[:min(len(joined), 4096)])
+				out[len(out)-1].Event, _ = json.Marshal(whole)
+			}
+			continue
+		}
+		if len(out) == 40 {
+			more = true
+			break
+		}
+		message = id
 		e.Event = []byte(raw)
 		out = append(out, e)
 	}
 	err = rows.Err()
 	rows.Close()
 	if err != nil {
-		return nil, 0, 0, 0, err
+		return nil, 0, 0, 0, false, err
 	}
 	if err = tx.Commit(); err != nil {
-		return nil, 0, 0, 0, err
+		return nil, 0, 0, 0, false, err
 	}
-	return out, first, last, count, nil
+	return out, first, last, count, more, nil
 }
 
 // ContextLatestReplyFor returns the working model's most recent reply: the

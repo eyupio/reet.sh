@@ -549,3 +549,42 @@ func TestContextJoinsAReplysChunksAndSaysWhenItsStartIsMissing(t *testing.T) {
 		t.Fatalf("long reply: omitted=%v len=%d", r.StartOmitted, len(r.Text))
 	}
 }
+
+// An agent streams a reply as many small events. The history counts one message as one event, so a long reply does
+// not push the person's own message and the tools before it out of what Gaffer reads.
+func TestContextHistoryCountsAStreamedMessageAsOneEvent(t *testing.T) {
+	s, st, p := settingsFixture(t)
+	row := contextSessionFixture(t, st, p)
+	provider, err := s.Save(p, Input{Name: "History", Kind: "openai_compatible", BaseURL: "http://127.0.0.1:1", LocalOnly: true, Enabled: true, Model: "fake-model", AllowStatus: true, AllowSessions: true, AllowCode: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := s.CreateConversation(p.UserID, ConversationInput{SessionID: row.ID, ProviderID: provider.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	seq := int64(0)
+	add := func(kind, message, text string) {
+		t.Helper()
+		seq++
+		raw, _ := json.Marshal(map[string]any{"kind": kind, "messageId": message, "text": text})
+		if err := st.AppendTerminalChatEventFor(p.UserID, row.ID, seq, time.Now().UnixMilli(), raw); err != nil {
+			t.Fatal(err)
+		}
+	}
+	add("user", "", "Rename the file.")
+	add("agent", "m1", "I will re")
+	for i := 0; i < 60; i++ {
+		add("agent", "m1", "-")
+	}
+	add("agent", "m1", "name it now.")
+	add("agent", "m2", "Done.")
+	x, err := s.PreviewContext(p.UserID, "gaffer", c.Conversation.ID, row.ID, store.ContextFlags{History: true, Text: true})
+	if err != nil || x.History == nil {
+		t.Fatalf("history: %+v %v", x.History, err)
+	}
+	events := x.History.Events
+	if len(events) != 3 || events[0].Text != "Rename the file." || events[1].Text != "I will re"+strings.Repeat("-", 60)+"name it now." || events[1].Seq != 63 || events[2].Text != "Done." || x.History.Truncated {
+		t.Fatalf("history: truncated=%v %+v", x.History.Truncated, events)
+	}
+}

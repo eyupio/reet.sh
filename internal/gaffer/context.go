@@ -357,11 +357,11 @@ func (s *Service) contextSnapshot(uid int64, session string, flags store.Context
 		x.Session.GoalTruncated = x.Session.GoalTruncated || row.PromptMore
 	}
 	if flags.History {
-		raw, first, last, count, err := s.store.ContextEventsFor(uid, session, flags.Text)
+		raw, first, last, count, more, err := s.store.ContextEventsFor(uid, session, flags.Text)
 		if err != nil {
 			return x, err
 		}
-		h := &ContextHistory{Events: []ContextEvent{}, FirstRetainedSeq: first, LastRetainedSeq: last, RetainedCount: count, Unavailable: count == 0, Truncated: first > 1 || count > 40}
+		h := &ContextHistory{Events: []ContextEvent{}, FirstRetainedSeq: first, LastRetainedSeq: last, RetainedCount: count, Unavailable: count == 0, Truncated: first > 1 || more}
 		for i := len(raw) - 1; i >= 0; i-- {
 			var e ContextEvent
 			if json.Unmarshal(raw[i].Event, &e) != nil {

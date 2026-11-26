@@ -18,6 +18,9 @@ What changed, in one place.
   counts, the machine's live count, conversation history, activity), so a hidden session is left out of those too.
   `TerminalSessionsFor` is unchanged: the broker, cleanup and push paths need the unfiltered list to reconcile. A
   direct session URL (`TerminalSessionFor`) is unchanged.
+- **Direct links still open.** The list query keeps one explicitly requested session (`?session=<id>`), and
+  `TerminalWorkspace` passes the session from the address. So "Read the ended session" in an archived outcome's
+  Factory detail, and a saved direct session URL, still open that history while the lists leave it out.
 - **What is deliberately untouched.** `GafferGoalsFor` and Home's "Waiting for you" feed are unchanged, so a
   still-active goal of a deleted Factory session can still show there. Nothing is deleted; a desk that resolves a
   hidden session treats it as gone.
@@ -29,6 +32,7 @@ What changed, in one place.
 Checked with `go test ./internal/store ./internal/api` (the new tests also pass under `-race`), plus `go test ./...`,
 which passes except the pre-existing `internal/lifecycle` `TestDoctorIsReadOnlyAndRedactsCredentials` failure (it
 fails at the base commit too). A full `-race ./...` run was not completed: the store suite timed out past ten minutes
-at `TestSelectionRunLimits`, and the new tests were run under `-race` on their own. There is no web change, so no
-browser test. The store test pins the rule against archived, deleted, live, restored, ordinary, non-Factory,
-stage-referenced and goal-pruned sessions; the API test asserts the ids on `GET /api/v2/terminal/sessions`.
+at `TestSelectionRunLimits`, and the new tests were run under `-race` on their own. `go vet ./...` and `svelte-check` pass. There
+is no browser test for the direct-link path. The store test pins the rule against archived, deleted, live,
+restored, ordinary, non-Factory, stage-referenced and goal-pruned sessions, plus the `?session=` direct-link
+exception; the API test asserts the ids on `GET /api/v2/terminal/sessions` with and without `?session=`.

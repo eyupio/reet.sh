@@ -76,6 +76,9 @@ func (p *Anthropic) body(req elicore.Request, maxTokens int) ([]byte, error) {
 		maxTokens = anthropicDefaultMaxTokens
 	}
 	msgs := make([]map[string]any, 0, len(req.Messages))
+	// The API refuses tool_use and tool_result blocks in a request that defines
+	// no tools, so a call made earlier and its answer then go as plain text.
+	plain := len(req.Tools) == 0
 	for _, m := range req.Messages {
 		switch m.Role {
 		case elicore.RoleSystem:
@@ -83,6 +86,10 @@ func (p *Anthropic) body(req elicore.Request, maxTokens int) ([]byte, error) {
 			// message in the turns is folded into it.
 			continue
 		case elicore.RoleTool:
+			if plain {
+				msgs = append(msgs, map[string]any{"role": "user", "content": "The tool answered:\n" + m.Content})
+				continue
+			}
 			msgs = append(msgs, map[string]any{"role": "user", "content": []any{
 				map[string]any{"type": "tool_result", "tool_use_id": m.ToolCallID, "content": m.Content},
 			}})
@@ -92,6 +99,7 @@ func (p *Anthropic) body(req elicore.Request, maxTokens int) ([]byte, error) {
 				continue
 			}
 			var blocks []any
+			text := m.Content
 			if m.Content != "" {
 				blocks = append(blocks, map[string]any{"type": "text", "text": m.Content})
 			}
@@ -101,6 +109,11 @@ func (p *Anthropic) body(req elicore.Request, maxTokens int) ([]byte, error) {
 					input = json.RawMessage("{}")
 				}
 				blocks = append(blocks, map[string]any{"type": "tool_use", "id": c.ID, "name": c.Name, "input": input})
+				text = strings.TrimSpace(text + "\nI used the tool " + c.Name + " with this input: " + string(input))
+			}
+			if plain {
+				msgs = append(msgs, map[string]any{"role": "assistant", "content": text})
+				continue
 			}
 			msgs = append(msgs, map[string]any{"role": "assistant", "content": blocks})
 		default:

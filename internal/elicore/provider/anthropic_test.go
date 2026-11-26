@@ -55,6 +55,41 @@ func TestAnthropicSendsTheMessagesRequestWithItsHeaders(t *testing.T) {
 	}
 }
 
+// The API refuses a request that carries tool_use or tool_result blocks and
+// defines no tools. A caller that stops offering tools after one call still
+// sends that call and its answer, so they go as plain text.
+func TestAnthropicSendsNoToolBlocksInARequestWithoutTools(t *testing.T) {
+	p := NewAnthropic(Config{BaseURL: "https://api.anthropic.com", Model: "m"})
+	raw, err := p.body(elicore.Request{Messages: []elicore.Message{
+		{Role: elicore.RoleUser, Content: "Tell the worker to fix the tests."},
+		{Role: elicore.RoleAssistant, Content: "On it.", ToolCalls: []elicore.ToolCall{{ID: "toolu_0", Name: "message_worker", Arguments: json.RawMessage(`{"text":"Fix the tests."}`)}}},
+		{Role: elicore.RoleTool, ToolCallID: "toolu_0", Content: `{"state":"queued"}`},
+	}}, 4096)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body struct {
+		Tools    any `json:"tools"`
+		Messages []struct {
+			Role    string `json:"role"`
+			Content any    `json:"content"`
+		} `json:"messages"`
+	}
+	if err = json.Unmarshal(raw, &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Tools != nil || strings.Contains(string(raw), `"tool_use"`) || strings.Contains(string(raw), `"tool_result"`) || strings.Contains(string(raw), "toolu_0") {
+		t.Fatalf("tool blocks without tools: %s", raw)
+	}
+	said, _ := body.Messages[1].Content.(string)
+	if len(body.Messages) != 3 || body.Messages[1].Role != "assistant" || !strings.Contains(said, "On it.") || !strings.Contains(said, "message_worker") || !strings.Contains(said, "Fix the tests.") {
+		t.Fatalf("the call was not kept as text: %s", raw)
+	}
+	if answer, _ := json.Marshal(body.Messages[2].Content); body.Messages[2].Role != "user" || !strings.Contains(string(answer), "queued") {
+		t.Fatalf("the answer was not kept as text: %s", raw)
+	}
+}
+
 func TestAnthropicStreamsContentBlockEventsIntoDeltasToolCallsAndUsage(t *testing.T) {
 	srv := newAnthropicServer(t)
 	p := NewAnthropic(Config{BaseURL: srv.URL, APIKey: "k", Model: "m"})

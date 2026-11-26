@@ -491,7 +491,12 @@ func (s *Service) runTurn(parent context.Context, job *chatJob, c store.GafferCo
 	}
 	cause := context.Cause(parent)
 	if errors.Is(err, context.DeadlineExceeded) {
-		err = errors.New("The provider took more than three minutes to answer. Try again or choose a faster model.")
+		// Any other deadline is the ten-second connection's, not a slow model.
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			err = errors.New("The provider took more than three minutes to answer. Try again or choose a faster model.")
+		} else {
+			err = errors.New("Gaffer could not connect to the provider in time. Check its address and that the controller can reach it.")
+		}
 	}
 	switch {
 	case errors.Is(cause, errGafferCancelled):

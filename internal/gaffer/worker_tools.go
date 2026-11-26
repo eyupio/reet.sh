@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -322,8 +323,10 @@ func (s *Service) answerRound(ctx context.Context, backend elicore.Provider, req
 			if len(request.Tools) == 0 {
 				return nil, usage, errors.New("Gaffer cannot execute model-requested tools in this conversation. No further action was run.")
 			}
-			calls = append(calls, *event.ToolCall)
-			if len(calls) > 1 {
+			// reet's own tools (the live ones) run one at a time: of several asked for at once the first is kept, and the model may ask again.
+			if len(calls) == 0 {
+				calls = append(calls, *event.ToolCall)
+			} else if !slices.ContainsFunc(request.Tools, func(t elicore.Tool) bool { return t.Live && t.Name == calls[0].Name }) {
 				return nil, usage, errors.New("The provider requested multiple worker instructions. None was queued.")
 			}
 		}

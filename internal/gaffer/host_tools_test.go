@@ -460,3 +460,32 @@ func TestAToolThatRanDuringACancelIsStillRecorded(t *testing.T) {
 		t.Fatalf("audit: %+v", log.rows)
 	}
 }
+
+// A model may ask for several of reet's tools in one answer. The first runs,
+// the rest are dropped and the turn carries on: it does not fail.
+func TestOfSeveralToolsAskedForAtOnceOnlyTheFirstRuns(t *testing.T) {
+	s, _, p := settingsFixture(t)
+	host := &fakeToolHost{tools: []HostTool{readTool, writeTool}, fail: map[string]string{}}
+	s.SetToolHost(host)
+	requests := 0
+	fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		delta := map[string]any{"content": "One outcome is running."}
+		if requests == 1 {
+			call := func(i int, name string) map[string]any {
+				return map[string]any{"index": i, "id": fmt.Sprintf("c%d", i), "type": "function", "function": map[string]any{"name": name, "arguments": "{}"}}
+			}
+			delta = map[string]any{"tool_calls": []any{call(0, "reet_list_factory"), call(1, "reet_stop_outcome")}}
+		}
+		raw, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"delta": delta, "finish_reason": "stop"}}})
+		fmt.Fprintf(w, "data: %s\n\ndata: [DONE]\n\n", raw)
+	}))
+	t.Cleanup(fake.Close)
+	turn := ask(t, s, p, conversationFixture(t, s, p, fake.URL), "a", "What is in the Factory?")
+	if turn.State != "completed" || len(turn.Tools) != 1 || turn.Tools[0].Name != "reet_list_factory" || turn.Tools[0].State != "ran" {
+		t.Fatalf("turn: state=%s error=%q tools=%+v", turn.State, turn.Error, turn.Tools)
+	}
+	if got := host.made(); len(got) != 1 || got[0] != "reet_list_factory {}" {
+		t.Fatalf("calls made: %v", got)
+	}
+}

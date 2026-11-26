@@ -355,6 +355,29 @@ func (s *Store) ObserveGafferGoal(g GafferGoal, state, note string, next int64) 
 	})
 }
 
+// StopGafferGoal closes a goal its pipeline has left, whatever state it is in.
+// A review in flight finds the goal no longer its own and is dropped.
+func (s *Store) StopGafferGoal(g GafferGoal, note string) error {
+	return s.withTx(func(tx *sql.Tx) error {
+		if _, err := tx.Exec(`UPDATE users SET id=id WHERE id=?`, g.OwnerID); err != nil {
+			return err
+		}
+		cur, err := goalRow(tx, g.OwnerID, g.ConversationID)
+		if err != nil {
+			return err
+		}
+		if cur.ID != g.ID || cur.State == "stopped" || cur.State == "completed" {
+			return ErrGafferConflict
+		}
+		if err = removeGoalQueue(tx, cur); err != nil {
+			return err
+		}
+		cur.State, cur.Note, cur.NextAt = "stopped", note, 0
+		cur.ActiveTurnID, cur.PendingID, cur.WaitingOnWorker, cur.ReviewFailed, cur.NoStep, cur.Advice = "", "", false, false, false, nil
+		return saveGoal(tx, cur)
+	})
+}
+
 // HoldGafferGoalForWorker records that the working model is waiting for the
 // person. The goal needs them, and stays on the supervisor's list so it can
 // carry on once they have answered.

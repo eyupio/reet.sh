@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/eyupio/reet.sh/internal/store"
 	"github.com/eyupio/reet.sh/internal/terminalproto"
@@ -206,5 +207,36 @@ func TestStoppingFollowingCancelsPipelinesNotYetStartedAndOutcomesStillStarting(
 	}
 	if o.State != "stopped" || o.Sessions[0].State != "cancelled" || !o.Finished() {
 		t.Fatalf("a starting outcome stopped by the person: %+v", o)
+	}
+}
+
+// A stuck pipeline's goal usually waits for the person when they stop
+// following it. That goal is closed too, so the session moving on later does
+// not set Gaffer following it again.
+func TestStoppingFollowingStopsAGoalThatWaitsForThePerson(t *testing.T) {
+	r := outcomeFixture(t)
+	r.s.StartGoalSupervisor()
+	created, err := r.s.CreateOutcome(r.p.UserID, pipelineInput(r, false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	code := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
+	g, err := r.st.GafferGoalFor(r.p.UserID, code.ConversationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = r.st.ObserveGafferGoal(g, "needs_user", "Gaffer brought a question back to you.", 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = r.s.StopFollowingOutcome(r.p.UserID, created.ID, r.settle(t, created.ID).Revision); err != nil {
+		t.Fatal(err)
+	}
+	// The session keeps running and makes progress.
+	if err = r.st.AppendTerminalChatEventFor(r.p.UserID, code.SessionID, 1, time.Now().UnixMilli(), []byte(`{"kind":"agent","text":"Carried on."}`)); err != nil {
+		t.Fatal(err)
+	}
+	r.s.reviewDueGoals(context.Background())
+	if after, err := r.st.GafferGoalFor(r.p.UserID, code.ConversationID); err != nil || after.State != "stopped" || after.Note != stoppedFollowingNote {
+		t.Fatalf("goal after Stop following: %q %q %v", after.State, after.Note, err)
 	}
 }

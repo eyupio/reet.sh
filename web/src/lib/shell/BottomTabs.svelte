@@ -44,7 +44,7 @@
     .bottom-tabs.hidden { display: none; }
   }
   a, button {
-    flex: 1 1 auto; min-width: 44px; min-height: 44px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+    position: relative; flex: 1 1 auto; min-width: 44px; min-height: 44px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
     padding: 0 1px; border: 0; background: none; color: var(--muted); font: 400 0.875rem/1.2 var(--sans); text-decoration: none; cursor: pointer;
   }
   a[aria-current='page'], button.current { position: relative; color: var(--accent-text); font-weight: 600; }

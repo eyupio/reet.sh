@@ -999,28 +999,11 @@ func (s *Service) advanceOutcomes(ctx context.Context) {
 	}
 }
 
-const (
-	maxAutoReports    = 6
-	autoReportSpacing = 10 * time.Minute
-)
-
-// autoReportEvent names what an outcome's pipelines have finished or stopped
-// at: the pipelines that are done, ready to merge, not started or no longer
-// followed. It is empty while every pipeline is still at work.
-func autoReportEvent(o store.GafferOutcome) string {
-	var parts []string
-	for _, piece := range o.Sessions {
-		switch piece.State {
-		case "done", "delivery_review", "ready_to_merge", "failed", "unfollowed":
-			parts = append(parts, piece.Key+":"+piece.State)
-		}
-	}
-	return strings.Join(parts, ",")
-}
+const autoReportSpacing = 10 * time.Minute
 
 // autoReports asks for a report on each outcome whose owner chose that, once
 // per change in which pipelines have finished or stopped. It is bounded: at
-// most maxAutoReports for an outcome, and not within autoReportSpacing of its
+// most store.MaxGafferAutoReports for an outcome, and not within autoReportSpacing of its
 // last report. A report starts nothing and only ever proposes.
 func (s *Service) autoReports(ctx context.Context) {
 	rows, err := s.store.AutoReportGafferOutcomes()
@@ -1031,8 +1014,8 @@ func (s *Service) autoReports(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		event := autoReportEvent(o)
-		if event == "" || event == o.AutoReportedFor || o.AutoReports >= maxAutoReports {
+		event := o.AutoReportEvent()
+		if event == "" || event == o.AutoReportedFor || o.AutoReports >= store.MaxGafferAutoReports {
 			continue
 		}
 		if o.Report != nil && time.Since(time.UnixMilli(o.Report.At)) < autoReportSpacing {

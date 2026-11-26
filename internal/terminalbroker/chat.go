@@ -1356,6 +1356,15 @@ func (b *Broker) SetChatYolo(ctx context.Context, uid int64, session string, yol
 	}
 	reply, err := p.callWithin(ctx, terminalproto.Message{RequestID: ID(), SessionID: session,
 		Body: &terminalproto.ACPMode{Yolo: yolo}}, chatCallTimeout)
+	var lost errReplyLost
+	if yolo && errors.As(err, &lost) {
+		// The machine may have switched and be answering cards itself, so the
+		// chat must not go on saying Ask me. Turning it off again is one click.
+		_ = b.st.SetTerminalYoloFor(uid, session, true)
+		_ = b.st.AddEventFor(uid, "machine", "yolo-mode", "", map[string]string{
+			"machine": s.AgentID, "tool": s.Tool, "session": session, "mode": "yolo", "reply": "lost",
+		})
+	}
 	if err := chatAck(reply, err); err != nil {
 		return err
 	}

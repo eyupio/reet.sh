@@ -533,6 +533,33 @@ func TestLostModeSwitchReplyClearsTheStoredMode(t *testing.T) {
 	}
 }
 
+// A switch to YOLO whose reply never arrives may have been applied: the machine
+// then answers cards itself, so the row must say YOLO rather than Ask me.
+func TestLostYoloSwitchReplyStoresYolo(t *testing.T) {
+	old := chatCallTimeout
+	chatCallTimeout = 150 * time.Millisecond
+	defer func() { chatCallTimeout = old }()
+	b, _, uid, agent := chatFixtureScript(t, nil, func(c *terminalproto.Capabilities) {
+		c.Yolo, c.AgentsV2 = true, true
+		agents := []terminalproto.ACPAgent{{Tool: "opencode", Adapter: "opencode", State: "available", MinimumVersion: "1.19.5", Model: true, Approval: true}}
+		c.ACPAgents = &agents
+	}, nil, func(m terminalproto.Message) (terminalproto.Body, bool) {
+		_, mode := m.Body.(*terminalproto.ACPMode)
+		return nil, !mode
+	})
+	if err := b.st.SetSetting("terminal_allow_yolo", "1"); err != nil {
+		t.Fatal(err)
+	}
+	s := chatSession(t, b, uid, agent)
+	if err := b.SetChatYolo(t.Context(), uid, s.ID, true); err == nil {
+		t.Fatal("a switch with no reply was reported as done")
+	}
+	got, err := b.st.TerminalSessionFor(uid, s.ID)
+	if err != nil || !got.Yolo {
+		t.Fatalf("a lost reply left the chat saying Ask me: yolo=%v, %v", got.Yolo, err)
+	}
+}
+
 // While an agent that offers modes is in an unknown mode, a message is refused before it is sent; choosing a
 // mode lifts the refusal. An agent that offers no modes is never held up.
 func TestPromptIsRefusedWhileTheAgentModeIsUnknown(t *testing.T) {

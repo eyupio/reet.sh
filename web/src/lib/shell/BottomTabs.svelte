@@ -23,6 +23,7 @@
     <a href={tab.href} aria-current={tab.current ? 'page' : undefined}>
       <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d={icons[tab.href] ?? 'M4 12h16'} /></svg>
       <span>{tab.label}</span>
+      {#if (tab.badge ?? 0) > 0}<span class="dot" aria-hidden="true"></span>{/if}
     </a>
   {/each}
   <button type="button" class:current={moreCurrent} popovertarget={moreId} aria-expanded={moreOpen}
@@ -43,7 +44,7 @@
     .bottom-tabs.hidden { display: none; }
   }
   a, button {
-    flex: 1 1 auto; min-width: 44px; min-height: 44px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+    position: relative; flex: 1 1 auto; min-width: 44px; min-height: 44px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
     padding: 0 1px; border: 0; background: none; color: var(--muted); font: 400 0.875rem/1.2 var(--sans); text-decoration: none; cursor: pointer;
   }
   a[aria-current='page'], button.current { position: relative; color: var(--accent-text); font-weight: 600; }
@@ -54,5 +55,6 @@
   button[aria-expanded='true'] { background: var(--tint); color: var(--ink); }
   a:focus-visible, button:focus-visible { outline: 2px solid var(--accent-text); outline-offset: -4px; border-radius: 10px; }
   svg { width: 22px; height: 22px; }
+  .dot { position: absolute; top: 8px; left: 50%; margin-left: 12px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent-text); }
   span { white-space: nowrap; }
 </style>

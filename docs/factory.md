@@ -495,8 +495,11 @@ start now, for example because a skill is gone from your shelf, is shown with th
 ### With Gaffer and AI clients
 
 **Gaffer's suggestion.** When Gaffer plans an outcome, it may suggest one of your pathways that fits the objective. In
-**New Factory outcome** the suggestion is already selected, with Gaffer's reason beside it. A choice you have made is
-never changed by it, and you can pick another pathway or **Standard stages** at any time.
+**New Factory outcome** the suggestion is already selected, with Gaffer's reason beside it, when that pathway is on and
+can start now (nothing about it, such as a missing skill, would refuse a start). A choice you have made is never changed
+by it, and you can pick another pathway or **Standard stages** at any time. If you ask Gaffer to revise its plan and the
+revision names no pathway, the earlier suggestion and its selection stay as they were, and your own choice is never
+changed.
 
 **What planning reads.** For each pathway that is on, up to 20, Gaffer's planning is given its name, its description and
 the names of its stages. It is never given a stage's prompt, model or skills. It can only suggest one of your own pathways

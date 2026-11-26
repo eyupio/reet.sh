@@ -169,8 +169,8 @@ background supervision or grant themselves that authority.
 
 ## Read and steer the Factory
 
-Four tools read the Factory for any connection on a writer account. Two are described here, and
-`reet_list_factory_projects` and `reet_list_pathways` below the controls:
+Four tools read the Factory for any connection on a writer account. Two are described here. The other two, `reet_list_factory_projects` and
+`reet_list_pathways`, are described below the controls:
 
 - `reet_list_factory` lists the outcomes, newest first, as short rows: `id`,
   `state`, `objective` (clipped to 200 characters), `project` and, for each
@@ -213,7 +213,7 @@ Four tools read the Factory for any connection on a writer account. Two are desc
   Each stage has a `name`: the built-in stage's name, or the name of a stage of the person's own pathway. A pipeline that
   was started on a pathway has `pathway`, its name.
 
-Six more are the person's own controls and need management scope:
+Ten more are the person's own controls and need management scope:
 
 | Tool | What it does |
 | --- | --- |
@@ -270,7 +270,7 @@ client secrets or client-ID metadata documents must use the supported public
 dynamic-registration flow or manual bearer authentication.
 
 The 50 tool definitions are shared with the optional stdio package. For accounts
-with write access, read-only connections discover sixteen tools and management
+with write access, read-only connections discover eighteen tools and management
 connections fifty, including the two separately granted context reads,
 three management-only worker messaging tools and the fourteen Factory tools
 (four reads and ten management-only controls).

@@ -14,6 +14,8 @@ gaffer-factory-session
 factory-decision
 factory-delivery
 factory-pieces
+pathways
+pathways-choice
 home-followups
 home-waiting
 gaffer-widget-ux

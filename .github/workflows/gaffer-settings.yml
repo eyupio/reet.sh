@@ -15,7 +15,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # The 19 scripts (web/tests/ci-gaffer-settings.txt) used to run one after another in one job and took about 11 minutes, the
+  # The 21 scripts (web/tests/ci-gaffer-settings.txt) used to run one after another in one job and took about 11 minutes, the
   # longest of the browser jobs. They run as three shards side by side through scripts/run-browser-suites.sh, which runs every
   # script and names every one that failed. The job named gaffer-settings, below, is the one result that waits for them.
   gaffer-ui:

@@ -46,6 +46,7 @@
     ActivityPage: () => loadPage(() => import('./lib/ActivityPage.svelte')),
     SessionsPage: () => loadPage(() => import('./lib/sessions/SessionsPage.svelte')),
     Factory: () => loadPage(() => import('./lib/factory/Factory.svelte')),
+    Pathways: () => loadPage(() => import('./lib/factory/pathways/PathwaysPage.svelte')),
     Desks: () => loadPage(() => import('./lib/desks/DesksPage.svelte')),
     Machines: () => loadPage(() => import('./lib/Machines.svelte')),
     SyncPage: () => loadPage(() => import('./lib/sync/SyncPage.svelte')),
@@ -123,6 +124,9 @@
   const bootLayout = document.documentElement.dataset.bootLayout ?? 'content'
   const isActivity = location.pathname === '/activity'
   const isSkills = location.pathname === '/skills'
+  // A person's own pathways (lines of stages) under the Factory: /factory/pathways lists them, /factory/pathways/new and
+  // /factory/pathways/<id> open the editor. For the same accounts as the Factory, and part of its tab.
+  const isPathways = /^\/factory\/pathways(?:\/[^/]+)?\/?$/.test(location.pathname)
   // The Factory: Gaffer's outcomes drawn as pipelines. It is for an account that can start sessions.
   const isFactory = location.pathname === '/factory'
   // Desks: saved sets of terminals. /desks lists them (or opens the last one used) and /desks/<id> opens one; for the same
@@ -200,11 +204,11 @@
   let workspaceTitle = $state('')
   // Home spans the page: the project rail on the left and the docked Start an agent at the foot.
   // Home and the Factory hold the project rail as their own left column, so both take the whole width and draw no footer.
-  const homeLayout = $derived((isHome || (isFactory && sessionsAccess && authMode === 'accounts')) && authChecked && !!authMode && authenticated && !needsAuth && !(authMode === 'accounts' && setupRequired))
+  const homeLayout = $derived((isHome || ((isFactory || isPathways) && sessionsAccess && authMode === 'accounts')) && authChecked && !!authMode && authenticated && !needsAuth && !(authMode === 'accounts' && setupRequired))
   const tabs = $derived<Tab[]>([
     { href: '/', label: 'Home', current: isHome },
     ...(sessionsAccess ? [{ href: '/sessions', label: 'Sessions', current: isTerminals || isSessions }] : []),
-    ...(sessionsAccess && authMode === 'accounts' ? [{ href: '/factory', label: 'Factory', current: isFactory }] : []),
+    ...(sessionsAccess && authMode === 'accounts' ? [{ href: '/factory', label: 'Factory', current: isFactory || isPathways }] : []),
     ...(sessionsAccess && authMode === 'accounts' ? [{ href: '/desks', label: 'Desks', current: isDesks }] : []),
     { href: '/machines', label: 'Machines', current: isMachines && !((isTerminals || isSessions) && sessionsAccess) },
     { href: '/skills', label: 'Skills', current: isSkills },
@@ -570,7 +574,7 @@
   }
 
   const defaultPageTitle = $derived(
-    (isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : isReset ? 'Choose a new password' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : isSignUp ? 'Create your account' : authChecked && !authenticated ? 'Sign in' : isHosting ? 'Write a skill' : isLibrary ? 'Library' : isNotifications ? 'Notifications' : isSupport ? 'Support' : isTicket ? 'Support ticket' : isAdmin ? 'Instance administration' : isHome ? 'Home' : isFactory ? 'Factory' : isDesks && sessionsAccess ? 'Desks' : isActivity ? 'Activity' : isSync ? 'Sync' : (isTerminals || isSessions) && sessionsAccess ? 'Sessions' : isMachines ? 'Machines' : isAccount ? 'Personal settings' : isProfiles ? 'Setups' : isPrompts ? 'Prompts' : isSkillInsights ? 'Skill insights' : isUsage ? 'Usage' : isList ? 'Shared list' : isSkills ? 'Skills' : 'Page not found') + ' · reet.sh'
+    (isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : isReset ? 'Choose a new password' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : isSignUp ? 'Create your account' : authChecked && !authenticated ? 'Sign in' : isHosting ? 'Write a skill' : isLibrary ? 'Library' : isNotifications ? 'Notifications' : isSupport ? 'Support' : isTicket ? 'Support ticket' : isAdmin ? 'Instance administration' : isHome ? 'Home' : isPathways && sessionsAccess ? 'Pathways' : isFactory ? 'Factory' : isDesks && sessionsAccess ? 'Desks' : isActivity ? 'Activity' : isSync ? 'Sync' : (isTerminals || isSessions) && sessionsAccess ? 'Sessions' : isMachines ? 'Machines' : isAccount ? 'Personal settings' : isProfiles ? 'Setups' : isPrompts ? 'Prompts' : isSkillInsights ? 'Skill insights' : isUsage ? 'Usage' : isList ? 'Shared list' : isSkills ? 'Skills' : 'Page not found') + ' · reet.sh'
   )
   const pageTitle = $derived(workspaceTitle || defaultPageTitle)
 
@@ -745,6 +749,14 @@
       <RouteSkeleton variant={homeLayout && sessionsAccess ? 'home' : 'cards'} />
     {:then { default: Page }}
       <Page userId={currentUser?.id ?? 0} name={currentUser?.name ?? ''} writer={sessionsAccess} canAdd={canWrite} accounts={authMode === 'accounts'} moved={!!retiredProjects} {legacyProject} {timeZone} {dateFormat} onsignedout={fail} onattention={(entries, seen, answered) => { waitingEntries = entries; onMarkSeen = seen; onAnswered = answered }} />
+    {:catch}
+      <PageLoadError />
+    {/await}
+  {:else if isPathways && sessionsAccess && authMode === 'accounts'}
+    {#await pages.Pathways()}
+      <RouteSkeleton variant="rows" />
+    {:then { default: Page }}
+      <Page userId={currentUser?.id ?? 0} onsignedout={fail} ontitle={title => (workspaceTitle = title)} />
     {:catch}
       <PageLoadError />
     {/await}

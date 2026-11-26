@@ -11,7 +11,7 @@ var exact = []string{
 	"/", "/welcome", "/signin", "/signup", "/setup", "/reset", "/join",
 	"/sessions", "/machines", "/skills", "/library", "/activity", "/sync", "/sync/advanced", "/sync/advanced/", "/hosting",
 	"/community", "/shared", "/spaces", "/profiles", "/setups", "/prompts", "/prompts/", "/usage", "/usage/",
-	"/notifications", "/support", "/factory", "/desks", "/desks/", "/skill-insights", "/skill-insights/",
+	"/notifications", "/support", "/factory", "/factory/pathways", "/factory/pathways/", "/desks", "/desks/", "/skill-insights", "/skill-insights/",
 	"/admin", "/account",
 }
 
@@ -35,6 +35,11 @@ func Page(path string) bool {
 	}
 	// A desk is addressed by exactly one id; a deeper path is not a page.
 	if id, ok := strings.CutPrefix(path, "/desks/"); ok {
+		id = strings.TrimSuffix(id, "/")
+		return id != "" && !strings.Contains(id, "/")
+	}
+	// A pathway is addressed by exactly one segment, as is "new"; no deeper.
+	if id, ok := strings.CutPrefix(path, "/factory/pathways/"); ok {
 		id = strings.TrimSuffix(id, "/")
 		return id != "" && !strings.Contains(id, "/")
 	}

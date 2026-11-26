@@ -465,6 +465,33 @@ name the template had when the outcome started, and links to the template. If th
 version is no longer kept, it says so and keeps the name. Editing
 or deleting a template never changes an outcome that has started.
 
+## Pathways
+
+A pathway is your own ordered line of stages, kept on your account and used instead of the standard stages. It holds up
+to 12 stages: the eight built-in ones (once each) and stages of your own, each with a name and a prompt. Every stage
+runs on a crew tier or a named model, and can carry up to 2 skills and a prompt of its own.
+
+![The pathway editor in dark mode, with a line of stages on the canvas](images/ui/pathways/editor-dark.png)
+
+**Building one.** Choose **Pathways** at the top of the Factory page, then **New pathway**. Drag stages, models, skills
+and prompts on to the line, and drag stages to reorder them. Dragging is never the only way: with a stage focused, press
+**Alt** and an arrow key (left and right on a wide screen, up and down on a phone) to move it, or **Delete** to remove
+it, and every drag has a button too. On a phone, dragging reorders
+stages only; adding and applying are done by tapping.
+
+**Rules you will meet.** A built-in stage can appear once. **Merge** must be last. **Babysit** and **Merge** need a
+**PR** stage before them. A stage of your own needs a name (up to 40 characters, not a built-in name) and a prompt.
+Where a rule would be broken, the drop is not offered, and a button says why in a sentence.
+
+![The Pathways list in light mode](images/ui/pathways/list-light.png)
+
+**On and off.** A new pathway is on. Switch it off and it is offered nowhere, but it is kept. Editing or deleting a
+pathway never changes work already running: an outcome keeps the stages it started with.
+
+**Starting work on one.** In **New Factory outcome** and **Add pipelines**, **Pathway** lists your pathways that are on.
+Pick one and every pipeline follows it, or keep **Standard stages** to choose them yourself. A pathway that cannot
+start now, for example because a skill is gone from your shelf, is shown with the reason and cannot be picked.
+
 ## From an AI client
 
 A connected AI client can read and steer the Factory through [MCP](mcp.md#read-and-steer-the-factory). The three

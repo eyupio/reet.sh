@@ -80,6 +80,8 @@ export async function openWorkspace(browser, {width, height=812, theme='light', 
   if(path==='/api/v2/usage'){const q=new URL(route.request().url()).searchParams;return json({from:Number(q.get('from')),to:Number(q.get('to')),since:0,agents:[],gaffer:[],sessions:[],more:false})}
   if(path==='/api/v2/gaffer/goals'&&route.request().method()==='GET')return json({goals:[],readAt:Date.now()})
   if(path==='/api/v2/gaffer/outcomes'&&route.request().method()==='GET')return json({outcomes:[]})
+  // Factory pathways, read by the dialogs that start work: none unless a test answers the route itself.
+  if(path==='/api/v2/gaffer/pathways'&&route.request().method()==='GET')return json({pathways:[]})
   // An account that has saved no crew: the outcome dialog then starts every tier on the outcome's own agent.
   if(path==='/api/v2/gaffer/crew'&&route.request().method()==='GET')return json({crew:{light:{},standard:{},heavy:{}},saved:false,tiers:['light','standard','heavy'],defaults:{}})
   if(path==='/api/v2/folder-projects')return json({projects:[],savedWaiting:0})

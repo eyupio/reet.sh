@@ -4,7 +4,7 @@
   // controller start each session through the ordinary launch and put it in Gaffer's care. This dialog only watches:
   // the work carries on if it is closed. Nothing starts on the model's say-so: a proposed session is text until Approve.
   import { onMount, tick, untrack } from 'svelte'
-  import { ApiError, createGafferOutcome, diffGafferTemplate, getGafferCrew, getGafferTemplate, launchGafferTemplate, type Template, type TemplateDiff, type TemplateLaunchInput, type GafferOutcomeInput, saveGafferCrew, type GafferCrew, getGafferOutcome, getGafferSettings, getProfile, getYoloSetting, listModelFavourites, planGafferOutcome, type GafferPlanPhase, stopGafferOutcome, type GafferOutcome, type GafferProvider, type YoloSetting } from './api'
+  import { ApiError, createGafferOutcome, diffGafferTemplate, getGafferCrew, getGafferTemplate, launchGafferTemplate, type Template, type TemplateDiff, type TemplateLaunchInput, type GafferOutcomeInput, saveGafferCrew, type GafferCrew, getGafferOutcome, getGafferSettings, getProfile, getYoloSetting, listGafferPathways, listModelFavourites, planGafferOutcome, type Pathway, type GafferPlanPhase, stopGafferOutcome, type GafferOutcome, type GafferProvider, type YoloSetting } from './api'
   import { chatToolName, launchUpload, listFolderProjects, machineAccounts, machineModels, structuredAgent, terminalMachines, type FolderProject, type TerminalMachine } from './terminal/api'
   import { imageFiles } from './terminal/upload'
   import ImageAttachment from './ImageAttachment.svelte'
@@ -23,12 +23,14 @@
   import WorkspaceDialog from './terminal/WorkspaceDialog.svelte'
   import { readFloorDefaults, writeFloorDefaults } from './gafferFloor'
   import { BUILT_IN_GOAL_PROMPTS } from './gafferPrompts'
-  import { CREW_TIERS, DEFAULT_STAGES, MAX_OUTCOME_REPLY_BYTES, MAX_OUTCOME_SESSIONS, STAGES, carryCriteria, cleanCriteria, cleanPrompt, objectiveBlocker, orderStages, outcomeSummary, planBlocker, previousPlan, replyBlocker, stagePlan, stageLabel, stageTier, tierLabel, planRatings, withTier, startingProgress, wholeBetween, withReportedEfforts, type Crew, type PlanSession, type PlanTurn, BALANCE_LOW_PERCENT, BALANCE_MIN_PERCENT, BALANCE_MAX_PERCENT, balancePercent, stageParts, withPart, withoutParts, withNewPart, partsBlocker, stageTakesParts, MAX_BACKUPS, savedCrewRows } from './gafferOutcome'
+  import { CREW_TIERS, DEFAULT_STAGES, defaultTier, MAX_OUTCOME_REPLY_BYTES, MAX_OUTCOME_SESSIONS, STAGES, carryCriteria, cleanCriteria, cleanPrompt, objectiveBlocker, orderStages, outcomeSummary, planBlocker, previousPlan, replyBlocker, stagePlan, stageLabel, stageTier, tierLabel, planRatings, withTier, startingProgress, wholeBetween, withReportedEfforts, type Crew, type PlanSession, type PlanTurn, BALANCE_LOW_PERCENT, BALANCE_MIN_PERCENT, BALANCE_MAX_PERCENT, balancePercent, stageParts, withPart, withoutParts, withNewPart, partsBlocker, stageTakesParts, MAX_BACKUPS, savedCrewRows } from './gafferOutcome'
   import StageParts from './factory/StageParts.svelte'
   import LaunchReadiness from './factory/LaunchReadiness.svelte'
   import TemplateChanges from './factory/TemplateChanges.svelte'
   import TemplatePlan from './factory/TemplatePlan.svelte'
   import Templates from './factory/Templates.svelte'
+  import PathwayChoice, { stageLine } from './factory/pathways/PathwayChoice.svelte'
+  import { stageTitle } from './factory/pathways'
   import { attemptIds, mayHaveArrived } from './factory/delivery'
   import { changesSince, changesWords, conflictWords, mergeLine, refusedGaps, skippedKeys, tierCrew } from './factory/templates'
   import { reveal } from './dialogShell'
@@ -98,6 +100,9 @@
   let reply = $state(''), planThread = $state<PlanTurn[]>([]), declined = $state(false), declining = $state(false)
   const replyProblem = $derived(replyBlocker(reply))
   let maxReviews = $state(12), hours = $state(24)
+  // The pathway every pipeline follows, or '' for the stages chosen here. A failed read offers none, and the dialog is as it was.
+  let pathways = $state<Pathway[]>([]), pathwayId = $state('')
+  const pathway = $derived(pathways.find(p => p.id === pathwayId) ?? null)
   let trust = $state(false)
   // The model every stage uses unless a crew role is given its own. Empty is the agent's default.
   let model = $state(''), effort = $state('')
@@ -191,8 +196,9 @@
   const startSource = $derived(resolveStartSource({ explicit: explicitSource ? source : undefined, saved: savedSource, offered: sourceOffered }))
   const chosenSource = $derived(startSource.source)
   const sourceShown = $derived(tool === 'cline' && machine?.capabilities?.acpProvider === true)
-  const needsTrust = $derived(crewTools.some(id => id === 'opencode' || id === 'antigravity'))
-  const trustNames = $derived([...new Set(crewTools.filter(id => id === 'opencode' || id === 'antigravity'))].map(chatToolName).join(' and '))
+  // The agents the work runs on: the crew's, or with a pathway, the ones its stages resolve to (below).
+  const needsTrust = $derived.by(() => runTools.some(id => id === 'opencode' || id === 'antigravity'))
+  const trustNames = $derived.by(() => [...new Set(runTools.filter(id => id === 'opencode' || id === 'antigravity'))].map(chatToolName).join(' and '))
   const limitsOk = $derived(wholeBetween(maxReviews, 1, 48) && wholeBetween(hours, 1, 168))
   const done = $derived(!!record && record.state !== 'starting')
 
@@ -281,11 +287,10 @@
       }
     })
   })
-  $effect(() => { if (!needsTrust) trust = false })
   $effect(() => {
     const agentId = machine?.agentId
     if (!agentId) return
-    for (const id of new Set([tool, ...crewTools, ...spareTools])) {
+    for (const id of new Set([tool, ...crewTools, ...spareTools, ...runTools])) {
       const slot = `${agentId}:${id}`
       if (!id || slot in offered) continue
       offered[slot] = null
@@ -347,12 +352,30 @@
       return [tier, launchReadiness({ machine, tools, efforts, models: modelsFor, accounts: machine ? accounts[machine.agentId] : undefined, now, member: { tool: one.tool, model: one.model, effort: asked }, spares, saved: savedFor(tier), edited: !!chosenRoles[tier] })]
     })) as Record<'heavy' | 'standard' | 'light', ReturnType<typeof launchReadiness>>
   })
+  // With a pathway, what each of its stages runs on, as the controller resolves it: the stage's own agent, else its tier
+  // in the saved crew where this machine can run that, else the outcome's own agent. The crew edited here is not sent.
+  const savedSpares = (tier: keyof Crew) => { const member = savedCrew?.[tier]; return [member?.backup, ...(member?.moreBackups ?? [])].flatMap(one => one?.tool && tools.includes(one.tool) ? [{ tool: one.tool, model: one.model ?? '', effort: one.effort ?? '' }] : []) }
+  const pathwayRuns = $derived(!pathway ? [] : pathway.stages.map(stage => {
+    if (stage.agent) return { stage, tier: null, member: { tool: stage.agent.tool, model: stage.agent.model ?? '', effort: stage.agent.effort ?? '' } }
+    const tier = (stage.tier ?? defaultTier(stage.kind)) as keyof Crew, member = savedCrew?.[tier]
+    return { stage, tier, member: savedHere(tier) ? { tool: member!.tool!, model: member!.model ?? '', effort: member!.effort ?? '' } : { tool, model, effort } }
+  }))
+  const runTools = $derived(pathway ? [...new Set(pathwayRuns.map(run => run.member.tool))] : crewTools)
+  const pathwayLaunch = $derived.by(() => {
+    if (!pathway) return null
+    const now = Date.now(), held = machine ? accounts[machine.agentId] : undefined
+    const summary = launchSummary(pathwayRuns.map(run => ({ stage: stageTitle(run.stage), crew: run.tier ? tierLabel(run.tier) : chatToolName(run.member.tool),
+      readiness: launchReadiness({ machine, tools, efforts, models: modelsFor, accounts: held, now, member: run.member, spares: run.tier ? savedSpares(run.tier) : [], saved: run.tier ? savedFor(run.tier) : undefined, edited: run.tier ? savedHere(run.tier) : true }) })))
+    // There is no crew to change here: what holds a stage is fixed where the stage is, in the pathway or on the machine.
+    const first = summary.causes.find(cause => cause.level === 'blocked')
+    return { ...summary, blocker: !first ? '' : first.machine ? first.text : `${first.text} This pathway’s ${inWords(first.stages)} ${first.stages.length === 1 ? 'stage runs' : 'stages run'} on it. Install it there, or change the stage in the pathway.` }
+  })
   // Every stage, and every part of a split stage, with the readiness of the tier it is on.
-  const launch = $derived(launchSummary(sessions.flatMap(item => (item.stages ?? []).flatMap(kind => {
+  const launch = $derived(pathwayLaunch ?? launchSummary(sessions.flatMap(item => (item.stages ?? []).flatMap(kind => {
     const split = stageParts(item, kind), stage = stageLabel(kind)
     return split.length > 1 ? split.map(part => ({ stage, crew: tierLabel(part.tier), readiness: tierReady[part.tier] })) : [{ stage, crew: tierLabel(stageTier(kind, item).tier), readiness: tierReady[stageTier(kind, item).tier] }]
   }))))
-  const approveBlocker = $derived(crewRead === 'reading' ? 'Reading your saved Factory crew…' : (template && blocker) || planBlocker(sessions, room) || partsBlocker(sessions) || launch.blocker || (template && gaps.length && !skipOk ? 'Tick “Start without these skills” to go on, or choose another version.' : '') || (crewTools.includes('antigravity') && !trust ? 'Google Antigravity starts only in a folder you trust. Tick the folder trust box below, or choose another agent.' : ''))
+  const approveBlocker = $derived(crewRead === 'reading' ? 'Reading your saved Factory crew…' : (template && blocker) || (pathway ? planBlocker(sessions.map(item => ({ ...item, stages: undefined })), room) : planBlocker(sessions, room) || partsBlocker(sessions)) || launch.blocker || (template && gaps.length && !skipOk ? 'Tick “Start without these skills” to go on, or choose another version.' : '') || (runTools.includes('antigravity') && !trust ? `Google Antigravity starts only in a folder you trust. Tick the folder trust box below, or ${pathway ? 'change the stage in the pathway' : 'choose another agent'}.` : ''))
   // A machine that is only locked is waiting, not failing: the hold is said quietly.
   const waitOnly = $derived(!!approveBlocker && approveBlocker === launch.blocker && launch.waiting === launch.blocked)
   // The status by Approve is one element for good, so that a blocker clearing is announced as well as one appearing.
@@ -373,11 +396,11 @@
   const yoloGates = $derived.by((): YoloGate[] => {
     const account = yoloSetting?.allowed === true
     const host = machine?.host || 'This machine'
-    const without = [...new Set(crewTools.filter(id => id && !CATALOGUE.find(agent => agent.id === id)?.yolo))].map(chatToolName)
+    const without = [...new Set(runTools.filter(id => id && !CATALOGUE.find(agent => agent.id === id)?.yolo))].map(chatToolName)
     return [
       { label: 'Your account allows YOLO', ok: account, detail: account ? (yoloSetting?.changedBy ? `set by ${yoloSetting.changedBy}` : 'set by an owner') : yoloSetting ? 'An owner or admin can allow YOLO for this account in Settings.' : 'Reading the account setting…' },
       { label: `${host} accepts YOLO sessions`, ok: !!machine?.capabilities?.yolo, detail: machine?.capabilities?.yolo ? 'reported by the machine' : `${host} doesn’t accept YOLO sessions.` },
-      { label: 'Every agent in the crew has a YOLO option', ok: !without.length, detail: without.length ? `${without.join(' and ')} has no option reet can use for that.` : crewTools.filter(Boolean).length ? [...new Set(crewTools.filter(Boolean))].map(chatToolName).join(', ') : 'No agent chosen' },
+      { label: pathway ? 'Every agent this pathway uses has a YOLO option' : 'Every agent in the crew has a YOLO option', ok: !without.length, detail: without.length ? `${without.join(' and ')} has no option reet can use for that.` : runTools.filter(Boolean).length ? [...new Set(runTools.filter(Boolean))].map(chatToolName).join(', ') : 'No agent chosen' },
     ]
   })
   const launchesInWorktree = $derived(!!project?.isRepo && !!machine?.capabilities?.worktree)
@@ -395,6 +418,7 @@
     void getYoloSetting().then(found => { yoloSetting = found }).catch(() => { yoloSetting = { allowed: false } })
     void getProfile().then(answer => { if (!life.signal.aborted) { savedSource = answer.profile.defaultClineSource ?? ''; accountLatest = answer.profile.pullLatestByDefault === true } }).catch(() => { /* Cline’s own choice */ })
     void listModelFavourites(life.signal).then(found => { favourites = found.favourites }).catch(() => { /* a helper only */ })
+    void listGafferPathways(life.signal).then(found => { pathways = found }).catch(() => { /* no pathways to offer */ })
     void Promise.all([getGafferSettings(life.signal), listFolderProjects(life.signal), terminalMachines(life.signal)]).then(([settings, folders, found]) => {
       provider = settings.available ? settings.providers.find(item => item.isDefault && item.enabled) ?? null : null
       projects = folders; machines = found
@@ -466,7 +490,7 @@
   const addSession = () => { sessions = [...sessions, { key: key(), title: '', prompt: '', stages: [...DEFAULT_STAGES] }] }
   const setTier = (item: PlanSession, kind: string, tier: string) => { const next = withTier(item, kind, tier); item.tiers = next.tiers; item.whys = next.whys }
   const toggleStage = (item: PlanSession, kind: string) => { const now = item.stages ?? []; item.stages = now.includes(kind) ? now.filter(k => k !== kind) : orderStages([...now, kind]) }
-  const hasMerge = $derived(sessions.some(item => item.stages?.includes('merge')))
+  const hasMerge = $derived(pathway ? pathway.stages.some(stage => stage.kind === 'merge') : sessions.some(item => item.stages?.includes('merge')))
   const removeSession = (id: string) => { sessions = sessions.filter(item => item.key !== id) }
   // The controller owns the start from here. This only reads its record until every session has an answer.
   let watching: ReturnType<typeof setInterval> | undefined, polling = false
@@ -518,8 +542,8 @@
     if (upload === null) { busy = false; return }
     writeFloorDefaults(userId, { ...readFloorDefaults(userId, BUILT_IN_GOAL_PROMPTS[0].text), maxReviews, hours })
     const body: Omit<GafferOutcomeInput, 'requestId'> = {
-      objective: objective.trim(), projectId: project.id, tool, model: model.trim(), provider: sourceShown ? chosenSource : '', trust, yolo: yolo && !yoloWhy, autoReport, automation, balanceBelow: balancePercent(balanceBelow), autoMerge: autoMerge && hasMerge, maxReviews, hours, confirmed: true, ...(upload.paths.length ? { images: upload.paths } : {}),
-      sessions: sessions.map(item => ({ title: item.title.trim(), prompt: cleanPrompt(item.prompt), ...(cleanCriteria(item.criteria).length ? { criteria: cleanCriteria(item.criteria) } : {}), stages: withReportedEfforts(stagePlan(item.stages ?? DEFAULT_STAGES, crewSent, machine?.capabilities?.acpProvider === true, item), machine?.capabilities ? efforts : null) })),
+      objective: objective.trim(), ...(pathway ? { pathway: pathway.id } : {}), projectId: project.id, tool, model: model.trim(), provider: sourceShown ? chosenSource : '', trust: trust && needsTrust, yolo: yolo && !yoloWhy, autoReport, automation, balanceBelow: balancePercent(balanceBelow), autoMerge: autoMerge && hasMerge, maxReviews, hours, confirmed: true, ...(upload.paths.length ? { images: upload.paths } : {}),
+      sessions: sessions.map(item => ({ title: item.title.trim(), prompt: cleanPrompt(item.prompt), ...(cleanCriteria(item.criteria).length ? { criteria: cleanCriteria(item.criteria) } : {}), ...(pathway ? {} : { stages: withReportedEfforts(stagePlan(item.stages ?? DEFAULT_STAGES, crewSent, machine?.capabilities?.acpProvider === true, item), machine?.capabilities ? efforts : null) }) })),
       ...(latestOverride === null ? {} : { pullLatest: latestOverride ? 'yes' as const : 'no' as const }),
     }
     try {
@@ -543,7 +567,7 @@
     const skipped = skippedKeys(gaps)
     // The crew is sent tier by tier exactly as the readiness above reads it, so what is shown is what starts.
     const crewChosen = { light: tierCrew(sentFor('light')), standard: tierCrew(sentFor('standard')), heavy: tierCrew(sentFor('heavy')) }
-    const body: Omit<TemplateLaunchInput, 'requestId'> = { version: one.version, projectId: project.id, tool, model: model.trim(), provider: sourceShown ? chosenSource : '', trust, yolo: yolo && !yoloWhy, autoReport, automation, balanceBelow: balancePercent(balanceBelow), crew: crewChosen, confirmed: true, ...(skipped.length ? { skippedSkills: skipped } : {}), ...(latestOverride === null ? {} : { pullLatest: latestOverride ? 'yes' as const : 'no' as const }) }
+    const body: Omit<TemplateLaunchInput, 'requestId'> = { version: one.version, projectId: project.id, tool, model: model.trim(), provider: sourceShown ? chosenSource : '', trust: trust && needsTrust, yolo: yolo && !yoloWhy, autoReport, automation, balanceBelow: balancePercent(balanceBelow), crew: crewChosen, confirmed: true, ...(skipped.length ? { skippedSkills: skipped } : {}), ...(latestOverride === null ? {} : { pullLatest: latestOverride ? 'yes' as const : 'no' as const }) }
     try {
       record = await launchGafferTemplate(one.id, { ...body, requestId: launchIds.idFor(JSON.stringify(body)) }, life.signal)
       launchIds.clear(); step = 'results'; watch(record.id); await onstarted()
@@ -632,6 +656,7 @@
       {/if}
     {:else if step === 'plan'}
       <p class="objective"><span class="eyebrow">Outcome</span>{objective.trim()}</p>
+      {#if !declined}<PathwayChoice bind:pathways bind:value={pathwayId}/>{/if}
       {#if planThread.length}
         <section class="talk" aria-label="Conversation with Gaffer">
           {#each planThread as turn, index (index)}
@@ -642,16 +667,20 @@
       {#if declined}
         <p class="declined" role="status">Proposal declined. Nothing was started. Reply below to tell Gaffer what you want instead, or go back to the outcome.</p>
       {:else}
-      <p class="hint">{project?.name}. Each row below is a pipeline: edit its brief, and tick the stages it runs through. The first stage starts with the prompt shown{project?.isRepo ? ', in its own worktree' : ''}; later stages take over in the same folder.</p>
+      <p class="hint">{project?.name}. Each row below is a pipeline: edit its brief{pathway ? '' : ', and tick the stages it runs through'}. The first stage starts with the prompt shown{project?.isRepo ? ', in its own worktree' : ''}; later stages take over in the same folder.</p>
       <ImageAttachment bind:files={images} max={MAX_ATTACHMENTS} label="Attach an image to the outcome" disabled={busy} busy={imageUploading} error={imageError} />
       {#if images.length}<p class="hint" role="status">{images.length === 1 ? 'The attached image travels' : `All ${images.length} attached images travel`} with every pipeline this outcome starts.</p>{/if}
-      {@render crewDetails()}
+      {#if !pathway}{@render crewDetails()}{/if}
       {@render readinessPanel()}
       <ol class="plan" aria-label="Planned sessions">
         {#each sessions as item, index (item.key)}<li>
           <div class="plan-head"><label for={`${formId}-${item.key}-title`}>Pipeline {index + 1}</label><button class="link" type="button" aria-label={`Remove pipeline ${index + 1}`} onclick={() => removeSession(item.key)}>Remove</button></div>
           <input id={`${formId}-${item.key}-title`} aria-label={`Pipeline ${index + 1} title`} bind:value={item.title} maxlength="80" placeholder="Short title"/>
           <textarea aria-label={`Pipeline ${index + 1} prompt`} bind:value={item.prompt} rows="5" placeholder="What this pipeline should build, how to check it, and to raise a pull request. Do not merge." onpaste={pasted}></textarea>
+          {#if pathway}
+          {@render stageLine(pathway.name, pathway.stages)}
+          <p class="hint">Each pipeline follows this pathway. Its stages, models, skills and prompts come from it.</p>
+          {:else}
           <div class="stage-pick" role="group" aria-label={`Pipeline ${index + 1} stages`}>
             {#each STAGES as stage (stage.kind)}<button type="button" class="stage-chip" aria-pressed={item.stages?.includes(stage.kind) ?? false} onclick={() => toggleStage(item, stage.kind)}>{stage.label}</button>{/each}
           </div>
@@ -669,6 +698,7 @@
             </div>{/if}{/each}
           </div>{/if}
           {#if true}{@const count = (item.stages ?? []).reduce((sum, kind) => sum + Math.max(1, stageParts(item, kind).length), 0)}{@const splits = (item.stages ?? []).filter(kind => stageParts(item, kind).length > 1).length}<p class="hint">{item.stages?.length ?? 0} {item.stages?.length === 1 ? 'stage' : 'stages'}{splits ? `, ${splits} split into parts: ${count} agent sessions in all, one after another.` : ', each in an agent session of its own.'}</p>{/if}
+          {/if}
           <CriteriaEditor bind:items={item.criteria} who={`pipeline ${index + 1}`} disabled={busy}/>
         </li>{/each}
       </ol>
@@ -789,8 +819,8 @@
         <p class="launch" class:look={(launch.look > 0 && !launch.blocked) || (launch.blocked > 0 && launch.waiting === launch.blocked)} class:stop={launch.blocked > launch.waiting}><strong>Launch readiness{machine ? ` on ${machine.host}` : ''}.</strong> <span aria-hidden="true">{launch.blocked > launch.waiting ? '✕' : launch.waiting ? '!' : launch.look ? '!' : launch.reading ? '…' : '✓'}</span> {launch.text}</p>
         {#if launch.causes.length}<ul>{#each launch.causes as cause (cause.text)}<li class={cause.waiting ? 'waiting' : cause.level}>
           <span class="mark" aria-hidden="true">{cause.waiting ? '!' : cause.level === 'blocked' ? '✕' : cause.level === 'look' ? '!' : '·'}</span>
-          <span class="text"><strong>{cause.waiting ? 'Waiting to be unlocked' : cause.level === 'blocked' ? 'Cannot start' : cause.level === 'look' ? 'Look at' : 'Note'}</strong> · {cause.machine ? 'Every stage' : `${inWords(cause.crews)} ${cause.crews.length === 1 ? 'crew' : 'crews'}, used by ${inWords(cause.stages)}`}. <Sentence text={cause.text} /></span>
-          {#if cause.level !== 'note' && !cause.machine}<button class="btn" type="button" onclick={() => void chooseWho(cause.crews)}>Choose who does what<span class="sr-only"> for the {inWords(cause.crews)} {cause.crews.length === 1 ? 'crew' : 'crews'}</span></button>{/if}
+          <span class="text"><strong>{cause.waiting ? 'Waiting to be unlocked' : cause.level === 'blocked' ? 'Cannot start' : cause.level === 'look' ? 'Look at' : 'Note'}</strong> · {cause.machine ? 'Every stage' : pathway ? `Used by ${inWords(cause.stages)}` : `${inWords(cause.crews)} ${cause.crews.length === 1 ? 'crew' : 'crews'}, used by ${inWords(cause.stages)}`}. <Sentence text={cause.text} /></span>
+          {#if cause.level !== 'note' && !cause.machine && !pathway}<button class="btn" type="button" onclick={() => void chooseWho(cause.crews)}>Choose who does what<span class="sr-only"> for the {inWords(cause.crews)} {cause.crews.length === 1 ? 'crew' : 'crews'}</span></button>{/if}
         </li>{/each}</ul>{/if}
       </section>{/if}
 {/snippet}
@@ -816,7 +846,7 @@
       </fieldset>
       <label class="trust"><input type="checkbox" bind:checked={autoReport} disabled={busy}/><span>Have Gaffer report across this outcome by itself when a pipeline finishes or stops, and propose what is missing. Each report is one request to Gaffer’s model, at most six for the outcome; nothing it proposes starts without you.</span></label>
       {#if hasMerge && !template}<label class="trust"><input type="checkbox" bind:checked={autoMerge} disabled={busy}/><span>Merge by itself once every check passes, no review thread is open and there are no conflicts. Left off, each pipeline stops at <strong>Ready to merge</strong> and waits for you.{#if yolo && !yoloWhy}{' '}<strong>On YOLO a pipeline still stops there</strong> until you confirm on the Factory page that it may merge by itself.{/if}</span></label>{/if}
-      {#if needsTrust}<label class="trust"><input type="checkbox" bind:checked={trust} disabled={busy}/><span>I trust this folder: {trustNames} may run the plugins and customisations it finds in {project?.dir || 'it'}. {crewTools.includes('antigravity') ? 'Google Antigravity needs this to start at all; OpenCode needs it only in a folder that has plugins.' : 'Leave this off and a folder that has any is refused.'}</span></label>{/if}
+      {#if needsTrust}<label class="trust"><input type="checkbox" bind:checked={trust} disabled={busy}/><span>I trust this folder: {trustNames} may run the plugins and customisations it finds in {project?.dir || 'it'}. {runTools.includes('antigravity') ? 'Google Antigravity needs this to start at all; OpenCode needs it only in a folder that has plugins.' : 'Leave this off and a folder that has any is refused.'}</span></label>{/if}
 {/snippet}
 
 <!-- An agent that has left the machine stays in its box, said as missing, so the box is never blank. -->

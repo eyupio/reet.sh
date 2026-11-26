@@ -13,9 +13,10 @@ What changed.
 - `DeskScreen.svelte` passes one `CommandBar` snippet to the focused pane only. The old full-width bar under `.area`
   is gone, not kept alongside. All of the bar's props, its suggestion logic, read timing, keyboard handling and
   disabled states are unchanged.
-- A pane now becomes focused on click rather than on pointerdown or focusin. Moving the bar between panes changes
-  their heights, and focusing on the press moved the pane's buttons before the release, so a press on a card action
-  could miss. The press acts first, then the pane focuses and the bar moves.
+- A press focuses a pane on the click that follows it, not on the press itself; a keyboard focus (Tab to a control, or
+  a programmatic focus) still makes it the focused pane at once. Moving the bar between panes changes their heights,
+  and focusing on the press moved the pane's buttons before the release, so a press on a card action could miss. The
+  press acts first, then the pane focuses and the bar moves.
 - `docs/desks.md` says where the bar now sits.
 
 Checked: `npm run check` in `web/` (132 test files, svelte-check clean); `npm run build`; `desks.e2e.mjs` against a

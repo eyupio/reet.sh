@@ -107,6 +107,9 @@
     if (!at || at === document.body || section?.contains(at)) actions?.focus()
   })
   let section = $state<HTMLElement>()
+  // A press focuses the pane on click, after any button in it has acted, so the bar does not move under the release.
+  // A keyboard focus (or a programmatic one) focuses the pane at once; only a press's own focus change waits for the click.
+  let pressing = false
   // The folder the shell is in now, as its machine last reported it; the folder the pane was opened in until then.
   const folder = $derived(session?.liveDir || pane.dir)
   const host = $derived(machine?.host ?? '')
@@ -180,8 +183,9 @@
   }
 </script>
 
-<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions (a press anywhere in a pane focuses it, after any button in it has acted; the terminal and its controls own the keyboard) -->
-<section class="desk-pane" class:focused class:phone data-pane={pane.id} data-state={shown} bind:this={section} aria-current={focused ? 'true' : undefined} style={`--pc:${colour ? projectColourHex(colour) : 'transparent'}`} aria-label={`${name} on ${host || 'a removed machine'}`} onclick={() => onfocus?.()}>
+<svelte:window onpointerup={event => { if (event.pointerType === 'mouse') pressing = false }} onpointercancel={() => (pressing = false)} />
+<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions (a press anywhere in a pane focuses it, after any button in it has acted; a keyboard focus focuses it at once) -->
+<section class="desk-pane" class:focused class:phone data-pane={pane.id} data-state={shown} bind:this={section} aria-current={focused ? 'true' : undefined} style={`--pc:${colour ? projectColourHex(colour) : 'transparent'}`} aria-label={`${name} on ${host || 'a removed machine'}`} onpointerdown={() => (pressing = true)} onfocusin={() => { if (!pressing) onfocus?.() }} onclick={() => { pressing = false; onfocus?.() }}>
   <header class="ph" class:tinted={!!colour} draggable={layout && !editing && swappable.length > 0 ? 'true' : undefined} data-drag-pane={pane.id}>
     {#if editing}
       <input class="rename" aria-label="Pane name" maxlength="80" bind:this={input} bind:value={draft} oninput={() => { const clean = stripHiddenChars(draft); if (clean !== draft) draft = clean }} onkeydown={event => { if (event.key === 'Enter') { event.preventDefault(); finishRename(true) } else if (event.key === 'Escape') { event.preventDefault(); finishRename(false) } }} onblur={() => finishRename(true)} />

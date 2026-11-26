@@ -398,6 +398,19 @@ async function commandBarPart() {
   const logsBar = page.getByRole('form', { name: 'Command bar for platform logs' })
   await expect(logsBar.getByRole('combobox')).toBeDisabled()
   expect(await logsBar.evaluate(el => el.closest('.desk-pane')?.getAttribute('data-pane'))).toBe('pane-logs')
+  // Only the focused pane of a split draws a bar: it moves with the focus and leaves no copy behind.
+  reset()
+  await openSplit()
+  await attached(['sess-a', 'sess-b', 'sess-c'])
+  await quiet()
+  await pane('pane-a').locator('.xterm').click()
+  await expect(page.locator('form.cbar')).toHaveCount(1)
+  await expect(pane('pane-a').locator('form.cbar')).toHaveCount(1)
+  await expect(pane('pane-b').locator('form.cbar')).toHaveCount(0)
+  await pane('pane-b').locator('.xterm').click()
+  await expect(page.locator('form.cbar')).toHaveCount(1)
+  await expect(pane('pane-b').locator('form.cbar')).toHaveCount(1)
+  await expect(pane('pane-a').locator('form.cbar')).toHaveCount(0)
   expect(errors).toEqual([])
   console.log('ok - the command bar offers the next actions, completes a folder and runs only on Enter')
 }
@@ -1383,6 +1396,12 @@ try {
     await pane('pane-lost').getByRole('button', { name: 'Reopen in ~/PROD_reet' }).focus()
     await page.keyboard.press('Tab')
     await expect(pane('pane-lost').getByRole('button', { name: 'Close pane' })).toBeFocused()
+    // A keyboard focus into another pane makes it the focused one, as a press does.
+    await page.keyboard.press('Tab')
+    await expect(pane('pane-offline').getByRole('button', { name: 'Actions for offline' })).toBeFocused()
+    await expect(pane('pane-offline')).toHaveClass(/focused/)
+    await expect(pane('pane-offline')).toHaveAttribute('aria-current', 'true')
+    await expect(pane('pane-lost')).not.toHaveClass(/focused/)
     if (shots) await page.screenshot({ path: `${shots}/desk-states-light.png` })
     console.log('ok - each pane state shows its action')
   }

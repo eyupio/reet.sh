@@ -181,15 +181,16 @@ func (s *Service) runHostTool(ctx context.Context, job *chatJob, c store.GafferC
 		return "", false, errors.New("reet's tools are not available just now. Nothing was run.")
 	}
 	result, callErr := (*host).CallGafferTool(s.forProvider(ctx, job.uid, job.provider), job.uid, tool.Name, json.RawMessage(args))
-	if ctx.Err() != nil {
-		return "", false, ctx.Err()
-	}
 	record.State, record.Result = "ran", result
 	if callErr != nil {
 		record.State, record.Result = "failed", callErr.Error()
 	}
+	// Kept before the turn's own end is looked at: a call that ran while the answer was cancelled still ran.
 	turn.Tools = append(turn.Tools, record)
 	s.audit(job.uid, "gaffer-tool-call", map[string]any{"tool": tool.Name, "mode": "allow", "ok": callErr == nil, "conversation": c.ID, "turn": turn.ID})
+	if ctx.Err() != nil {
+		return "", false, ctx.Err()
+	}
 	if callErr != nil {
 		return "The tool failed and changed nothing it did not report: " + callErr.Error(), false, nil
 	}

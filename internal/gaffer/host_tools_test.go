@@ -430,3 +430,33 @@ func TestAChangeInALaterTurnAfterSessionTextWasReadStillAsks(t *testing.T) {
 		t.Fatalf("the change should wait for the person: %+v", second.Tools)
 	}
 }
+
+// cancellingHost cancels the answer while its tool is at work, as a person
+// pressing Cancel answer does.
+type cancellingHost struct {
+	s            *Service
+	uid          int64
+	conversation string
+}
+
+func (h *cancellingHost) GafferTools(int64) []HostTool { return []HostTool{writeTool} }
+func (h *cancellingHost) CallGafferTool(context.Context, int64, string, json.RawMessage) (string, error) {
+	_ = h.s.CancelTurn(h.uid, h.conversation, strings.Repeat("a", 32))
+	return `{"stopped":true}`, nil
+}
+
+// A tool that ran is on the turn and in the activity log even when the answer
+// was cancelled while it ran.
+func TestAToolThatRanDuringACancelIsStillRecorded(t *testing.T) {
+	s, _, p, v, _, _, log := hostFixture(t, []HostTool{writeTool}, `reet_stop_outcome {"outcome_id":"x"}`, "Done.")
+	s.SetToolHost(&cancellingHost{s: s, uid: p.UserID, conversation: v.Conversation.ID})
+	turn := ask(t, s, p, v, "a", "Stop outcome x.")
+	if turn.State != "cancelled" || len(turn.Tools) != 1 || turn.Tools[0].State != "ran" {
+		t.Fatalf("turn: state=%s tools=%+v", turn.State, turn.Tools)
+	}
+	log.mu.Lock()
+	defer log.mu.Unlock()
+	if len(log.rows) != 1 || log.rows[0].action != "gaffer-tool-call" {
+		t.Fatalf("audit: %+v", log.rows)
+	}
+}

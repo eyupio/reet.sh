@@ -75,18 +75,18 @@ test('setting a tier clears the agent and setting an agent clears the tier', () 
   assert.equal(p.stageTitle({ kind: 'pr' }), 'PR')
 })
 
-test('a skill is refused when it is a third, a repeat, or takes the pair over 2,000 bytes', () => {
-  const shelf = [skill('a', 900), skill('b', 900), skill('c', 100), skill('big', 1200)]
+test('a skill is refused when it is a third, a repeat, or takes the pair over 6,000 bytes', () => {
+  const shelf = [skill('a', 900), skill('b', 900), skill('c', 100), skill('big', 5200)]
   const stage = { kind: 'code', skills: ['a'] }
   assert.equal(p.canAddSkill({ kind: 'code' }, shelf[0], shelf), '')
   assert.equal(p.canAddSkill(stage, shelf[1], shelf), '')
   assert.equal(p.canAddSkill({ kind: 'code', skills: ['a', 'b'] }, shelf[2], shelf), 'A stage can have up to 2 skills.')
   assert.equal(p.canAddSkill(stage, shelf[0], shelf), 'That skill is already on this stage.')
-  assert.match(p.canAddSkill(stage, shelf[3], shelf), /2,000 bytes/)
+  assert.match(p.canAddSkill(stage, shelf[3], shelf), /6,000 bytes/)
 })
 
 test('every rule the server applies is reported with where it is', () => {
-  const shelf = [skill('a', 900), skill('b', 900), skill('big', 1200)]
+  const shelf = [skill('a', 900), skill('b', 900), skill('big', 5200)]
   const stagesOf = (...s) => ({ ...pathway(), stages: s })
   const at = (path, field) => p.pathwayProblems(path, shelf).stages.filter(s => s.field === field)
   assert.deepEqual(p.pathwayProblems(p.standardPathway(), shelf), { pathway: [], stages: [] })
@@ -118,7 +118,7 @@ test('every rule the server applies is reported with where it is', () => {
   assert.match(at(stagesOf({ kind: 'code', skills: ['gone'] }), 'skills')[0].text, /no longer/)
   assert.equal(p.pathwayProblems(stagesOf({ kind: 'code', skills: ['gone'] }), null).stages.length, 0)
   assert.match(at(stagesOf({ kind: 'code', skills: ['a', 'b', 'big'] }), 'skills')[0].text, /2 skills/)
-  assert.match(at(stagesOf({ kind: 'code', skills: ['a', 'big'] }), 'skills')[0].text, /2,000 bytes/)
+  assert.match(at(stagesOf({ kind: 'code', skills: ['a', 'big'] }), 'skills')[0].text, /6,000 bytes/)
   assert.match(at(stagesOf({ kind: 'code', skills: ['a', 'a'] }), 'skills')[0].text, /once/)
   assert.match(at(stagesOf({ kind: 'code', agent: { tool: '' } }), 'who')[0].text, /agent/)
 

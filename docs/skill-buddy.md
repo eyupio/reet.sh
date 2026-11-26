@@ -26,7 +26,7 @@ them. A Factory stage's suggestions stay open next to its plan.
 Select any stage in a pipeline to see suggestions for that stage, including
 stages that have not run yet. For a future pending stage, **Use for this stage**
 pins the reviewed guidance to its plan. Select up to two small skills, totalling
-2,000 bytes of formatted guidance. The stage's opening prompt includes them
+6,000 bytes of formatted guidance. The stage's opening prompt includes them
 when it starts, with the existing stage boundary and merge policy retained.
 Changing a system skill later does not change instructions already selected.
 

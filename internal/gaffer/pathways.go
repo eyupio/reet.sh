@@ -23,7 +23,7 @@ const (
 	MaxPathwayDescBytes   = 300
 	MaxStagePromptBytes   = 4000
 	MaxStageSkills        = 2
-	MaxStageGuidanceBytes = 2000
+	MaxStageGuidanceBytes = 6000
 )
 
 // validPathwayOrder reports the first broken order rule for stage labels in
@@ -193,7 +193,7 @@ func pathwayStages(p store.GafferPathway, load SkillLoader) ([]OutcomeStageInput
 			size += len(skillbuddy.Prompt(sk))
 			in.Skills = append(in.Skills, sk)
 			if size > MaxStageGuidanceBytes {
-				problems = append(problems, fmt.Sprintf("The %s pathway's %s stage has more guidance than fits in 2,000 bytes, with the skill %s. Use shorter skills.", p.Name, label, id))
+				problems = append(problems, fmt.Sprintf("The %s pathway's %s stage has more guidance than fits in 6,000 bytes, with the skill %s. Use shorter skills.", p.Name, label, id))
 				break
 			}
 		}

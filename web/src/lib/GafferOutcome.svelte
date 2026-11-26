@@ -436,7 +436,8 @@
     void getYoloSetting().then(found => { yoloSetting = found }).catch(() => { yoloSetting = { allowed: false } })
     void getProfile().then(answer => { if (!life.signal.aborted) { savedSource = answer.profile.defaultClineSource ?? ''; accountLatest = answer.profile.pullLatestByDefault === true } }).catch(() => { /* Cline’s own choice */ })
     void listModelFavourites(life.signal).then(found => { favourites = found.favourites }).catch(() => { /* a helper only */ })
-    void listGafferPathways(life.signal).then(found => { pathways = found }).catch(() => { /* no pathways to offer */ })
+    // A plan that came back before the list is followed once the list is here, unless the person has chosen since.
+    void listGafferPathways(life.signal).then(found => { pathways = found; if (!pathwayTouched && !pathwayId) pathwayId = suggested?.id ?? '' }).catch(() => { /* no pathways to offer */ })
     void Promise.all([getGafferSettings(life.signal), listFolderProjects(life.signal), terminalMachines(life.signal)]).then(([settings, folders, found]) => {
       provider = settings.available ? settings.providers.find(item => item.isDefault && item.enabled) ?? null : null
       projects = folders; machines = found
@@ -499,7 +500,8 @@
       const typed = sessions.map(old => ({ title: old.title.trim(), criteria: old.criteria }))
       sessions = plan.sessions.map((item, at) => ({ key: key(), title: item.title, prompt: item.prompt, stages: item.stages?.length ? orderStages([...new Set(item.stages.map(stage => stage.kind))]) : [...DEFAULT_STAGES], ...planRatings(item.stages), ...carryCriteria(typed, item.title, at) }))
       planThread = [...planThread, { from: 'gaffer', text: plan.summary }]
-      followPlan(plan)
+      // A reply's plan rarely repeats the pathway (the model is not told which it suggested): naming none changes nothing.
+      if (plan.pathway) followPlan(plan)
       declined = false; planPhase = ''
     } catch (e) {
       planThread = planThread.slice(0, -1)
@@ -676,8 +678,8 @@
       {/if}
     {:else if step === 'plan'}
       <p class="objective"><span class="eyebrow">Outcome</span>{objective.trim()}</p>
-      <!-- A click or key on any of its radios is the person's own choice. -->
-      {#if !declined}<div class="pathway-choice" onclick={touchPathway} onkeydown={touchPathway} role="presentation"><PathwayChoice bind:pathways bind:value={pathwayId} {suggested}/></div>{/if}
+      <!-- A change of radio, or a click on one (the checked suggestion included), is the person's own choice; Tab past is not. -->
+      {#if !declined}<div class="pathway-choice" onclick={touchPathway} onchange={touchPathway} role="presentation"><PathwayChoice bind:pathways bind:value={pathwayId} {suggested}/></div>{/if}
       {#if planThread.length}
         <section class="talk" aria-label="Conversation with Gaffer">
           {#each planThread as turn, index (index)}

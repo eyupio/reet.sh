@@ -598,7 +598,8 @@ try{
  }
 
  // 15. Gaffer's plan can suggest a pathway. An offered one (on, no problem) is chosen for an untouched dialog and says so
- //     on its row; a choice the person made themselves stays through later plans; one that is not offered is ignored.
+ //     on its row; a choice the person made themselves (a change or a click, not a Tab past) stays through later plans; one
+//     that is not offered is ignored. A reply's plan naming none changes nothing; a fresh plan naming none clears it.
  //     A plan with no suggestion, or one not offered, sends the body sent before pathways existed.
  {
   const SESSIONS=[{title:'Whole export',prompt:'Build the CSV export end to end. Raise a pull request. Do not merge.'},{title:'Button',prompt:'Add the export button. Raise a pull request. Do not merge.'}]
@@ -660,6 +661,10 @@ try{
     await reply(outcome,f,planWith({id:'p2',name:'Careful release',why:'Safer.'}))
     await expect(radio(outcome,'Careful release')).toBeChecked()
     await expect(hint(outcome)).toHaveText('Gaffer suggests this: Safer.')
+    // A reply whose plan names no pathway leaves the suggestion and the untouched choice as they are.
+    await reply(outcome,f,planWith())
+    await expect(radio(outcome,'Careful release')).toBeChecked()
+    await expect(hint(outcome)).toHaveText('Gaffer suggests this: Safer.')
     await radio(outcome,STANDARD).check()
     await reply(outcome,f,planWith({id:'p1',name:'Quick fix',why:'A small change.'}))
     await expect(radio(outcome,STANDARD)).toBeChecked()
@@ -671,6 +676,71 @@ try{
     await expect(hint(outcome)).toHaveText('Gaffer suggests this: Safer.')
     await expect(radio(outcome,STANDARD)).toBeChecked()
     await expect(outcome.getByRole('group',{name:'Pipeline 1 stages',exact:true})).toBeVisible()
+    expect(w.errors).toEqual([])
+   } finally { await w.context.close() }
+  }
+  // (b2) Tabbing through the radios is not a choice: a later plan still moves it. An arrow key is, and it stays.
+  {
+   const {f,w,page}=await open(1280,'light')
+   try{
+    const outcome=await toAsk(page,f,planWith({id:'p1',name:'Quick fix',why:'A small change.'}))
+    await radio(outcome,'Quick fix').focus()
+    await page.keyboard.press('Tab');await page.keyboard.press('Shift+Tab');await page.keyboard.press('Tab');await page.keyboard.press('Tab')
+    await expect(radio(outcome,'Quick fix')).toBeChecked()
+    await reply(outcome,f,planWith({id:'p2',name:'Careful release',why:'Safer.'}))
+    await expect(radio(outcome,'Careful release')).toBeChecked()
+    await radio(outcome,'Careful release').focus()
+    await page.keyboard.press('ArrowUp')
+    await expect(radio(outcome,'Quick fix')).toBeChecked()
+    await reply(outcome,f,planWith({id:'p2',name:'Careful release',why:'Still safer.'}))
+    await expect(hint(outcome)).toHaveText('Gaffer suggests this: Still safer.')
+    await expect(radio(outcome,'Quick fix')).toBeChecked()
+    expect(w.errors).toEqual([])
+   } finally { await w.context.close() }
+  }
+  // (b3) A fresh ask, or writing the plan by hand, follows the new plan: naming no pathway clears an untouched choice.
+  {
+   const {f,w,page}=await open(1280,'light')
+   try{
+    const outcome=await toAsk(page,f,planWith({id:'p2',name:'Careful release',why:'Safer.'}))
+    await expect(radio(outcome,'Careful release')).toBeChecked()
+    await outcome.getByRole('button',{name:'Back',exact:true}).click()
+    f.box.plan=planWith()
+    await outcome.getByRole('button',{name:'Ask Gaffer for a plan',exact:true}).click()
+    await expect(radio(outcome,STANDARD)).toBeChecked()
+    await expect(outcome.getByText(/Gaffer suggests this/)).toHaveCount(0)
+    await outcome.getByRole('button',{name:'Back',exact:true}).click()
+    f.box.plan=planWith({id:'p2',name:'Careful release',why:'Safer.'})
+    await outcome.getByRole('button',{name:'Ask Gaffer for a plan',exact:true}).click()
+    await expect(radio(outcome,'Careful release')).toBeChecked()
+    await outcome.getByRole('button',{name:'Back',exact:true}).click()
+    await outcome.getByRole('button',{name:'Write the plan myself',exact:true}).click()
+    await expect(radio(outcome,STANDARD)).toBeChecked()
+    await expect(outcome.getByText(/Gaffer suggests this/)).toHaveCount(0)
+    expect(w.errors).toEqual([])
+   } finally { await w.context.close() }
+  }
+  // (b4) A plan back before the pathway list is followed once the list arrives.
+  {
+   let release;const late=new Promise(r=>{release=r})
+   const {f,w,page}=await open(1280,'light',{pathways:async()=>{await late;return{pathways:PATHWAYS}}})
+   try{
+    const outcome=await toAsk(page,f,planWith({id:'p2',name:'Careful release',why:'Safer.'}))
+    release()
+    await expect(radio(outcome,'Careful release')).toBeChecked()
+    await expect(hint(outcome)).toHaveText('Gaffer suggests this: Safer.')
+    expect(w.errors).toEqual([])
+   } finally { await w.context.close() }
+  }
+  // (b5) A long reason with no spaces wraps inside its row, and a right-to-left one is kept apart from the words before it.
+  for(const theme of ['light','dark']){
+   const {f,w,page}=await open(390,theme)
+   try{
+    const outcome=await toAsk(page,f,planWith({id:'p2',name:'Careful release',why:'Aa'.repeat(100)}))
+    await expect(hint(outcome)).toHaveText(`Gaffer suggests this: ${'Aa'.repeat(100)}`)
+    await expect(hint(outcome).locator('bdi')).toHaveText('Aa'.repeat(100))
+    await dialogFits(page)
+    expect(await hint(outcome).evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
     expect(w.errors).toEqual([])
    } finally { await w.context.close() }
   }

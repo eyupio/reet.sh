@@ -66,10 +66,11 @@
   })
 </script>
 
-<!-- A pathway's stages in order, read only. Stages of the person's own stand out. -->
+<!-- A pathway's stages in order, read only. Stages of the person's own stand out. Each chip carries the separator before it,
+     so a line wraps before a separator, never after one. -->
 {#snippet stageLine(name: string, stages: PathwayStage[])}
   <span class="line" role="list" aria-label={`Stages of ${name}`}>
-    {#each stages as stage, i (i)}<span class="step" role="listitem"><span class="chip" class:own={stage.kind === 'custom'}>{stageTitle(stage)}</span>{#if i < stages.length - 1}<span class="sep" aria-hidden="true">›</span>{/if}</span>{/each}
+    {#each stages as stage, i (i)}<span class="step" role="listitem">{#if i}<span class="sep" aria-hidden="true">›</span>{/if}<span class="chip" class:own={stage.kind === 'custom'}>{stageTitle(stage)}</span></span>{/each}
   </span>
 {/snippet}
 
@@ -84,7 +85,7 @@
             <input type="radio" name={id} value={p.id} bind:group={value} disabled={!!problem} onchange={() => { said = '' }}/>
             <span class="text">
               <strong>{p.name}</strong>
-              {#if suggested?.id === p.id}<span class="why">{suggested.why ? `Gaffer suggests this: ${suggested.why}` : 'Gaffer suggests this.'}</span>{/if}
+              {#if suggested?.id === p.id}<span class="why">{#if suggested.why}Gaffer suggests this: <bdi>{suggested.why}</bdi>{:else}Gaffer suggests this.{/if}</span>{/if}
               {@render stageLine(p.name, p.stages)}
               {#if problem}<span class="problem"><span aria-hidden="true">!</span> {problem}</span>{/if}
             </span>
@@ -120,7 +121,7 @@
   .row:has(input:focus-visible) { outline: 2px solid var(--focus); outline-offset: 2px; }
   .text { display: grid; gap: 4px; min-width: 0; }
   .text strong { font-weight: 600; color: var(--ink); overflow-wrap: anywhere; }
-  .why { font-size: 14px; color: var(--muted); }
+  .why { font-size: 14px; color: var(--muted); overflow-wrap: anywhere; }
   .problem { font-size: 14px; color: var(--warn); overflow-wrap: anywhere; }
   .problem span { font-weight: 700; }
   .line { display: flex; flex-wrap: wrap; align-items: center; row-gap: 6px; min-width: 0; }

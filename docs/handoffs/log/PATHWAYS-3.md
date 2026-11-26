@@ -12,8 +12,9 @@ pathway's name, description and stage names (at most 20, never prompts, models o
 suggestion can only select among the person's own enabled pathways, and anything else is dropped. The New Factory
 outcome dialog shows the suggestion already selected with its reason and never overrides a choice the person made. The
 two start dialogs work out a pathway's agents as the server does: a saved crew agent that is not on the machine holds the
-start with a sentence, and the outcome's own agent and each tier's backups count for folder trust and YOLO, with a
-pathway and with standard stages. Small fixes: the chosen pathway row is always in view,
+start with a sentence. With a pathway, both dialogs count each stage's agent and its tier's backups for folder trust;
+under standard stages the new-outcome dialog counts every agent the start will send, backups included, and the
+outcome's own agent, for folder trust and YOLO. Small fixes: the chosen pathway row is always in view,
 "Edit pathway" is no longer part of an option's name, and the drag hint has three fixed places inside the window, clear of
 the pointer and the drop target, with the palette leaving room for the bottom tab bar. The tool count is now 50. User
 docs: "With Gaffer and AI clients" in `docs/factory.md` and the Factory tools in `docs/mcp.md`.
@@ -37,4 +38,5 @@ cannot be read.
 otherwise. `reet_recommend_skills` does not accept a pathway's own stage. Gaffer cannot create or edit pathways. Touch
 dragging is still tested with simulated touch in Chromium only, not on a real phone or tablet. If the saved crew
 cannot be read, the dialogs fall back to the outcome's agent and the server has the last word. A report's proposed
-pipelines from a pathway outcome use built-in stages and no pathway.
+pipelines from a pathway outcome use built-in stages and no pathway. Under standard stages the Add pipelines dialog still does not
+count a crew's backups for an outcome approved without folder trust, so the server may refuse; a follow-up.

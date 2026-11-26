@@ -374,9 +374,15 @@
     const spares = [member.backup, ...(member.moreBackups ?? [])].flatMap(one => one?.tool ? [{ tool: one.tool, model: one.model ?? '', effort: one.effort ?? '' }] : [])
     return { stage, tier, saved: true, member: { tool: member.tool, model: member.model ?? '', effort: member.effort ?? '' }, spares }
   }))
-  // Every agent the outcome can start on, as the controller counts them for folder trust and YOLO: the outcome's own agent,
-  // and each stage's first choice and backups.
-  const runTools = $derived([...new Set([tool, ...(pathway ? pathwayRuns.flatMap(run => [run.member.tool, ...run.spares.map(one => one.tool)]) : [...crewTools, ...spareTools])])])
+  // The stages each pipeline sends under standard stages; the start's body is built from these.
+  const sentStages = $derived(sessions.map(item => withReportedEfforts(stagePlan(item.stages ?? DEFAULT_STAGES, crewSent, machine?.capabilities?.acpProvider === true, item), machine?.capabilities ? efforts : null)))
+  const agentsOf = (plan: { tool: string; backup?: { tool: string }; moreBackups?: { tool: string }[] }[]) => plan.flatMap(one => [one.tool, one.backup?.tool ?? '', ...(one.moreBackups ?? []).map(spare => spare.tool)]).filter(Boolean)
+  // Every agent the start can use, as the controller counts them for folder trust and YOLO: the outcome's own agent, and the
+  // first choice and backups of each stage it sends, so a tier no stage uses counts for nothing. A template's stages run on
+  // the crew sent for their tiers.
+  const runTools = $derived([...new Set([tool, ...(pathway ? pathwayRuns.flatMap(run => [run.member.tool, ...run.spares.map(one => one.tool)])
+    : template && tpl ? [...new Set(tpl.content.pipelines.flatMap(item => item.stages.map(stage => stage.tier)))].flatMap(tier => CREW_TIERS.some(one => one.tier === tier) ? agentsOf([sentFor(tier as 'heavy' | 'standard' | 'light')]) : [])
+    : sentStages.flatMap(agentsOf))])])
   const pathwayLaunch = $derived.by(() => {
     if (!pathway) return null
     const now = Date.now(), held = machine ? accounts[machine.agentId] : undefined
@@ -419,7 +425,7 @@
     return [
       { label: 'Your account allows YOLO', ok: account, detail: account ? (yoloSetting?.changedBy ? `set by ${yoloSetting.changedBy}` : 'set by an owner') : yoloSetting ? 'An owner or admin can allow YOLO for this account in Settings.' : 'Reading the account setting…' },
       { label: `${host} accepts YOLO sessions`, ok: !!machine?.capabilities?.yolo, detail: machine?.capabilities?.yolo ? 'reported by the machine' : `${host} doesn’t accept YOLO sessions.` },
-      { label: pathway ? 'Every agent this pathway uses has a YOLO option' : 'Every agent in the crew has a YOLO option', ok: !without.length, detail: without.length ? `${without.join(' and ')} has no option reet can use for that.` : runTools.filter(Boolean).length ? [...new Set(runTools.filter(Boolean))].map(chatToolName).join(', ') : 'No agent chosen' },
+      { label: pathway ? 'Every agent this pathway uses has a YOLO option' : 'Every agent this start can use has a YOLO option', ok: !without.length, detail: without.length ? `${without.join(' and ')} has no option reet can use for that.` : runTools.filter(Boolean).length ? [...new Set(runTools.filter(Boolean))].map(chatToolName).join(', ') : 'No agent chosen' },
     ]
   })
   const launchesInWorktree = $derived(!!project?.isRepo && !!machine?.capabilities?.worktree)
@@ -566,7 +572,7 @@
     writeFloorDefaults(userId, { ...readFloorDefaults(userId, BUILT_IN_GOAL_PROMPTS[0].text), maxReviews, hours })
     const body: Omit<GafferOutcomeInput, 'requestId'> = {
       objective: objective.trim(), ...(pathway ? { pathway: pathway.id } : {}), projectId: project.id, tool, model: model.trim(), provider: sourceShown ? chosenSource : '', trust: trust && needsTrust, yolo: yolo && !yoloWhy, autoReport, automation, balanceBelow: balancePercent(balanceBelow), autoMerge: autoMerge && hasMerge, maxReviews, hours, confirmed: true, ...(upload.paths.length ? { images: upload.paths } : {}),
-      sessions: sessions.map(item => ({ title: item.title.trim(), prompt: cleanPrompt(item.prompt), ...(cleanCriteria(item.criteria).length ? { criteria: cleanCriteria(item.criteria) } : {}), ...(pathway ? {} : { stages: withReportedEfforts(stagePlan(item.stages ?? DEFAULT_STAGES, crewSent, machine?.capabilities?.acpProvider === true, item), machine?.capabilities ? efforts : null) }) })),
+      sessions: sessions.map((item, at) => ({ title: item.title.trim(), prompt: cleanPrompt(item.prompt), ...(cleanCriteria(item.criteria).length ? { criteria: cleanCriteria(item.criteria) } : {}), ...(pathway ? {} : { stages: sentStages[at] }) })),
       ...(latestOverride === null ? {} : { pullLatest: latestOverride ? 'yes' as const : 'no' as const }),
     }
     try {

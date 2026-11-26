@@ -1151,7 +1151,7 @@
   {
     "name": "reet_add_pipelines",
     "title": "Add pipelines to an outcome",
-    "description": "Requires management scope and a writer account. Add up to five pipelines to an existing outcome; the controller starts them with the outcome’s agent. With pathway, each stage runs on the agent the pathway gives it or on its tier’s saved crew, and a pathway that can run on an agent needing folder trust is refused here. An outcome holds at most ten pipelines. Added pipelines never merge by themselves. Refused for an outcome that runs on YOLO: pipelines join one on the Factory page only. This starts real agents. Use only when the user asked for exactly these, with confirm=true. Returns {data: object} as structured content and text.",
+    "description": "Requires management scope and a writer account. Add up to five pipelines to an existing outcome; the controller starts them with the outcome’s agent. With pathway, each stage runs on the agent the pathway gives it or on its tier’s saved crew, and on an outcome approved without folder trust a pathway that can run on an agent needing it is refused. An outcome holds at most ten pipelines. Added pipelines never merge by themselves. Refused for an outcome that runs on YOLO: pipelines join one on the Factory page only. This starts real agents. Use only when the user asked for exactly these, with confirm=true. Returns {data: object} as structured content and text.",
     "inputSchema": {
       "type": "object",
       "properties": {

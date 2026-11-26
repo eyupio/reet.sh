@@ -592,6 +592,41 @@ try{
     expect(w.errors).toEqual([])
    } finally { await w.context.close() }
   }
+  // (b4) Standard stages count only the tiers the chosen stages use, as the controller does: Review is the only Heavy stage,
+  //      so with Review off in both pipelines a Heavy backup on Google Antigravity asks for no trust and the start sends none.
+  {
+   const reviewOff=async outcome=>{for(const n of [1,2])await outcome.getByRole('group',{name:`Pipeline ${n} stages`,exact:true}).getByRole('button',{name:'Review',exact:true}).click()}
+   const HEAVY_BACKUP={tools:['claude','antigravity'],crew:{heavy:{tool:'claude',backup:{tool:'antigravity'}}}}
+   const trustBox=outcome=>outcome.getByRole('checkbox',{name:/^I trust this folder/})
+   // (i) The tier no chosen stage uses: no trust box, the start is allowed and carries no trust.
+   {
+    const {f,w,page}=await open(1280,'light',HEAVY_BACKUP)
+    try{
+     const outcome=await toPlan(page)
+     await reviewOff(outcome)
+     await expect(trustBox(outcome)).toHaveCount(0)
+     await approve(outcome).click()
+     await expect.poll(()=>f.box.starts.length).toBe(1)
+     expect(f.box.starts[0].trust).toBe(false)
+     expect(w.errors).toEqual([])
+    } finally { await w.context.close() }
+   }
+   // (iii) Used, then not: the box shows and is ticked; once Review is off it goes, and the start carries no trust.
+   {
+    const {f,w,page}=await open(1280,'light',HEAVY_BACKUP)
+    try{
+     const outcome=await toPlan(page)
+     await expect(approve(outcome)).toBeDisabled()
+     await trustBox(outcome).check()
+     await reviewOff(outcome)
+     await expect(trustBox(outcome)).toHaveCount(0)
+     await approve(outcome).click()
+     await expect.poll(()=>f.box.starts.length).toBe(1)
+     expect(f.box.starts[0].trust).toBe(false)
+     expect(w.errors).toEqual([])
+    } finally { await w.context.close() }
+   }
+  }
   // (c) Add pipelines: the same saved crew agent that is not on the machine holds the add, with the same sentence.
   {
    const {f,w,page}=await open(1280,'light',{crew:{standard:{tool:'codex'}}})

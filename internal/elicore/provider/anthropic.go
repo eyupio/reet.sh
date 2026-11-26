@@ -219,7 +219,9 @@ func newAnthropicDecoder() Decoder {
 			} `json:"delta"`
 			Message *struct {
 				Usage *struct {
-					Input int `json:"input_tokens"`
+					Input         int `json:"input_tokens"`
+					CacheCreation int `json:"cache_creation_input_tokens"`
+					CacheRead     int `json:"cache_read_input_tokens"`
 				} `json:"usage"`
 			} `json:"message"`
 			Usage *struct {
@@ -244,7 +246,9 @@ func newAnthropicDecoder() Decoder {
 			return nil, fmt.Errorf("the provider answered with an error: %s", msg)
 		case "message_start":
 			if frame.Message != nil && frame.Message.Usage != nil {
-				usage.InputTokens, usage.Reported = frame.Message.Usage.Input, true
+				// With cache marks input_tokens is only what was neither written to the cache nor read from it.
+				u := frame.Message.Usage
+				usage.InputTokens, usage.Reported = u.Input+u.CacheCreation+u.CacheRead, true
 			}
 		case "content_block_start":
 			if frame.ContentBlock != nil && frame.ContentBlock.Type == "tool_use" {

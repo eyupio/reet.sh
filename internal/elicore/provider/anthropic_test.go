@@ -166,6 +166,19 @@ func TestAnthropicAppendsTheMessagesPathOnceWhateverThePathGiven(t *testing.T) {
 	}
 }
 
+// With cache marks Anthropic's input_tokens is only the uncached remainder.
+// The input a turn used is that plus what was written to and read from the cache.
+func TestAnthropicCountsCachedInputAsInput(t *testing.T) {
+	decode := newAnthropicDecoder()
+	if _, err := decode(ServerEvent{Data: `{"type":"message_start","message":{"usage":{"input_tokens":3,"cache_creation_input_tokens":100,"cache_read_input_tokens":2000}}}`}); err != nil {
+		t.Fatal(err)
+	}
+	events, err := decode(ServerEvent{Data: `{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":9}}`})
+	if err != nil || len(events) != 1 || events[0].Usage == nil || events[0].Usage.InputTokens != 2103 || events[0].Usage.OutputTokens != 9 {
+		t.Fatalf("usage: %+v %v", events, err)
+	}
+}
+
 func TestAnthropicSaysAKeyIsNeededWhenNoneIsConfigured(t *testing.T) {
 	srv := newAnthropicServer(t)
 	srv.Status, srv.Body = 401, `{"type":"error","error":{"message":"missing key"}}`

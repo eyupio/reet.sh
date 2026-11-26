@@ -4,7 +4,7 @@
   // controller start each session through the ordinary launch and put it in Gaffer's care. This dialog only watches:
   // the work carries on if it is closed. Nothing starts on the model's say-so: a proposed session is text until Approve.
   import { onMount, tick, untrack } from 'svelte'
-  import { ApiError, createGafferOutcome, diffGafferTemplate, getGafferCrew, getGafferTemplate, launchGafferTemplate, type Template, type TemplateDiff, type TemplateLaunchInput, type GafferOutcomeInput, saveGafferCrew, type GafferCrew, getGafferOutcome, getGafferSettings, getProfile, getYoloSetting, listModelFavourites, planGafferOutcome, type GafferPlanPhase, stopGafferOutcome, type GafferOutcome, type GafferProvider, type YoloSetting } from './api'
+  import { ApiError, createGafferOutcome, diffGafferTemplate, getGafferCrew, getGafferTemplate, launchGafferTemplate, type Template, type TemplateDiff, type TemplateLaunchInput, type GafferOutcomeInput, saveGafferCrew, type GafferCrew, getGafferOutcome, getGafferSettings, getProfile, getYoloSetting, listGafferPathways, listModelFavourites, planGafferOutcome, type Pathway, type GafferPlanPhase, stopGafferOutcome, type GafferOutcome, type GafferProvider, type YoloSetting } from './api'
   import { chatToolName, launchUpload, listFolderProjects, machineAccounts, machineModels, structuredAgent, terminalMachines, type FolderProject, type TerminalMachine } from './terminal/api'
   import { imageFiles } from './terminal/upload'
   import ImageAttachment from './ImageAttachment.svelte'
@@ -29,6 +29,7 @@
   import TemplateChanges from './factory/TemplateChanges.svelte'
   import TemplatePlan from './factory/TemplatePlan.svelte'
   import Templates from './factory/Templates.svelte'
+  import PathwayChoice, { stageLine } from './factory/pathways/PathwayChoice.svelte'
   import { attemptIds, mayHaveArrived } from './factory/delivery'
   import { changesSince, changesWords, conflictWords, mergeLine, refusedGaps, skippedKeys, tierCrew } from './factory/templates'
   import { reveal } from './dialogShell'
@@ -98,6 +99,9 @@
   let reply = $state(''), planThread = $state<PlanTurn[]>([]), declined = $state(false), declining = $state(false)
   const replyProblem = $derived(replyBlocker(reply))
   let maxReviews = $state(12), hours = $state(24)
+  // The pathway every pipeline follows, or '' for the stages chosen here. A failed read offers none, and the dialog is as it was.
+  let pathways = $state<Pathway[]>([]), pathwayId = $state('')
+  const pathway = $derived(pathways.find(p => p.id === pathwayId) ?? null)
   let trust = $state(false)
   // The model every stage uses unless a crew role is given its own. Empty is the agent's default.
   let model = $state(''), effort = $state('')
@@ -352,7 +356,7 @@
     const split = stageParts(item, kind), stage = stageLabel(kind)
     return split.length > 1 ? split.map(part => ({ stage, crew: tierLabel(part.tier), readiness: tierReady[part.tier] })) : [{ stage, crew: tierLabel(stageTier(kind, item).tier), readiness: tierReady[stageTier(kind, item).tier] }]
   }))))
-  const approveBlocker = $derived(crewRead === 'reading' ? 'Reading your saved Factory crew…' : (template && blocker) || planBlocker(sessions, room) || partsBlocker(sessions) || launch.blocker || (template && gaps.length && !skipOk ? 'Tick “Start without these skills” to go on, or choose another version.' : '') || (crewTools.includes('antigravity') && !trust ? 'Google Antigravity starts only in a folder you trust. Tick the folder trust box below, or choose another agent.' : ''))
+  const approveBlocker = $derived(crewRead === 'reading' ? 'Reading your saved Factory crew…' : (template && blocker) || (pathway ? planBlocker(sessions.map(item => ({ ...item, stages: undefined })), room) : planBlocker(sessions, room) || partsBlocker(sessions) || launch.blocker) || (template && gaps.length && !skipOk ? 'Tick “Start without these skills” to go on, or choose another version.' : '') || (crewTools.includes('antigravity') && !trust ? 'Google Antigravity starts only in a folder you trust. Tick the folder trust box below, or choose another agent.' : ''))
   // A machine that is only locked is waiting, not failing: the hold is said quietly.
   const waitOnly = $derived(!!approveBlocker && approveBlocker === launch.blocker && launch.waiting === launch.blocked)
   // The status by Approve is one element for good, so that a blocker clearing is announced as well as one appearing.
@@ -395,6 +399,7 @@
     void getYoloSetting().then(found => { yoloSetting = found }).catch(() => { yoloSetting = { allowed: false } })
     void getProfile().then(answer => { if (!life.signal.aborted) { savedSource = answer.profile.defaultClineSource ?? ''; accountLatest = answer.profile.pullLatestByDefault === true } }).catch(() => { /* Cline’s own choice */ })
     void listModelFavourites(life.signal).then(found => { favourites = found.favourites }).catch(() => { /* a helper only */ })
+    void listGafferPathways(life.signal).then(found => { pathways = found }).catch(() => { /* no pathways to offer */ })
     void Promise.all([getGafferSettings(life.signal), listFolderProjects(life.signal), terminalMachines(life.signal)]).then(([settings, folders, found]) => {
       provider = settings.available ? settings.providers.find(item => item.isDefault && item.enabled) ?? null : null
       projects = folders; machines = found
@@ -466,7 +471,7 @@
   const addSession = () => { sessions = [...sessions, { key: key(), title: '', prompt: '', stages: [...DEFAULT_STAGES] }] }
   const setTier = (item: PlanSession, kind: string, tier: string) => { const next = withTier(item, kind, tier); item.tiers = next.tiers; item.whys = next.whys }
   const toggleStage = (item: PlanSession, kind: string) => { const now = item.stages ?? []; item.stages = now.includes(kind) ? now.filter(k => k !== kind) : orderStages([...now, kind]) }
-  const hasMerge = $derived(sessions.some(item => item.stages?.includes('merge')))
+  const hasMerge = $derived(pathway ? pathway.stages.some(stage => stage.kind === 'merge') : sessions.some(item => item.stages?.includes('merge')))
   const removeSession = (id: string) => { sessions = sessions.filter(item => item.key !== id) }
   // The controller owns the start from here. This only reads its record until every session has an answer.
   let watching: ReturnType<typeof setInterval> | undefined, polling = false
@@ -518,8 +523,8 @@
     if (upload === null) { busy = false; return }
     writeFloorDefaults(userId, { ...readFloorDefaults(userId, BUILT_IN_GOAL_PROMPTS[0].text), maxReviews, hours })
     const body: Omit<GafferOutcomeInput, 'requestId'> = {
-      objective: objective.trim(), projectId: project.id, tool, model: model.trim(), provider: sourceShown ? chosenSource : '', trust, yolo: yolo && !yoloWhy, autoReport, automation, balanceBelow: balancePercent(balanceBelow), autoMerge: autoMerge && hasMerge, maxReviews, hours, confirmed: true, ...(upload.paths.length ? { images: upload.paths } : {}),
-      sessions: sessions.map(item => ({ title: item.title.trim(), prompt: cleanPrompt(item.prompt), ...(cleanCriteria(item.criteria).length ? { criteria: cleanCriteria(item.criteria) } : {}), stages: withReportedEfforts(stagePlan(item.stages ?? DEFAULT_STAGES, crewSent, machine?.capabilities?.acpProvider === true, item), machine?.capabilities ? efforts : null) })),
+      objective: objective.trim(), ...(pathway ? { pathway: pathway.id } : {}), projectId: project.id, tool, model: model.trim(), provider: sourceShown ? chosenSource : '', trust, yolo: yolo && !yoloWhy, autoReport, automation, balanceBelow: balancePercent(balanceBelow), autoMerge: autoMerge && hasMerge, maxReviews, hours, confirmed: true, ...(upload.paths.length ? { images: upload.paths } : {}),
+      sessions: sessions.map(item => ({ title: item.title.trim(), prompt: cleanPrompt(item.prompt), ...(cleanCriteria(item.criteria).length ? { criteria: cleanCriteria(item.criteria) } : {}), ...(pathway ? {} : { stages: withReportedEfforts(stagePlan(item.stages ?? DEFAULT_STAGES, crewSent, machine?.capabilities?.acpProvider === true, item), machine?.capabilities ? efforts : null) }) })),
       ...(latestOverride === null ? {} : { pullLatest: latestOverride ? 'yes' as const : 'no' as const }),
     }
     try {
@@ -632,6 +637,7 @@
       {/if}
     {:else if step === 'plan'}
       <p class="objective"><span class="eyebrow">Outcome</span>{objective.trim()}</p>
+      {#if !declined}<PathwayChoice {pathways} bind:value={pathwayId}/>{/if}
       {#if planThread.length}
         <section class="talk" aria-label="Conversation with Gaffer">
           {#each planThread as turn, index (index)}
@@ -642,16 +648,22 @@
       {#if declined}
         <p class="declined" role="status">Proposal declined. Nothing was started. Reply below to tell Gaffer what you want instead, or go back to the outcome.</p>
       {:else}
-      <p class="hint">{project?.name}. Each row below is a pipeline: edit its brief, and tick the stages it runs through. The first stage starts with the prompt shown{project?.isRepo ? ', in its own worktree' : ''}; later stages take over in the same folder.</p>
+      <p class="hint">{project?.name}. Each row below is a pipeline: edit its brief{pathway ? '' : ', and tick the stages it runs through'}. The first stage starts with the prompt shown{project?.isRepo ? ', in its own worktree' : ''}; later stages take over in the same folder.</p>
       <ImageAttachment bind:files={images} max={MAX_ATTACHMENTS} label="Attach an image to the outcome" disabled={busy} busy={imageUploading} error={imageError} />
       {#if images.length}<p class="hint" role="status">{images.length === 1 ? 'The attached image travels' : `All ${images.length} attached images travel`} with every pipeline this outcome starts.</p>{/if}
+      {#if !pathway}
       {@render crewDetails()}
       {@render readinessPanel()}
+      {/if}
       <ol class="plan" aria-label="Planned sessions">
         {#each sessions as item, index (item.key)}<li>
           <div class="plan-head"><label for={`${formId}-${item.key}-title`}>Pipeline {index + 1}</label><button class="link" type="button" aria-label={`Remove pipeline ${index + 1}`} onclick={() => removeSession(item.key)}>Remove</button></div>
           <input id={`${formId}-${item.key}-title`} aria-label={`Pipeline ${index + 1} title`} bind:value={item.title} maxlength="80" placeholder="Short title"/>
           <textarea aria-label={`Pipeline ${index + 1} prompt`} bind:value={item.prompt} rows="5" placeholder="What this pipeline should build, how to check it, and to raise a pull request. Do not merge." onpaste={pasted}></textarea>
+          {#if pathway}
+          {@render stageLine(pathway.name, pathway.stages)}
+          <p class="hint">Each pipeline follows this pathway. Its stages, models, skills and prompts come from it.</p>
+          {:else}
           <div class="stage-pick" role="group" aria-label={`Pipeline ${index + 1} stages`}>
             {#each STAGES as stage (stage.kind)}<button type="button" class="stage-chip" aria-pressed={item.stages?.includes(stage.kind) ?? false} onclick={() => toggleStage(item, stage.kind)}>{stage.label}</button>{/each}
           </div>
@@ -669,6 +681,7 @@
             </div>{/if}{/each}
           </div>{/if}
           {#if true}{@const count = (item.stages ?? []).reduce((sum, kind) => sum + Math.max(1, stageParts(item, kind).length), 0)}{@const splits = (item.stages ?? []).filter(kind => stageParts(item, kind).length > 1).length}<p class="hint">{item.stages?.length ?? 0} {item.stages?.length === 1 ? 'stage' : 'stages'}{splits ? `, ${splits} split into parts: ${count} agent sessions in all, one after another.` : ', each in an agent session of its own.'}</p>{/if}
+          {/if}
           <CriteriaEditor bind:items={item.criteria} who={`pipeline ${index + 1}`} disabled={busy}/>
         </li>{/each}
       </ol>

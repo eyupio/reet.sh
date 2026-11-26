@@ -2,23 +2,28 @@
   // Approving pipelines Gaffer proposed. Each one can be given its own agent, model and effort; left alone it uses the
   // outcome's. Nothing is added or started until the person approves, and an added pipeline never merges by itself.
   import { onMount } from 'svelte'
-  import { getGafferCrew, listModelFavourites, type GafferCrew, type GafferOutcome } from '../api'
+  import { getGafferCrew, listGafferPathways, listModelFavourites, type GafferCrew, type GafferOutcome, type Pathway } from '../api'
   import { chatToolName, machineModels, structuredAgent, terminalMachines, type TerminalMachine } from '../terminal/api'
   import WorkspaceDialog from '../terminal/WorkspaceDialog.svelte'
   import GafferModelSelect from '../GafferModelSelect.svelte'
   import { CREW_TIERS, DEFAULT_STAGES, STAGES, cleanCriteria, criteriaBlocker, defaultTier, partsBlocker, stagePlan, stageParts, stageTakesParts, withNewPart, withPart, withoutParts, withReportedEfforts, type Crew, type CrewSpare, type StagePart } from '../gafferOutcome'
   import StageParts from './StageParts.svelte'
   import CriteriaEditor from './CriteriaEditor.svelte'
+  import PathwayChoice, { stageLine } from './pathways/PathwayChoice.svelte'
   import type { MachineModels, ModelFavourite } from '../models'
   import { START_EFFORTS, reportedEfforts } from '../terminal/launchOptions'
 
   type Proposal = { title: string; prompt: string; why?: string; stages?: string[] }
-  export type AddedPipeline = { title: string; prompt: string; criteria?: string[]; stages: ReturnType<typeof stagePlan> }
+  export type AddedPipeline = { title: string; prompt: string; criteria?: string[]; stages?: ReturnType<typeof stagePlan> }
   let { record, proposals, busy = false, error = '', oncancel, onconfirm }: {
-    record: GafferOutcome; proposals: Proposal[]; busy?: boolean; /** Why the last approval was refused. */ error?: string; oncancel: () => void; onconfirm: (pipelines: AddedPipeline[]) => void
+    record: GafferOutcome; proposals: Proposal[]; busy?: boolean; /** Why the last approval was refused. */ error?: string; oncancel: () => void; /** `pathway` is the pathway every added pipeline follows, or '' for the stages shown. */ onconfirm: (pipelines: AddedPipeline[], pathway: string) => void
   } = $props()
   const CHAT_TOOLS = ['claude', 'codex', 'opencode', 'cline', 'antigravity']
   const life = new AbortController()
+  // The pathway the added pipelines follow, or '' for the stages and crew chosen here. It starts on the one the outcome's
+  // first pipeline used, while that one can still start.
+  let pathways = $state<Pathway[]>([]), pathwayId = $state('')
+  const pathway = $derived(pathways.find(p => p.id === pathwayId) ?? null)
   let savedCrew = $state<GafferCrew | null>(null), crewLoading = $state(true)
   let machine = $state<TerminalMachine | null>(null), favourites = $state<ModelFavourite[]>([]), offered = $state<Record<string, MachineModels | null>>({}), capabilitiesRead = $state(false)
   // What each added pipeline runs on: one agent for every stage (`main`), or a crew with its own agent, model and
@@ -74,7 +79,7 @@
   const whoWords = (title: string, tier: keyof Crew) => { const one = crewOf(title)[tier]; return `${chatToolName(one.tool)}${one.model.trim() ? ` · ${one.model.trim()}` : ''}${one.effort ? ` · ${one.effort} effort` : ''}` }
   // The acceptance criteria the person agrees for each added pipeline, as for a new outcome's.
   let criteria = $state<Record<number, string[]>>({})
-  const blocked = $derived(partsBlocker(proposals.map(item => ({ title: item.title, stages: kinds(item), parts: splits[item.title] }))) || proposals.map((item, at) => criteriaBlocker(criteria[at], `“${item.title}”`)).find(Boolean) || '')
+  const blocked = $derived(pathway ? proposals.map((item, at) => criteriaBlocker(criteria[at], `“${item.title}”`)).find(Boolean) || '' : partsBlocker(proposals.map(item => ({ title: item.title, stages: kinds(item), parts: splits[item.title] }))) || proposals.map((item, at) => criteriaBlocker(criteria[at], `“${item.title}”`)).find(Boolean) || '')
   const usedTools = (title: string) => CREW_TIERS.map(item => crewOf(title)[item.tier].tool)
   // What this machine offers is known once it has been read with its capabilities. Until then (or when the read failed,
   // or the outcome's machine is gone) the start levels are offered and every effort is sent as chosen: the controller
@@ -88,12 +93,12 @@
   const plans = $derived(proposals.map((item, at) => ({
     title: item.title, prompt: item.prompt,
     ...(cleanCriteria(criteria[at]).length ? { criteria: cleanCriteria(criteria[at]) } : {}),
-    stages: withReportedEfforts(stagePlan(kinds(item), crewSent(item.title), true, ratingsOf(item.title)), known ? efforts : null),
+    ...(pathway ? {} : { stages: withReportedEfforts(stagePlan(kinds(item), crewSent(item.title), true, ratingsOf(item.title)), known ? efforts : null) }),
   })))
-  const unoffered = $derived(known ? [...new Set(plans.flatMap(({ stages }) => stages.flatMap(stage => [stage.tool, stage.backup?.tool, ...(stage.moreBackups ?? []).map(one => one.tool)])))].filter((id): id is string => !!id && !tools.includes(id)) : [])
-  const needsTrust = $derived(!record.trust && proposals.some(item => usedTools(item.title).some(id => id === 'opencode')))
+  const unoffered = $derived(known ? [...new Set(plans.flatMap(({ stages }) => (stages ?? []).flatMap(stage => [stage.tool, stage.backup?.tool, ...(stage.moreBackups ?? []).map(one => one.tool)])))].filter((id): id is string => !!id && !tools.includes(id)) : [])
+  const needsTrust = $derived(!pathway && !record.trust && proposals.some(item => usedTools(item.title).some(id => id === 'opencode')))
   // Antigravity never starts in a folder that was not trusted, and trust is given when an outcome is approved.
-  const refused = $derived(!record.trust && proposals.some(item => usedTools(item.title).includes('antigravity')))
+  const refused = $derived(!pathway && !record.trust && proposals.some(item => usedTools(item.title).includes('antigravity')))
   // Setting the pipeline's own agent, model or effort gives it to every role; a role then keeps what it is given.
   function setMain(title: string, next: Who) {
     main[title] = next
@@ -138,17 +143,27 @@
     void getGafferCrew(life.signal).then(answer => { if (!answer.saved) return; savedCrew = answer.crew; for (const item of CREW_TIERS) { const member = answer.crew[item.tier]; const list = [member?.backup, ...(member?.moreBackups ?? [])].flatMap(one => one?.tool ? [{ tool: one.tool, model: one.model ?? '', effort: one.effort ?? '', source: one.provider ?? '' }] : []); if (list.length) spares[item.tier] = list } }).catch(() => {}).finally(() => { crewLoading = false })
     void terminalMachines(life.signal).then(found => { machine = found.find(item => item.agentId === record.agentId) ?? null }).catch(() => { /* the outcome's own agent is still offered */ }).finally(() => { capabilitiesRead = true })
     void listModelFavourites(life.signal).then(found => { favourites = found.favourites }).catch(() => { /* a helper only */ })
+    void listGafferPathways(life.signal).then(found => {
+      pathways = found
+      const used = found.find(p => p.id === record.sessions[0]?.pathwayId)
+      if (used?.enabled && !used.problems?.length) pathwayId = used.id
+    }).catch(() => { /* no pathways to offer */ })
     return () => life.abort()
   })
-  function approve() { onconfirm(plans) }
+  function approve() { onconfirm(plans, pathway?.id ?? '') }
 </script>
 
 <WorkspaceDialog title={proposals.length === 1 ? `Add “${proposals[0].title}”?` : `Add ${proposals.length} pipelines?`} onclose={oncancel}>
   <div class="add">
     <p>The controller starts each added pipeline as a chat in this outcome’s project, {record.yolo ? 'on YOLO like the rest of this outcome' : 'with ordinary approvals, never in YOLO'}, and Gaffer looks after it stage by stage. None of them merges by itself: each stops at <strong>Ready to merge</strong> and waits for you.</p>
     {#if (record.images ?? []).length}<p class="hint" role="status">{record.images!.length === 1 ? 'The image attached to this outcome travels' : `All ${record.images!.length} images attached to this outcome travel`} with each new pipeline.</p>{/if}
+    <PathwayChoice {pathways} bind:value={pathwayId}/>
     <ul class="rows" aria-label="Pipelines to add">
       {#each proposals as item, at (item.title)}{@const who = choice(item.title)}<li role="group" aria-label={item.title}>
+        {#if pathway}
+        <div class="what"><strong>{item.title}</strong>{@render stageLine(pathway.name, pathway.stages)}</div>
+        <p class="hint">Each pipeline follows this pathway. Its stages, models, skills and prompts come from it.</p>
+        {:else}
         <div class="what"><strong>{item.title}</strong><span>{kinds(item).map(stageLabel).join(' → ')}</span></div>
         <div class="who">
           <label>Agent<select aria-label={`Agent for ${item.title}`} value={who.tool} disabled={busy} onchange={event => setMain(item.title, { tool: event.currentTarget.value, model: event.currentTarget.value === record.tool ? record.model ?? '' : '', effort: '' })}>
@@ -190,13 +205,14 @@
             {#if kinds(item).some(kind => stageTakesParts(kind) && stageParts(ratingsOf(item.title), kind).length < 2)}<p class="split-offer">Split a stage into parts of different work:{#each kinds(item).filter(kind => stageTakesParts(kind) && stageParts(ratingsOf(item.title), kind).length < 2) as kind (kind)}<button class="inline" type="button" disabled={busy} aria-label={`Split ${stageLabel(kind)} of ${item.title} into parts`} onclick={() => splits[item.title] = withNewPart({ parts: splits[item.title], tiers: { [kind]: defaultTier(kind) } }, kind)}>{stageLabel(kind)}</button>{/each}</p>{/if}
           </div>
         </details>
+        {/if}
         <CriteriaEditor bind:items={criteria[at]} who={item.title} disabled={busy}/>
       </li>{/each}
     </ul>
-    <p class="hint">Stages use your saved crew where available. Unset tiers use this outcome’s agent and model.</p>
+    {#if !pathway}<p class="hint">Stages use your saved crew where available. Unset tiers use this outcome’s agent and model.</p>{/if}
     {#if refused}<p class="warning" role="alert">Google Antigravity starts only in a folder you have trusted, and this outcome was approved without folder trust. Choose another agent here, or give Gaffer a new outcome with folder trust ticked.</p>
     {:else if needsTrust}<p class="warning" role="status">This outcome was approved without folder trust. OpenCode is refused in a folder that has plugins of its own.</p>{/if}
-    {#if proposals.some(item => usedTools(item.title).includes('cline'))}<p class="hint">{record.tool === 'cline' && record.provider ? 'Cline stages keep this outcome’s billing source.' : 'Cline stages run on the billing source Cline has saved on that machine. To choose another, give Gaffer a new outcome.'}</p>{/if}
+    {#if !pathway && proposals.some(item => usedTools(item.title).includes('cline'))}<p class="hint">{record.tool === 'cline' && record.provider ? 'Cline stages keep this outcome’s billing source.' : 'Cline stages run on the billing source Cline has saved on that machine. To choose another, give Gaffer a new outcome.'}</p>{/if}
     {#if known && !tools.length}<p class="warning" role="alert">This machine reports no agent that can run a Gaffer chat. Update reet on the machine, or choose another project for a new outcome.</p>
     {:else if unoffered.length}<p class="warning" role="alert">{unoffered.map(chatToolName).join(' and ')} {unoffered.length === 1 ? 'is' : 'are'} not on this machine now. Choose another agent for the pipeline.</p>{/if}
     {#if blocked}<p class="warning" role="status">{blocked}</p>{/if}

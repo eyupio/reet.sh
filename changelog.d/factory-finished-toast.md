@@ -1,0 +1,1 @@
+- **A finished pipeline says so**: while the app is open, a Factory pipeline that moves to done raises one toast naming it (or saying how many finished), with an **Open** action to the pipeline or the Factory. The Factory tab also carries a small dot until it is visited.

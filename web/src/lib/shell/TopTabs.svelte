@@ -11,7 +11,7 @@
 
 <nav class="top-tabs" aria-label="Main navigation">
   {#each tabs as tab (tab.href)}
-    <a href={tab.href} class:wide={!inBar(tab)} aria-current={tab.current ? 'page' : undefined}>{tab.label}</a>
+    <a href={tab.href} class:wide={!inBar(tab)} aria-current={tab.current ? 'page' : undefined}>{tab.label}{#if (tab.badge ?? 0) > 0}<span class="dot" aria-hidden="true"></span>{/if}</a>
   {/each}
   <button type="button" class="more" class:current={moreCurrent} popovertarget={moreId} aria-expanded={moreOpen}
     aria-label={moreCurrent ? 'More, current page inside' : undefined} onclick={(event) => onmore(event.currentTarget)}>More</button>
@@ -28,6 +28,7 @@
   a[aria-current='page']::after, .more.current::after {
     content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 2px; border-radius: 0; background: var(--accent-text);
   }
+  .dot { position: absolute; top: 10px; right: 4px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent-text); }
   a:focus-visible, .more:focus-visible { outline: 2px solid var(--accent-text); outline-offset: -4px; border-radius: 8px; }
   .more[aria-expanded='true'] { background: var(--tint); color: var(--ink); }
   /* Tablet: Home, Sessions, Factory, Desks, Machines and More. */

@@ -41,7 +41,7 @@
         {@const external = item.href.startsWith('http')}
         <a href={item.href} aria-current={item.current ? 'page' : undefined}
           target={external ? '_blank' : undefined} rel={external ? 'noopener noreferrer' : undefined}
-          onclick={() => panel?.hidePopover()}>{#if item.note}<span class="label"><span>{item.label}</span><small>{item.note}</small></span>{:else}{item.label}{/if}</a>
+          onclick={() => panel?.hidePopover()}>{#if item.note}<span class="label"><span>{item.label}</span><small>{item.note}</small></span>{:else}{item.label}{/if}{#if (item.badge ?? 0) > 0}<span class="dot" aria-hidden="true"></span>{/if}</a>
       {/each}
     </section>
   {/each}
@@ -67,6 +67,7 @@
     color: var(--ink); font-size: .875rem; text-decoration: none; overflow-wrap: anywhere;
   }
   .label { display: grid; gap: 2px; } .label small { color: var(--muted); font-size: .875rem; }
+  .dot { width: 8px; height: 8px; margin-left: auto; border-radius: 50%; background: var(--accent-text); }
   a:hover, a[aria-current='page'] { background: var(--tint); }
   a[aria-current='page'] { font-weight: 600; color: var(--accent-text); }
   a:focus-visible { outline: 2px solid var(--accent-text); outline-offset: -2px; }

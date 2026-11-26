@@ -45,7 +45,7 @@
   // the launch bar opens in a modal for Select and an address that hands over projects.
   // SessionBoard owns backlog reads; these loaders supply sessions and the fleet.
   // Both refresh every 15 seconds and retain the last successful read on failure.
-  let { userId, writer, canAdd, accounts, moved = false, legacyProject = '', timeZone = '', dateFormat = 'locale', onsignedout, onattention }: {
+  let { userId, writer, canAdd, accounts, moved = false, legacyProject = '', timeZone = '', dateFormat = 'locale', onsignedout, onattention, onoutcomes }: {
     userId: number
     /** The person's time zone and date format, for the dates in a pipeline's Goal and limits dialog. */
     timeZone?: string
@@ -63,6 +63,8 @@
     onsignedout: (e: unknown) => void
     /** What waits for the person (Factory items, sessions and Gaffer's goals), for the bell and the document title. */
     onattention?: (entries: WaitingEntry[], onseen: (sessionId: string) => Promise<void>, onanswered: () => Promise<void>) => void
+    /** The Factory pipelines just read, so the app can notice one that finished. */
+    onoutcomes?: (outcomes: Outcome[]) => void
   } = $props()
 
   const POLL_MS = 15_000
@@ -307,7 +309,7 @@
           if (f.status === 'fulfilled' && f.value) followups = f.value
           // Every outcome names its sessions, archived ones too, so a stage the Factory has finished with leaves the lists
           // even after its pipeline is put away. Only the unarchived ones draw on Home.
-          if (o.status === 'fulfilled' && o.value) { const floor = o.value.filter(record => !record.archivedAt); factory = factoryMembers(o.value); factoryRecords = floor }
+          if (o.status === 'fulfilled' && o.value) { const floor = o.value.filter(record => !record.archivedAt); factory = factoryMembers(o.value); factoryRecords = floor; onoutcomes?.(o.value) }
           factoryFailed = missed(f) || missed(o)
         }
         if (s.status === 'fulfilled' && s.value) { sessions = s.value; sessionsFailed = false } else { failed = true; sessionsFailed = sessions === undefined }

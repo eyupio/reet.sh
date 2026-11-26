@@ -15,6 +15,7 @@
   import type { WaitingEntry } from './lib/home/homeWaiting'
   import { inventoryMachines } from './lib/machines'
   import { listGafferGoals, listGafferOutcomes, loadNewSkills, type GafferGoalOverview, type GafferOutcome, type NewSkill } from './lib/api'
+  import { createFinishedWatch, finishedToast } from './lib/factory/finished'
   import { DOCS_URL } from './lib/links'
   import FenceStrip from './lib/shell/FenceStrip.svelte'
   import { onMount, setContext } from 'svelte'
@@ -198,6 +199,8 @@
   // What waits for the person, by the one rule Home uses (whatWaits): the bell lists it, and its badge and the title
   // count it, so the three always agree. Home reports its own reading; every other page reads it here.
   let waitingEntries = $state<WaitingEntry[]>([])
+  // Finished Factory pipelines the person has not been shown yet: a dot on the Factory tab.
+  let finishedUnread = $state(0)
   const attention = $derived(waitingEntries.length)
   let onAnswered = $state<(() => void | Promise<void>) | undefined>(undefined)
   let onMarkSeen = $state<((sessionId: string) => void | Promise<void>) | undefined>(undefined)
@@ -208,7 +211,7 @@
   const tabs = $derived<Tab[]>([
     { href: '/', label: 'Home', current: isHome },
     ...(sessionsAccess ? [{ href: '/sessions', label: 'Sessions', current: isTerminals || isSessions }] : []),
-    ...(sessionsAccess && authMode === 'accounts' ? [{ href: '/factory', label: 'Factory', current: isFactory || isPathways }] : []),
+    ...(sessionsAccess && authMode === 'accounts' ? [{ href: '/factory', label: 'Factory', current: isFactory || isPathways, badge: finishedUnread }] : []),
     ...(sessionsAccess && authMode === 'accounts' ? [{ href: '/desks', label: 'Desks', current: isDesks }] : []),
     { href: '/machines', label: 'Machines', current: isMachines && !((isTerminals || isSessions) && sessionsAccess) },
     { href: '/skills', label: 'Skills', current: isSkills },
@@ -299,6 +302,34 @@
     toast = null
   }
 
+  // A pipeline that finishes is noticed from the outcome reads the app already makes. While the Factory is open it is
+  // acknowledged silently instead, so the person is not told about work they are looking at.
+  let finishedUser: number | undefined
+  let finishedWatch: ReturnType<typeof createFinishedWatch> | undefined
+  function finishedWatchFor() {
+    const id = currentUser?.id ?? 0
+    if (!finishedWatch || finishedUser !== id) {
+      let storage: Storage | undefined
+      try { storage = window.localStorage } catch { /* session-only */ }
+      finishedUser = id
+      finishedWatch = createFinishedWatch(storage, `reet.factory.finished.${id}`)
+    }
+    return finishedWatch
+  }
+  function applyFinished(outcomes: GafferOutcome[]) {
+    const watch = finishedWatchFor()
+    const { unread, finished } = watch.observe(outcomes)
+    if (isFactory) {
+      watch.acknowledgeAll(outcomes)
+      finishedUnread = 0
+      return
+    }
+    finishedUnread = unread
+    if (!finished.length) return
+    const { message, href } = finishedToast(finished)
+    showToast(message, 'Open', () => { location.assign(href) })
+  }
+
   let loadVersion = 0
 
   // Reads the library for Jump. It is also how a single-token sign-in is checked: a token the instance refuses fails here.
@@ -355,6 +386,7 @@
   function factoryRead(outcomes: GafferOutcome[], goals: GafferGoalOverview[], startedAt: number) {
     if (startedAt < ownReadAt) return
     lastOutcomes = outcomes; lastGoals = goals; factoryReadAt = startedAt
+    applyFinished(outcomes)
   }
   async function loadAttention(poll = false) {
     if (!authenticated || needsAuth || !sessionsAccess || isHome) return
@@ -368,7 +400,7 @@
       if (mine !== attentionGeneration) return
       if (read.status === 'rejected') return
       const sessions = read.value
-      if (outcomes.status === 'fulfilled') lastOutcomes = outcomes.value
+      if (outcomes.status === 'fulfilled') { lastOutcomes = outcomes.value; applyFinished(outcomes.value) }
       if (goals.status === 'fulfilled') lastGoals = goals.value.goals
       if (!fromFactory && outcomes.status === 'fulfilled' && goals.status === 'fulfilled') ownReadAt = Math.max(ownReadAt, startedAt)
       if (desks.status === 'fulfilled') lastDesks = desks.value
@@ -748,7 +780,7 @@
     {#await pages.Home()}
       <RouteSkeleton variant={homeLayout && sessionsAccess ? 'home' : 'cards'} />
     {:then { default: Page }}
-      <Page userId={currentUser?.id ?? 0} name={currentUser?.name ?? ''} writer={sessionsAccess} canAdd={canWrite} accounts={authMode === 'accounts'} moved={!!retiredProjects} {legacyProject} {timeZone} {dateFormat} onsignedout={fail} onattention={(entries, seen, answered) => { waitingEntries = entries; onMarkSeen = seen; onAnswered = answered }} />
+      <Page userId={currentUser?.id ?? 0} name={currentUser?.name ?? ''} writer={sessionsAccess} canAdd={canWrite} accounts={authMode === 'accounts'} moved={!!retiredProjects} {legacyProject} {timeZone} {dateFormat} onsignedout={fail} onoutcomes={applyFinished} onattention={(entries, seen, answered) => { waitingEntries = entries; onMarkSeen = seen; onAnswered = answered }} />
     {:catch}
       <PageLoadError />
     {/await}

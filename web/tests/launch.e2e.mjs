@@ -1420,9 +1420,10 @@ try {
   for (const secret of SECRETS) expect(await dump(), secret).not.toContain(secret)
   await startButton(page).click()
   await expect(page).toHaveURL(/\/sessions\?/)
-  // The theme cache (#228) holds only light, dark or system, for the first paint; nothing else may be written.
+  // The theme cache (#228) holds only light, dark or system, for the first paint; nothing else may be written except the
+  // Group by choice and the Factory-finished read state (empty here, as no pipeline has finished).
   expect(box.storage.filter(w => w.key === 'reet-theme').every(w => ['light','dark','system'].includes(w.value))).toBe(true)
-  expect(box.storage.filter(w => !/^reet\.home\.groupBy\./.test(w.key) && w.key !== 'reet-theme')).toEqual([])
+  expect(box.storage.filter(w => !/^reet\.home\.groupBy\./.test(w.key) && !/^reet\.factory\.finished\./.test(w.key) && w.key !== 'reet-theme')).toEqual([])
   for (const secret of SECRETS) expect(JSON.stringify(box.storage), secret).not.toContain(secret)
   expect(page.url()).not.toContain('Fix')
   expect(errors).toEqual([])

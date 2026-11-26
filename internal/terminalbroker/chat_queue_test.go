@@ -446,6 +446,17 @@ func TestAMessageTheAgentWasTooBusyToTakeStaysQueuedAndGoesLater(t *testing.T) {
 	if q, _ := b.st.TerminalQueueFor(uid, s.ID); prompts != 2 || len(q) != 0 {
 		t.Fatalf("the message did not go once the agent was free: %d prompts %+v", prompts, q)
 	}
+	// The conversation shows the message once, with no "not sent" in between.
+	shown, _, _, cancel := b.SubscribeChat(uid, s.ID)
+	defer cancel()
+	for i, event := range shown {
+		if (event.Kind == "user") != (i == 0) || event.Kind == "notice" {
+			t.Fatalf("the conversation after a busy first try: %+v", shown)
+		}
+	}
+	if len(shown) == 0 {
+		t.Fatal("the delivered message is not shown")
+	}
 }
 
 // A message that failed is known not to have been delivered, and stays for

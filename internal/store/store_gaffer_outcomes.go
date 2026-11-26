@@ -425,7 +425,99 @@ func (o GafferOutcome) Finished() bool {
 	return true
 }
 
+// MaxGafferAutoReports is how many reports Gaffer makes by itself for one outcome.
+const MaxGafferAutoReports = 6
+
+// AutoReportEvent names what an outcome's pipelines have finished or stopped
+// at: the pipelines that are done, ready to merge, not started or no longer
+// followed. It is empty while every pipeline is still at work.
+func (o GafferOutcome) AutoReportEvent() string {
+	var parts []string
+	for _, piece := range o.Sessions {
+		switch piece.State {
+		case "done", "delivery_review", "ready_to_merge", "failed", "unfollowed":
+			parts = append(parts, piece.Key+":"+piece.State)
+		}
+	}
+	return strings.Join(parts, ",")
+}
+
+// live reports whether the controller may still have work for the outcome:
+// something in it is moving, a report by itself is owed, or a finished
+// pipeline left sessions behind that may still run. It is kept in the live
+// column, so the controller's regular look reads no other outcome.
+func (o GafferOutcome) live() bool {
+	if !o.Finished() {
+		return true
+	}
+	if o.ArchivedAt > 0 {
+		return false
+	}
+	if event := o.AutoReportEvent(); o.AutoReport && o.State != "stopped" && o.AutoReports < MaxGafferAutoReports && event != "" && event != o.AutoReportedFor {
+		return true
+	}
+	for _, piece := range o.Sessions {
+		if piece.State == "done" && len(piece.Retired) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Store) migrateGafferOutcomes() error {
+	if err := s.createGafferOutcomes(); err != nil {
+		return err
+	}
+	// Added later: rows from before read as live until they are looked at below.
+	if ok, err := hasColumn(s.db, "gaffer_outcomes", "live"); err != nil {
+		return err
+	} else if !ok {
+		if _, err = s.db.Exec(`ALTER TABLE gaffer_outcomes ADD COLUMN live INTEGER NOT NULL DEFAULT 1`); err != nil {
+			return err
+		}
+	}
+	if _, err := s.db.Exec(`CREATE INDEX IF NOT EXISTS gaffer_outcomes_live ON gaffer_outcomes(live) WHERE live=1`); err != nil {
+		return err
+	}
+	return s.refreshGafferOutcomesLive()
+}
+
+// refreshGafferOutcomesLive sets live on every outcome from its record. It
+// runs at each start, not only when the column is added: an older reet that
+// wrote meanwhile, or a restored copy, leaves the column behind the record,
+// and an outcome wrongly not live would never be carried on.
+func (s *Store) refreshGafferOutcomesLive() error {
+	rows, err := s.db.Query(`SELECT id,user_id,live,data FROM gaffer_outcomes`)
+	if err != nil {
+		return err
+	}
+	stale := map[string]bool{}
+	for rows.Next() {
+		var id, raw string
+		var uid int64
+		var live bool
+		if err = rows.Scan(&id, &uid, &live, &raw); err != nil {
+			break
+		}
+		// A record that cannot be read stays live, as it was before the column.
+		if o, err := scanOutcome(uid, raw); (err != nil || o.live()) != live {
+			stale[id] = !live
+		}
+	}
+	if err == nil {
+		err = rows.Err()
+	}
+	rows.Close()
+	for id, live := range stale {
+		if err != nil {
+			break
+		}
+		_, err = s.db.Exec(`UPDATE gaffer_outcomes SET live=? WHERE id=?`, live, id)
+	}
+	return err
+}
+
+func (s *Store) createGafferOutcomes() error {
 	_, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS gaffer_outcomes(
  id TEXT PRIMARY KEY,
  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -485,6 +577,11 @@ func (s *Store) CreateGafferOutcomeFor(uid int64, o GafferOutcome) (GafferOutcom
 			}
 			return o, ErrGafferConflict
 		}
+		return o, err
+	}
+	// Approving the plan is where the person allows the outcome's provider its
+	// sessions' text and code. A stage start never allows them again by itself.
+	if _, err = tx.Exec(`UPDATE gaffer_providers SET allow_sessions=1,allow_code=1,revision=revision+1,updated_at=? WHERE user_id=? AND id=? AND (allow_sessions=0 OR allow_code=0)`, now(), uid, o.ProviderID); err != nil {
 		return o, err
 	}
 	// Only an outcome with nothing still moving is dropped: one whose pipelines
@@ -694,10 +791,10 @@ func (s *Store) DeleteGafferOutcomeFor(uid int64, id string, revision int64) err
 	return tx.Commit()
 }
 
-// gafferOutcomesWhere reads every account's outcomes that match where (SQL written here, never taken from a
-// request), oldest first.
+// gafferOutcomesWhere reads every account's live outcomes that match where (SQL written here, never taken from a
+// request), oldest first. It reads beside the writer, and only what the live index holds.
 func (s *Store) gafferOutcomesWhere(where string) ([]GafferOutcome, error) {
-	rows, err := s.db.Query(`SELECT user_id,data FROM gaffer_outcomes WHERE ` + where + ` ORDER BY created_at,id`)
+	rows, err := s.read.Query(`SELECT user_id,data FROM gaffer_outcomes WHERE live=1 AND (` + where + `) ORDER BY created_at,id`)
 	if err != nil {
 		return nil, err
 	}
@@ -828,7 +925,7 @@ func (s *Store) updateGafferOutcomeFor(uid int64, id string, revision int64, cha
 	if err != nil {
 		return o, err
 	}
-	if _, err = tx.Exec(`UPDATE gaffer_outcomes SET data=? WHERE user_id=? AND id=?`, string(next), uid, id); err != nil {
+	if _, err = tx.Exec(`UPDATE gaffer_outcomes SET data=?,live=? WHERE user_id=? AND id=?`, string(next), o.live(), uid, id); err != nil {
 		return o, err
 	}
 	return o, tx.Commit()

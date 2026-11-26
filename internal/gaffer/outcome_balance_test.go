@@ -53,6 +53,31 @@ func TestAStageUsesItsBackupOnlyWhenItsFirstChoiceRunsLowAndTheBackupHasMore(t *
 	}
 }
 
+// Plan figures are read up to six hours before they are used, and a window
+// can start again in that time. One that has says nothing about what is left
+// now: a first choice whose low window has reset keeps its stage, and a backup
+// whose full window has reset can take one.
+func TestAWindowThatHasResetSinceItWasReadDoesNotMoveAStage(t *testing.T) {
+	now := time.Now()
+	first, backup := store.GafferStageAgent{Tool: "claude", Model: "opus"}, store.GafferStageAgent{Tool: "codex"}
+	reset := func(used int, at time.Time) terminalproto.AccountLimit {
+		w := window("session", used, "")
+		w.ResetsAt = at.UnixMilli()
+		return w
+	}
+	read := now.Add(-time.Hour)
+	codex := planAccount("codex", read, window("week", 5, ""))
+	if use, why := balanceChoice([]terminalproto.AgentAccount{planAccount("claude", read, reset(95, now.Add(-time.Minute)), window("week", 40, "")), codex}, first, backup, 0, now); use {
+		t.Errorf("moved on a window that has reset: %q", why)
+	}
+	if use, _ := balanceChoice([]terminalproto.AgentAccount{planAccount("claude", read, reset(95, now.Add(time.Minute)), window("week", 40, "")), codex}, first, backup, 0, now); !use {
+		t.Error("a low window that has not reset yet did not move the stage")
+	}
+	if use, why := balanceChoice([]terminalproto.AgentAccount{planAccount("claude", read, window("week", 88, "")), planAccount("codex", read, reset(100, now.Add(-time.Minute)))}, first, backup, 0, now); !use || !strings.HasSuffix(why, "which had 100% left.") {
+		t.Errorf("a backup whose only window has reset: %v %q", use, why)
+	}
+}
+
 // Copilot labels every window it has (Premium, Chat, Completions), and no
 // model's name holds those labels. Such a plan is judged by its tightest
 // window, never read as one with no figures.

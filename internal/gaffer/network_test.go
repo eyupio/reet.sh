@@ -1,6 +1,7 @@
 package gaffer
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"io"
@@ -8,6 +9,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"net/url"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -200,5 +203,62 @@ func TestLocalProvidersAreWaitedForLongerThanHostedOnes(t *testing.T) {
 	hosted := newProviderClient(false).Transport.(*guardedTransport).transport.ResponseHeaderTimeout
 	if local != 2*time.Minute || hosted != 15*time.Second {
 		t.Fatalf("response header timeouts: local %v, hosted %v", local, hosted)
+	}
+}
+
+// A hosted provider may be reached through the deployment's forward proxy, and
+// the proxy's own address is exempt from the address check. The provider's
+// address is not: a private one is refused before the proxy hears of it.
+func TestGafferProviderChecksTheAddressBeforeUsingAProxy(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	asked := make(chan string, 4)
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			line, _ := bufio.NewReader(conn).ReadString('\n')
+			asked <- line
+			_, _ = io.WriteString(conn, "HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n")
+			conn.Close()
+		}
+	}()
+	client := newProviderClient(false)
+	defer client.CloseIdleConnections()
+	client.Transport.(*guardedTransport).transport.Proxy = http.ProxyURL(&url.URL{Scheme: "http", Host: listener.Addr().String()})
+	get := func(target string) error {
+		request, err := http.NewRequestWithContext(t.Context(), "GET", target, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response, err := client.Do(request)
+		if err == nil {
+			response.Body.Close()
+		}
+		return err
+	}
+	_ = get("https://203.0.113.10/v1/models")
+	select {
+	case line := <-asked:
+		if !strings.HasPrefix(line, "CONNECT 203.0.113.10:443 ") {
+			t.Fatalf("the proxy was asked for %q", line)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("a public provider address did not go through the proxy")
+	}
+	for _, target := range []string{"https://10.0.0.5/v1/models", "https://" + listener.Addr().String() + "/v1/models"} {
+		if err := get(target); err == nil || !strings.Contains(err.Error(), "outside its allowed network") {
+			t.Fatalf("%s: %v", target, err)
+		}
+		select {
+		case line := <-asked:
+			t.Fatalf("%s reached the proxy: %q", target, line)
+		default:
+		}
 	}
 }

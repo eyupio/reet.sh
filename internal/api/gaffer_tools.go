@@ -52,6 +52,13 @@ func gafferToolReturnsSessionText(name string) bool {
 	return mcpFactoryTool(name) && name != "reet_list_factory" && name != "reet_list_factory_projects" && name != "reet_list_pathways"
 }
 
+// gafferToolReturnsOthersText reports whether a tool's answer can carry words
+// someone other than the person wrote. Everything outside the Factory does:
+// the shelf holds skills their authors wrote, machines report their own names
+// and skills, shared lists and tags are other accounts', and the activity log
+// repeats all of them.
+func gafferToolReturnsOthersText(name string) bool { return !mcpFactoryTool(name) }
+
 type gafferToolView struct {
 	Name        string `json:"name"`
 	Title       string `json:"title"`
@@ -116,7 +123,7 @@ func (h gafferToolHost) GafferTools(uid int64) []gaffer.HostTool {
 		if view.Mode == "off" || schemas[view.Name] == nil {
 			continue
 		}
-		out = append(out, gaffer.HostTool{Name: view.Name, Title: view.Title, Description: view.Description, Parameters: schemas[view.Name], ReadOnly: view.ReadOnly, Mode: view.Mode, SessionText: gafferToolReturnsSessionText(view.Name)})
+		out = append(out, gaffer.HostTool{Name: view.Name, Title: view.Title, Description: view.Description, Parameters: schemas[view.Name], ReadOnly: view.ReadOnly, Mode: view.Mode, SessionText: gafferToolReturnsSessionText(view.Name), OthersText: gafferToolReturnsOthersText(view.Name)})
 	}
 	return out
 }

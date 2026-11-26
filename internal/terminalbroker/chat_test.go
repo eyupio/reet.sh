@@ -3,6 +3,7 @@ package terminalbroker
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -239,6 +240,54 @@ func TestPermissionKeyIsNarrow(t *testing.T) {
 	}
 	if permissionKey(terminalproto.ACPEvent{ToolKind: "edit"}) != "" || permissionKey(terminalproto.ACPEvent{Command: "x"}) != "" {
 		t.Fatal("unmatchable card remembered")
+	}
+}
+
+// A truncated card shows only the start of what it asks. It is never allowed from
+// here, and it never matches a command allowed for the session: a longer command
+// that shares the shown start must still reach the person.
+func TestTruncatedCardIsNeverAllowedOrRemembered(t *testing.T) {
+	var mu sync.Mutex
+	allowed := map[string]bool{}
+	b, p, uid, agent := chatFixtureScript(t, nil, nil, nil, func(m terminalproto.Message) (terminalproto.Body, bool) {
+		if op, ok := m.Body.(*terminalproto.ACPPermission); ok && op.Allow {
+			mu.Lock()
+			allowed[op.PermissionID] = true
+			mu.Unlock()
+		}
+		return nil, true
+	})
+	s := chatSession(t, b, uid, agent)
+	shown := strings.Repeat("a", 6<<10)
+	receive := func(event terminalproto.ACPEvent) {
+		t.Helper()
+		if err := p.Receive(terminalproto.Message{Version: 1, RequestID: ID(), SessionID: s.ID, Generation: p.Generation, Body: &event}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	whole := terminalproto.ACPEvent{Kind: "permission", PermissionID: "permission-0123456789", ToolKind: "execute", Command: shown}
+	receive(whole)
+	if err := b.PermissionChat(t.Context(), uid, s.ID, whole.PermissionID, true, true); err != nil {
+		t.Fatal(err)
+	}
+	cut := terminalproto.ACPEvent{Kind: "permission", PermissionID: "permission-9876543210", ToolKind: "execute", Command: shown, Truncated: true}
+	if permissionKey(cut) != "" {
+		t.Fatal("a truncated card has a key to remember")
+	}
+	receive(cut)
+	if err := b.PermissionChat(t.Context(), uid, s.ID, cut.PermissionID, true, false); !errors.Is(err, ErrPermissionTruncated) {
+		t.Fatalf("allowing a truncated card: %v", err)
+	}
+	// An automatic answer would be sent from its own goroutine; give it time.
+	time.Sleep(200 * time.Millisecond)
+	mu.Lock()
+	sent := allowed[cut.PermissionID]
+	mu.Unlock()
+	if sent {
+		t.Fatal("a truncated card was allowed")
+	}
+	if err := b.PermissionChat(t.Context(), uid, s.ID, cut.PermissionID, false, false); err != nil {
+		t.Fatalf("denying a truncated card: %v", err)
 	}
 }
 
@@ -484,6 +533,33 @@ func TestLostModeSwitchReplyClearsTheStoredMode(t *testing.T) {
 	}
 }
 
+// A switch to YOLO whose reply never arrives may have been applied: the machine
+// then answers cards itself, so the row must say YOLO rather than Ask me.
+func TestLostYoloSwitchReplyStoresYolo(t *testing.T) {
+	old := chatCallTimeout
+	chatCallTimeout = 150 * time.Millisecond
+	defer func() { chatCallTimeout = old }()
+	b, _, uid, agent := chatFixtureScript(t, nil, func(c *terminalproto.Capabilities) {
+		c.Yolo, c.AgentsV2 = true, true
+		agents := []terminalproto.ACPAgent{{Tool: "opencode", Adapter: "opencode", State: "available", MinimumVersion: "1.19.5", Model: true, Approval: true}}
+		c.ACPAgents = &agents
+	}, nil, func(m terminalproto.Message) (terminalproto.Body, bool) {
+		_, mode := m.Body.(*terminalproto.ACPMode)
+		return nil, !mode
+	})
+	if err := b.st.SetSetting("terminal_allow_yolo", "1"); err != nil {
+		t.Fatal(err)
+	}
+	s := chatSession(t, b, uid, agent)
+	if err := b.SetChatYolo(t.Context(), uid, s.ID, true); err == nil {
+		t.Fatal("a switch with no reply was reported as done")
+	}
+	got, err := b.st.TerminalSessionFor(uid, s.ID)
+	if err != nil || !got.Yolo {
+		t.Fatalf("a lost reply left the chat saying Ask me: yolo=%v, %v", got.Yolo, err)
+	}
+}
+
 // While an agent that offers modes is in an unknown mode, a message is refused before it is sent; choosing a
 // mode lifts the refusal. An agent that offers no modes is never held up.
 func TestPromptIsRefusedWhileTheAgentModeIsUnknown(t *testing.T) {
@@ -613,5 +689,113 @@ func TestChatTranscriptSurvivesControllerRestart(t *testing.T) {
 	defer cancel3()
 	if len(snapshot) != 0 {
 		t.Fatalf("archived transcript: %+v", snapshot)
+	}
+}
+
+// After a controller restart an open chat tab can reconnect before the session
+// list is read or the machine is back. Loading the transcript for it must not
+// stop the row's finished state being restored, or the machine's replayed idle
+// stores the chat as quiet.
+func TestFinishedChatSurvivesATabReconnectingFirstAfterRestart(t *testing.T) {
+	b, p, uid, agent := chatFixture(t)
+	s := chatSession(t, b, uid, agent)
+	for _, event := range []terminalproto.ACPEvent{{Kind: "status", State: "working"}, {Kind: "agent", MessageID: "message-0123456789", Text: "done"}, {Kind: "status", State: "idle"}} {
+		if err := p.Receive(terminalproto.Message{Version: 1, RequestID: ID(), SessionID: s.ID, Generation: p.Generation, Body: &event}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	before, err := b.st.TerminalSessionFor(uid, s.ID)
+	if err != nil || before.ChatStatus != "finished" || before.CompletedAt == 0 {
+		t.Fatalf("before the restart: %q at %d, %v", before.ChatStatus, before.CompletedAt, err)
+	}
+	st := b.st
+	b.Close()
+	restarted := New(st)
+	t.Cleanup(restarted.Close)
+	_, _, _, cancel := restarted.SubscribeChat(uid, s.ID)
+	defer cancel()
+	row, err := st.TerminalSessionFor(uid, s.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restarted.ApplyChatAttention(uid, &row)
+	if row.Attention != "finished" {
+		t.Fatalf("attention after the tab reconnected first: %q", row.Attention)
+	}
+	// The machine reconnects and replays its last status.
+	restarted.publishChat(uid, s.ID, terminalproto.ACPEvent{Kind: "status", State: "idle"})
+	after, err := st.TerminalSessionFor(uid, s.ID)
+	if err != nil || after.ChatStatus != "finished" || after.CompletedAt != before.CompletedAt {
+		t.Fatalf("after the replayed idle: %q at %d, want finished at %d, %v", after.ChatStatus, after.CompletedAt, before.CompletedAt, err)
+	}
+}
+
+// "Allow for this session" on a card the machine no longer holds (denied in
+// another tab, or timed out) is refused, and must not allow the next repeat.
+func TestRefusedSessionAllowIsNotRemembered(t *testing.T) {
+	b, p, uid, agent := chatFixtureScript(t, nil, nil, nil, func(m terminalproto.Message) (terminalproto.Body, bool) {
+		if _, ok := m.Body.(*terminalproto.ACPPermission); ok {
+			return terminalproto.Result{Code: terminalproto.Conflict}, true
+		}
+		return nil, true
+	})
+	s := chatSession(t, b, uid, agent)
+	card := terminalproto.ACPEvent{Kind: "permission", PermissionID: "permission-0123456789", ToolKind: "execute", Command: "git push --force"}
+	if err := p.Receive(terminalproto.Message{Version: 1, RequestID: ID(), SessionID: s.ID, Generation: p.Generation, Body: &card}); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.PermissionChat(t.Context(), uid, s.ID, card.PermissionID, true, true); !errors.Is(err, ErrACPBusy) {
+		t.Fatalf("answer to a closed card: %v", err)
+	}
+	if b.sessionAllowed(uid, s.ID, permissionKey(card)) {
+		t.Fatal("a refused answer was remembered for the session")
+	}
+}
+
+// A closed chat's ring leaves memory once nobody reads it, with what was allowed
+// for the session. Its attention stays, and the stored transcript comes back
+// with the same sequence numbers for the next reader.
+func TestClosedChatRingIsUnloadedAndLoadsAgain(t *testing.T) {
+	b, p, uid, agent := chatFixture(t)
+	s := chatSession(t, b, uid, agent)
+	for _, event := range []terminalproto.ACPEvent{{Kind: "status", State: "working"}, {Kind: "agent", MessageID: "message-0123456789", Text: "done"}, {Kind: "status", State: "idle"}} {
+		if err := p.Receive(terminalproto.Message{Version: 1, RequestID: ID(), SessionID: s.ID, Generation: p.Generation, Body: &event}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	b.allowForSession(uid, s.ID, "execute\x00go test ./...")
+	if _, err := b.End(t.Context(), uid, s.ID, ID()); err != nil {
+		t.Fatal(err)
+	}
+	row, err := b.st.TerminalSessionFor(uid, s.ID)
+	if err != nil || !row.State.Closed() {
+		t.Fatalf("ended row: %s, %v", row.State, err)
+	}
+	l := b.chatLog(uid, s.ID)
+	ringed := func() int {
+		l.mu.Lock()
+		defer l.mu.Unlock()
+		return len(l.events)
+	}
+	before, _, _, cancel := b.SubscribeChat(uid, s.ID)
+	b.ApplyChatAttention(uid, &row)
+	if ringed() == 0 {
+		t.Fatal("the ring was unloaded under an open reader")
+	}
+	cancel()
+	b.ApplyChatAttention(uid, &row)
+	if ringed() != 0 {
+		t.Fatalf("a closed chat nobody reads still holds %d events", ringed())
+	}
+	if b.sessionAllowed(uid, s.ID, "execute\x00go test ./...") {
+		t.Fatal("a closed chat's session approval was kept")
+	}
+	if row.Attention != "finished" {
+		t.Fatalf("attention after the unload: %q", row.Attention)
+	}
+	after, _, _, cancel2 := b.SubscribeChat(uid, s.ID)
+	defer cancel2()
+	if len(after) != len(before) || len(after) == 0 || after[len(after)-1].Seq != before[len(before)-1].Seq {
+		t.Fatalf("reloaded transcript: %d events, want %d", len(after), len(before))
 	}
 }

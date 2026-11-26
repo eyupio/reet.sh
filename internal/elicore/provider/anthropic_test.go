@@ -55,6 +55,41 @@ func TestAnthropicSendsTheMessagesRequestWithItsHeaders(t *testing.T) {
 	}
 }
 
+// The API refuses a request that carries tool_use or tool_result blocks and
+// defines no tools. A caller that stops offering tools after one call still
+// sends that call and its answer, so they go as plain text.
+func TestAnthropicSendsNoToolBlocksInARequestWithoutTools(t *testing.T) {
+	p := NewAnthropic(Config{BaseURL: "https://api.anthropic.com", Model: "m"})
+	raw, err := p.body(elicore.Request{Messages: []elicore.Message{
+		{Role: elicore.RoleUser, Content: "Tell the worker to fix the tests."},
+		{Role: elicore.RoleAssistant, Content: "On it.", ToolCalls: []elicore.ToolCall{{ID: "toolu_0", Name: "message_worker", Arguments: json.RawMessage(`{"text":"Fix the tests."}`)}}},
+		{Role: elicore.RoleTool, ToolCallID: "toolu_0", Content: `{"state":"queued"}`},
+	}}, 4096)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body struct {
+		Tools    any `json:"tools"`
+		Messages []struct {
+			Role    string `json:"role"`
+			Content any    `json:"content"`
+		} `json:"messages"`
+	}
+	if err = json.Unmarshal(raw, &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Tools != nil || strings.Contains(string(raw), `"tool_use"`) || strings.Contains(string(raw), `"tool_result"`) || strings.Contains(string(raw), "toolu_0") {
+		t.Fatalf("tool blocks without tools: %s", raw)
+	}
+	said, _ := body.Messages[1].Content.(string)
+	if len(body.Messages) != 3 || body.Messages[1].Role != "assistant" || !strings.Contains(said, "On it.") || !strings.Contains(said, "message_worker") || !strings.Contains(said, "Fix the tests.") {
+		t.Fatalf("the call was not kept as text: %s", raw)
+	}
+	if answer, _ := json.Marshal(body.Messages[2].Content); body.Messages[2].Role != "user" || !strings.Contains(string(answer), "queued") {
+		t.Fatalf("the answer was not kept as text: %s", raw)
+	}
+}
+
 func TestAnthropicStreamsContentBlockEventsIntoDeltasToolCallsAndUsage(t *testing.T) {
 	srv := newAnthropicServer(t)
 	p := NewAnthropic(Config{BaseURL: srv.URL, APIKey: "k", Model: "m"})
@@ -128,6 +163,55 @@ func TestAnthropicAppendsTheMessagesPathOnceWhateverThePathGiven(t *testing.T) {
 		if len(reqs) != before+1 || reqs[before].Path != wantPath {
 			t.Errorf("base %q: requested %q, want %q", given, reqs[len(reqs)-1].Path, wantPath)
 		}
+	}
+}
+
+// With cache marks Anthropic's input_tokens is only the uncached remainder.
+// The input a turn used is that plus what was written to and read from the cache.
+func TestAnthropicCountsCachedInputAsInput(t *testing.T) {
+	decode := newAnthropicDecoder()
+	if _, err := decode(ServerEvent{Data: `{"type":"message_start","message":{"usage":{"input_tokens":3,"cache_creation_input_tokens":100,"cache_read_input_tokens":2000}}}`}); err != nil {
+		t.Fatal(err)
+	}
+	events, err := decode(ServerEvent{Data: `{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":9}}`})
+	if err != nil || len(events) != 1 || events[0].Usage == nil || events[0].Usage.InputTokens != 2103 || events[0].Usage.OutputTokens != 9 {
+		t.Fatalf("usage: %+v %v", events, err)
+	}
+}
+
+// A turn may send something before its prompt that the next request does not
+// repeat, such as a context snapshot. A mark on the newest message alone then
+// caches a prefix that never comes back, so the last finished answer is marked
+// as well: everything up to it is sent again next turn.
+func TestAnthropicMarksTheEndOfTheEarlierTurnsToo(t *testing.T) {
+	tool := elicore.Tool{Name: "echo", Description: "Echo", Parameters: json.RawMessage(`{"type":"object"}`)}
+	raw, err := NewAnthropic(Config{BaseURL: "https://api.anthropic.com", Model: "m"}).body(elicore.Request{System: "Be brief.", Tools: []elicore.Tool{tool}, Messages: []elicore.Message{
+		{Role: elicore.RoleUser, Content: "hi"},
+		{Role: elicore.RoleAssistant, Content: "hello"},
+		{Role: elicore.RoleUser, Content: "a snapshot read just now"},
+		{Role: elicore.RoleUser, Content: "And now?"},
+	}}, 4096)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body struct {
+		Messages []struct {
+			Content json.RawMessage `json:"content"`
+		} `json:"messages"`
+	}
+	if err = json.Unmarshal(raw, &body); err != nil {
+		t.Fatal(err)
+	}
+	marked := ""
+	for _, m := range body.Messages {
+		if strings.Contains(string(m.Content), "cache_control") {
+			marked += "1"
+		} else {
+			marked += "0"
+		}
+	}
+	if marked != "0101" || strings.Count(string(raw), "cache_control") != 4 {
+		t.Fatalf("marks on messages %s, %d in all: %s", marked, strings.Count(string(raw), "cache_control"), raw)
 	}
 }
 

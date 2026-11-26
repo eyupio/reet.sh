@@ -7,8 +7,8 @@ import { machineAccounts } from './terminal/api'
 const KEEP = 2 * 60_000
 const held = new Map<string, { at: number; answer: Promise<MachineAccounts | null> }>()
 
-/** A machine's sign-ins and plan limits as the controller last has them, or null where it has none to give. The
- *  controller answers from what the machine last read; this never asks the machine to read again. */
+/** A machine's sign-ins and plan limits as the controller has them, or null where it has none to give. The controller
+ *  answers what it kept while that is under five minutes old, and otherwise asks an online machine to read once. */
 export function machinePlans(agentId: string): Promise<MachineAccounts | null> {
   const now = Date.now(), have = held.get(agentId)
   if (have && now - have.at < KEEP) return have.answer

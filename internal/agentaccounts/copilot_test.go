@@ -275,3 +275,50 @@ func TestCopilotLookAlikeHostsAreNotGitHub(t *testing.T) {
 		t.Fatalf("look-alike hosts alone: %+v after %d requests", a, g.copilot.count())
 	}
 }
+
+// A GitHub token in the connector's environment is not a sign-in: it is not
+// read through the CLI that lists it, nor through an older one that cannot.
+func TestCopilotLeavesAnEnvironmentTokenAlone(t *testing.T) {
+	token := "ghp_env" + secret
+	for name, table := range map[string]map[string]string{
+		"a CLI that lists accounts": {
+			"gh auth status --hostname github.com --json hosts": `{"hosts":{"github.com":[{"login":"ci-bot","state":"success","tokenSource":"GH_TOKEN"}]}}`,
+			"gh auth token --hostname github.com":               token,
+		},
+		"an older CLI": {"gh auth token --hostname github.com": token},
+	} {
+		f := newFixture(t, "GH_TOKEN="+token)
+		runFor(f, table)
+		if a := f.one("copilot", true, false); a.State != terminalproto.AccountNone || f.copilot.count() != 0 {
+			t.Fatalf("%s: %+v after %d requests", name, a, f.copilot.count())
+		}
+	}
+}
+
+// The files name the Copilot login: the GitHub CLI's token for another of
+// its accounts is never tried for it, whether or not it holds that login too.
+func TestCopilotNeverTriesAnotherLoginsCLIToken(t *testing.T) {
+	other := "gho_workbot" + secret
+	for name, accounts := range map[string]string{
+		"both logins":          `{"login":"Person","state":"success","tokenSource":"keyring"},{"login":"work-bot","state":"success","tokenSource":"keyring"}`,
+		"only the other login": `{"login":"work-bot","state":"success","tokenSource":"keyring"}`,
+	} {
+		f := newFixture(t)
+		f.write(".config/github-copilot/apps.json", copilotHosts([3]string{"github.com:a", "person", copilotToken("first")}))
+		runFor(f, map[string]string{
+			"gh auth status --hostname github.com --json hosts":   `{"hosts":{"github.com":[` + accounts + `]}}`,
+			"gh auth token --hostname github.com --user Person":   copilotToken("cli"),
+			"gh auth token --hostname github.com --user work-bot": other,
+			"gh auth token --hostname github.com":                 other,
+		})
+		f.copilot.route = func(r *http.Request) (int, string) {
+			if r.Header.Get("Authorization") == "token "+other {
+				return 200, `{"login":"work-bot","copilot_plan":"business","quota_snapshots":{"premium_interactions":{"entitlement":300,"percent_remaining":10}}}`
+			}
+			return 404, `{}`
+		}
+		if a := f.one("copilot", true, false); a.Account != "person" || a.LimitsState != terminalproto.AccountLimitsUnsupported {
+			t.Fatalf("%s: %+v after %d requests", name, a, f.copilot.count())
+		}
+	}
+}

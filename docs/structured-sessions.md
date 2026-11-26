@@ -280,7 +280,8 @@ The session appears in the usual list with its title and state. Its screen opens
 
 Closing the tab or **End session** ends the reet session and its process. Losing the
 control connection detaches it without killing the agent; the next connection adopts the running session. If the agent
-closes its protocol output or sends an oversized frame, reet ends that process
+closes its protocol output, sends an oversized frame or does not take a message reet sends it within 15 seconds, reet
+ends that process
 so the chat can be recovered instead of waiting on an unusable connection. When an agent exits, reet retires its descendants
 and allows up to two seconds for final protocol messages to reach the event sender. A sender blocked beyond that bound can
 still lose those messages; it cannot keep the exited process appearing live indefinitely. A provider failure found in the agent's local
@@ -474,7 +475,8 @@ trust, and `{"trust": true}` confirms the person trusts the chat's folder for th
 refused with 400 before the machine is asked. A trusting and a non-trusting call never join each other's machine call.
 The controller never stores the confirmation: each click is one request. The machine keeps the folder trust a chat
 was started with in its restart record, as it does for any chat started with trust (a new chat in a trusted folder, or
-Continue with history), so after its own restart it reopens that chat with that trust, with no click; the record is kept
+Continue with history), so after its own restart it reopens that chat with that trust, with no click, and puts it back in
+the agent mode you last chose; the record is kept
 up to 7 days or 3 failed reopens. A later in-place reconnect from the controller asks again.
 The route answers 204, or an error with one of these codes:
 
@@ -563,7 +565,8 @@ agent that needs the image opens it with its own read tool. The controller never
 
 The card names the tool, the folder and, for a command, the full command text; for an edit it shows the whole-file diff
 from the permission request. The machine cuts a diff or command that is too large for one control frame and marks the card
-truncated; **Allow** actions are disabled then, and only **Deny** is available. The browser never sends the agent's own
+truncated, as it does a path over 1 KiB; **Allow** actions are disabled then, only **Deny** is available, and the controller
+refuses an allow for such a card and never answers one from an earlier session approval. The browser never sends the agent's own
 `allow_always` option. An unknown answer is treated as Deny.
 
 A card offers **Allow once**, **Deny**, and, when the card names a command or a path, **Allow this command/file for this

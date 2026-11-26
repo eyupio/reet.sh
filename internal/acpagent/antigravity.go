@@ -16,7 +16,6 @@ var Antigravity = Spec{
 	ExpectedName:         "Antigravity ACP Server",
 	MinVersion:           "1.5.0",
 	RequireMode:          "default",
-	StartMode:            "default",
 	ConfirmModelBySwitch: true,
 	RequireOptions:       map[string]string{"mode": "default"},
 	EnvAllowlist:         []string{"GEMINI_API_KEY"},

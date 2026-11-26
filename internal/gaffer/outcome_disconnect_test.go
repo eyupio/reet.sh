@@ -152,6 +152,41 @@ func TestAHandoverRecordedJustBeforeARestartStartsTheNextStageOnce(t *testing.T)
 	}
 }
 
+// Handover, controller restarted, and the machine has not reconnected when the
+// new controller first looks, as on any real restart: the next stage waits for
+// the machine and starts once it is back.
+func TestARestartWaitsForTheMachineToReconnectBeforeStartingTheNextStage(t *testing.T) {
+	r := outcomeFixture(t)
+	r.s.StartGoalSupervisor()
+	created, err := r.s.CreateOutcome(r.p.UserID, pipelineInput(r, false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	code := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
+	r.settle(t, created.ID)
+	r.s.Close()
+	r.s.stageHandedOver(r.p.UserID, code.ConversationID, "Endpoint and tests are committed.", "gaffer")
+	outcomeResumeWait = time.Minute
+	t.Cleanup(func() { outcomeResumeWait = 0 })
+	r.setOffline(true)
+	r.restart(t)
+	deadline := time.Now().Add(10 * time.Second)
+	for len(r.starter.asked()) < 3 {
+		if time.Now().After(deadline) {
+			t.Fatal("the next stage was not asked for again while its machine was away")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if p := mustOutcome(t, r, created.ID).Sessions[0]; !controllerHolds(p.State) {
+		t.Fatalf("given up while the machine was reconnecting: %+v", p)
+	}
+	r.setOffline(false)
+	review := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" && p.Stage == 1 })
+	if r.starter.sessions() != 2 || review.SessionID == code.SessionID || review.WorkDir != code.WorkDir {
+		t.Fatalf("after the machine came back: %+v sessions=%d", review, r.starter.sessions())
+	}
+}
+
 // Handover, machine unreachable for the next stage: the handover stays
 // recorded, the pipeline says the stage did not start, and Try again starts
 // it once in the same folder.

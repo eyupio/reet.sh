@@ -39,7 +39,7 @@ func (r *Reader) claude() signIn {
 			keychain, keychainOK = token, true
 		}
 	}
-	if keychainOK && (!fileOK || claudeLater(keychain, file)) {
+	if keychainOK && (!fileOK || keychain.ExpiresAt > file.ExpiresAt) {
 		file, fileOK = keychain, true
 	}
 	if !fileOK {
@@ -85,10 +85,9 @@ func (r *Reader) claude() signIn {
 
 // claudeToken is the part of Claude Code's sign-in this package uses.
 type claudeToken struct {
-	AccessToken  string
-	RefreshToken string
-	ExpiresAt    int64 // milliseconds since 1970, 0 when not said
-	Plan         string
+	AccessToken string
+	ExpiresAt   int64 // milliseconds since 1970, 0 when not said
+	Plan        string
 }
 
 // claudeSignIn reads Claude Code's credential document. It reports whether
@@ -112,22 +111,11 @@ func claudeSignIn(data []byte) (claudeToken, bool, bool) {
 	if file.OAuth == nil || (file.OAuth.AccessToken == "" && file.OAuth.RefreshToken == "") {
 		return claudeToken{}, false, true
 	}
-	token := claudeToken{AccessToken: file.OAuth.AccessToken, RefreshToken: file.OAuth.RefreshToken, Plan: strings.ToLower(file.OAuth.SubscriptionType)}
+	token := claudeToken{AccessToken: file.OAuth.AccessToken, Plan: strings.ToLower(file.OAuth.SubscriptionType)}
 	if file.OAuth.ExpiresAt > 0 && file.OAuth.ExpiresAt < 1e15 {
 		token.ExpiresAt = int64(file.OAuth.ExpiresAt)
 	}
 	return token, true, true
-}
-
-// claudeLater reports whether a is the later of two sign-ins.
-func claudeLater(a, b claudeToken) bool {
-	if a.ExpiresAt == 0 {
-		return false
-	}
-	if b.ExpiresAt == 0 {
-		return true
-	}
-	return a.ExpiresAt > b.ExpiresAt
 }
 
 func (r *Reader) goos() string {
@@ -163,11 +151,7 @@ func askClaude(ctx context.Context, r *Reader, s signIn) allowance {
 		if w == nil || w.Utilization == nil {
 			return
 		}
-		limit := terminalproto.AccountLimit{Kind: kind, Label: name, UsedPercent: percent(*w.Utilization)}
-		if at, err := time.Parse(time.RFC3339, w.ResetsAt); err == nil && at.UnixMilli() > 0 {
-			limit.ResetsAt = at.UnixMilli()
-		}
-		limits = append(limits, limit)
+		limits = append(limits, terminalproto.AccountLimit{Kind: kind, Label: name, UsedPercent: percent(*w.Utilization), ResetsAt: rfc3339Millis(w.ResetsAt)})
 	}
 	add(doc.FiveHour, terminalproto.AccountLimitSession, "")
 	add(doc.Week, terminalproto.AccountLimitWeek, "")

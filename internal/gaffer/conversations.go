@@ -80,7 +80,8 @@ type chatJob struct {
 	workerRevision int64
 	grantRevision  int64
 	// replayedSessionText marks a turn whose history repeats an earlier tool
-	// result that carried a working agent's words.
+	// result that carried words the person did not write: a working agent's,
+	// a skill author's, a machine's or another account's.
 	replayedSessionText bool
 }
 
@@ -491,7 +492,12 @@ func (s *Service) runTurn(parent context.Context, job *chatJob, c store.GafferCo
 	}
 	cause := context.Cause(parent)
 	if errors.Is(err, context.DeadlineExceeded) {
-		err = errors.New("The provider took more than three minutes to answer. Try again or choose a faster model.")
+		// Any other deadline is the ten-second connection's, not a slow model.
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			err = errors.New("The provider took more than three minutes to answer. Try again or choose a faster model.")
+		} else {
+			err = errors.New("Gaffer could not connect to the provider in time. Check its address and that the controller can reach it.")
+		}
 	}
 	switch {
 	case errors.Is(cause, errGafferCancelled):
@@ -656,7 +662,7 @@ func (s *Service) answer(ctx context.Context, job *chatJob, c store.GafferConver
 		}
 		bytes += n
 		for _, tool := range old.Tools {
-			job.replayedSessionText = job.replayedSessionText || sessionText && tool.SessionText && tool.State == "ran"
+			job.replayedSessionText = job.replayedSessionText || (sessionText && tool.SessionText || tool.OthersText) && tool.State == "ran"
 		}
 		messages = append([]elicore.Message{{Role: elicore.RoleUser, Content: old.Prompt}, {Role: elicore.RoleAssistant, Content: said}}, messages...)
 	}

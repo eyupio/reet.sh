@@ -4,23 +4,11 @@ package acpagent
 
 import "github.com/eyupio/reet.sh/internal/terminalproto"
 
-// claudeTakesImages is true because the probe measured that the adapter advertises image prompts and forwards the block
-// to the provider request. Whether the real model accepts an image is not measured, and the docs say so.
-const claudeTakesImages = true
-
-// codexTakesImages is true because the probe measured that the adapter advertises image prompts and that a stub provider receives
-// the block as an image input. Whether a real model accepts an image is not measured, and the docs say so.
-const codexTakesImages = true
-
 // Describe uses installation evidence only. No program runs: available means a
 // reviewed adapter is installed; --version and initialize remain launch gates.
 func Describe(tool string, installed bool, version string) terminalproto.ACPAgent {
-	adapters := map[string]string{"opencode": "opencode", "claude": "claude-agent-acp", "codex": "codex-acp", "cline": "cline", "antigravity": "agy"}
-	entry := terminalproto.ACPAgent{Tool: tool, Adapter: adapters[tool], State: "missing"}
 	spec, reviewed := Lookup(tool)
-	if reviewed {
-		entry.MinimumVersion = spec.MinVersion
-	}
+	entry := terminalproto.ACPAgent{Tool: tool, Adapter: spec.Command, State: "missing", MinimumVersion: spec.MinVersion}
 	if !installed {
 		return entry
 	}
@@ -36,28 +24,12 @@ func Describe(tool string, installed bool, version string) terminalproto.ACPAgen
 	entry.State = "available"
 	entry.Modes = append([]string(nil), spec.ChoosableModes...)
 	entry.Options = cloneAgentOptions(spec.Options)
-	if tool == "claude" {
-		// Only what the probe proved: approvals, a read-back model switch, stored
-		// history that session/load reopens, in-place reconnect, and image prompts
-		// (the adapter advertises them and forwards the block). Questions stay off.
-		entry.Model, entry.Approval, entry.History = true, true, true
-		entry.Images = claudeTakesImages
-		entry.Reattach = spec.Reattach
-		return entry
-	}
-	if tool == "codex" {
-		// Only what the probes proved (probe report, "Codex parity probes"): approvals
-		// (Codex asks only when the model asks to leave its sandbox), a read-back model
-		// switch, stored conversations that session/load reopens, in-place reconnect, and
-		// image prompts. Questions stay off: request_user_input is not mapped.
-		entry.Model, entry.Approval, entry.History = true, true, true
-		entry.Images = codexTakesImages
-		entry.Reattach = spec.Reattach
-		return entry
-	}
-	// OpenCode, Cline and AGY were measured end to end: history replay through
+	// Every reviewed adapter was measured for history replay through
 	// session/load, images in the prompt, a confirmed model switch and native
-	// approval requests. Each agent's profile controls its permission policy.
+	// approval requests. For Claude and Codex the adapter advertises image
+	// prompts and forwards the block; whether a real model accepts one is not
+	// measured, and the docs say so. Questions stay off for all of them. Each
+	// agent's profile controls its permission policy.
 	entry.History, entry.Images, entry.Model, entry.Approval = true, true, true, true
 	// Only an adapter whose profile can reopen a stored conversation in place
 	// says so. The controller offers that only on a connection that negotiated

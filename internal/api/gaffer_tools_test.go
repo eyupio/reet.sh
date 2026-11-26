@@ -18,6 +18,16 @@ import (
 // run only while switched on, as that account, through the same tool code an
 // MCP client uses. The session tools that need a per-connection grant are
 // never offered.
+// What the shelf, machines, lists and the activity log answer holds words
+// other people wrote; what the Factory answers does not count as that.
+func TestGafferToolsOutsideTheFactoryReturnOthersText(t *testing.T) {
+	for name, want := range map[string]bool{"reet_get_skill": true, "reet_load_skill": true, "reet_list_events": true, "reet_get_environment": true, "reet_get_list": true, "reet_list_factory": false, "reet_get_factory_outcome": false, "reet_stop_outcome": false} {
+		if gafferToolReturnsOthersText(name) != want {
+			t.Errorf("%s: others' text = %v, want %v", name, !want, want)
+		}
+	}
+}
+
 func TestGafferToolsAreOffUntilChosenAndRunAsTheAccount(t *testing.T) {
 	t.Parallel()
 	st, err := store.Open(t.TempDir())
@@ -90,6 +100,9 @@ func TestGafferToolsAreOffUntilChosenAndRunAsTheAccount(t *testing.T) {
 	on := map[string]string{}
 	for _, tool := range host.GafferTools(user.ID) {
 		on[tool.Name] = tool.Mode
+		if tool.OthersText {
+			t.Fatalf("%s is a Factory tool: its answer is not other people's text", tool.Name)
+		}
 		if len(tool.Parameters) == 0 {
 			t.Fatalf("%s has no parameters", tool.Name)
 		}

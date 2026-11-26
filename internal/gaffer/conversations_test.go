@@ -1,6 +1,7 @@
 package gaffer
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/eyupio/reet.sh/internal/elicore"
 	"github.com/eyupio/reet.sh/internal/store"
 	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
@@ -327,6 +329,39 @@ func TestGoalReviewsDoNotCrowdOutTheChat(t *testing.T) {
 	delete(s.chatJobs, "review-1")
 	delete(s.chatJobs, "review-2")
 	s.mu.Unlock()
+}
+
+// unreachableProvider fails as a connection that timed out does.
+type unreachableProvider struct{}
+
+func (unreachableProvider) Chat(context.Context, elicore.Request) (elicore.Stream, error) {
+	return nil, fmt.Errorf("reaching the provider: %w", context.DeadlineExceeded)
+}
+func (unreachableProvider) Check(context.Context) (elicore.CheckResult, error) {
+	return elicore.CheckResult{}, context.DeadlineExceeded
+}
+
+// A connection that timed out in seconds is not a model that took three
+// minutes: the turn says the provider could not be reached.
+func TestAConnectionThatTimedOutIsNotCalledASlowModel(t *testing.T) {
+	s, _, p := settingsFixture(t)
+	defer s.Close()
+	c := conversationFixture(t, s, p, "http://127.0.0.1:1").Conversation
+	row, err := s.store.GafferProviderFor(p.UserID, c.ProviderID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	turn, _, err := s.store.StartGafferTurnFor(p.UserID, store.GafferTurn{ID: strings.Repeat("a", 32), ConversationID: c.ID, RequestRevision: c.Revision, Prompt: "Anyone there?", ProviderID: row.ID, ProviderName: row.Name, Model: row.Model})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancelCause(context.Background())
+	s.wg.Add(1)
+	s.runTurn(ctx, &chatJob{uid: p.UserID, provider: row.ID, conversation: c.ID, turn: turn.ID, cancel: cancel}, c, row, unreachableProvider{}, &http.Client{}, turn)
+	got, err := s.store.GafferTurnFor(p.UserID, c.ID, turn.ID)
+	if err != nil || got.State != "failed" || !strings.Contains(got.Error, "could not connect to the provider") {
+		t.Fatalf("turn: state=%s error=%q %v", got.State, got.Error, err)
+	}
 }
 
 // A provider that does not answer in time ends the turn with words the person

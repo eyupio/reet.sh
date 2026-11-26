@@ -284,7 +284,7 @@
  const modelError = $derived(modelChoice === OTHER ? (cleanModel(modelOther) === '' ? (attempted ? 'Type a model name, or choose Agent default.' : '') : validateModel(modelOther) ?? '') : '')
  const dirError = $derived(folderVisible && folderChoice === TYPED && (attempted || typedDir !== '') ? validateDir(typedDir) ?? '' : '')
  const promptError = $derived(chosenTool ? validatePrompt(chosenTool, prompt) ?? '' : '')
- const locked = $derived(busy || cloning || operation !== null)
+ const locked = $derived(busy || cloning || checking || operation !== null)
  // Why attached images cannot be sent: the machine has to accept uploads. A machine with none listed is an older reet.
  const imageReason = $derived.by(() => {
   if (!attachments.length) return ''
@@ -342,7 +342,7 @@
    { label: 'Works in the folder you chose', ok: true, warning: true, detail: 'Secrets in that folder are readable to the agent. Use a throwaway worktree if unsure.' },
   ]
  })
- $effect(() => { agentId; chosenTool; untrack(() => { yoloChosen = false }) })
+ $effect(() => { agentId; chosenTool; structured; untrack(() => { yoloChosen = false }) })
  $effect(() => { if (yoloWhy) untrack(() => { yoloChosen = false }) })
  async function loadYolo() { try { yoloSetting = await getYoloSetting() } catch { yoloSetting = null } }
  function openYolo() { if (locked || yoloWhy || yoloChosen) return; yoloOpen = true }

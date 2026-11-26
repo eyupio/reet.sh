@@ -202,6 +202,8 @@ type outcomeRig struct {
 func outcomeFixture(t *testing.T) *outcomeRig {
 	t.Helper()
 	outcomeFollowEvery = 10 * time.Millisecond
+	// A machine that cannot be reached is given up at once, unless a test waits for it.
+	outcomeResumeWait = 0
 	s, st, p := settingsFixture(t)
 	rig := &outcomeRig{}
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -946,6 +948,26 @@ func TestPipelinesAreAddedToAnOutcomeOnlyWithApproval(t *testing.T) {
 	}
 }
 
+// An added pipeline stops at Ready to merge even when the request asks for it
+// to merge by itself.
+func TestAnAddedPipelineNeverMergesByItself(t *testing.T) {
+	r := outcomeFixture(t)
+	r.s.StartGoalSupervisor()
+	created, err := r.s.CreateOutcome(r.p.UserID, pipelineInput(r, false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
+	yes := true
+	o, err := r.s.AddPipelines(r.p.UserID, created.ID, AddPipelinesInput{Confirmed: true, Sessions: []OutcomeSession{{Title: "Extra", Prompt: "Do the extra thing.", AutoMerge: &yes, Stages: []OutcomeStageInput{{Kind: "code", Tool: "opencode"}, {Kind: "merge", Tool: "opencode"}}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if added := o.Sessions[len(o.Sessions)-1]; added.Title != "Extra" || added.AutoMerge || MergesByItself(o, added) {
+		t.Fatalf("the added pipeline: %+v", added)
+	}
+}
+
 // One report across an outcome goes to the outcome's own provider, carries
 // only what Gaffer already recorded, and proposes pipelines without starting any.
 func TestOutcomeReviewReportsAcrossPipelinesAndOnlyProposes(t *testing.T) {
@@ -1379,6 +1401,41 @@ func TestThePersonMovesAPipelineOnWhateverTheStageGoalSays(t *testing.T) {
 	}
 }
 
+// Approving the plan allows the outcome's provider its sessions' text and
+// code. Switched off afterwards they stay off: the next stage's session is
+// started but not followed, and its pipeline says why.
+func TestAStageStartDoesNotSwitchProviderAccessBackOn(t *testing.T) {
+	r := outcomeFixture(t)
+	r.s.StartGoalSupervisor()
+	created, err := r.s.CreateOutcome(r.p.UserID, pipelineInput(r, false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	code := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
+	o := r.settle(t, created.ID)
+	allowed, err := r.st.GafferProviderFor(r.p.UserID, o.ProviderID)
+	if err != nil || !allowed.AllowSessions || !allowed.AllowCode {
+		t.Fatalf("approving the plan allows the provider: %+v %v", allowed, err)
+	}
+	in := inputFrom(allowed)
+	in.AllowSessions, in.AllowCode, in.MakeDefault = false, false, true
+	if _, err = r.s.Save(r.p, in); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = r.s.MovePipelineOn(r.p.UserID, created.ID, code.Key, "code"); err != nil {
+		t.Fatal(err)
+	}
+	review := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool {
+		return p.Stage == 1 && p.State != "advancing" && p.State != "starting"
+	})
+	if review.State != "unfollowed" || review.SessionID == "" || !strings.Contains(review.Note, "no longer allowed session text and code") {
+		t.Fatalf("the next stage: %+v", review)
+	}
+	if after, err := r.st.GafferProviderFor(r.p.UserID, o.ProviderID); err != nil || after.AllowSessions || after.AllowCode {
+		t.Fatalf("the provider after the next stage started: %+v %v", after, err)
+	}
+}
+
 // A message sent again after its answer was lost is answered with the turn
 // already saved, in a pipeline's own chat too, where the turn carries the
 // messaging grant although the request asked for no relay.
@@ -1611,6 +1668,42 @@ func TestAFinishedOutcomeCanBeArchivedRestoredAndDeletedButARunningOneCannot(t *
 	}
 	if _, err := r.s.Outcome(uid, running.ID); err != nil {
 		t.Fatalf("the running outcome was lost: %v", err)
+	}
+}
+
+// "Stop starting sessions" leaves a pipeline that was never started stored as
+// waiting, which the page shows as not started. An outcome that reads as
+// finished there can be archived and deleted.
+func TestAStoppedOutcomeThatReadsFinishedCanBeArchivedAndDeleted(t *testing.T) {
+	for _, put := range []string{"archive", "delete"} {
+		t.Run(put, func(t *testing.T) {
+			r := outcomeFixture(t)
+			r.starter.hold, r.starter.entered = make(chan struct{}), make(chan struct{})
+			r.starter.refuse["Export API"] = "No agent of that name on this machine."
+			r.s.StartGoalSupervisor()
+			created, err := r.s.CreateOutcome(r.p.UserID, r.in)
+			if err != nil {
+				t.Fatal(err)
+			}
+			<-r.starter.entered
+			if _, err = r.s.StopOutcome(r.p.UserID, created.ID, mustOutcome(t, r, created.ID).Revision); err != nil {
+				t.Fatal(err)
+			}
+			close(r.starter.hold)
+			r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "failed" })
+			view, err := r.s.Outcome(r.p.UserID, created.ID)
+			if err != nil || !view.Finished() || view.Sessions[1].State != "cancelled" {
+				t.Fatalf("the stopped outcome as the page reads it: %+v %v", view, err)
+			}
+			if put == "delete" {
+				err = r.s.DeleteOutcome(r.p.UserID, created.ID, view.Revision)
+			} else {
+				_, err = r.s.ArchiveOutcome(r.p.UserID, created.ID, view.Revision, true)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }
 

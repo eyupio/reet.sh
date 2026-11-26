@@ -424,11 +424,17 @@ const (
 	outcomeFollowWait = 60 * time.Second
 )
 
-// outcomeStartWait is how long one launch is waited for.
+// outcomeStartWait is how long one launch is waited for. outcomeResumeWait is
+// how long after a controller start a launch waits for its machine to
+// reconnect, as a resumed project run does.
 var (
 	outcomeStartWait   = 90 * time.Second
 	outcomeFollowEvery = 2 * time.Second
+	outcomeResumeWait  = 2 * time.Minute
 )
+
+// resumeUntil is, on the outcome supervisor's context, when outcomeResumeWait ends.
+type resumeUntil struct{}
 
 func clipBytes(text string, limit int) string {
 	text = strings.Join(strings.Fields(text), " ")
@@ -803,9 +809,9 @@ func outcomeView(o store.GafferOutcome) store.GafferOutcome {
 // pipeline, an approved merge), so that only what the person asked for
 // starts: a pipeline that was waiting when they stopped the outcome stays
 // not started until they try that one again.
-func settleStoppedOutcome(o *store.GafferOutcome) {
+func settleStoppedOutcome(o *store.GafferOutcome) (changed bool) {
 	if o.State == "starting" {
-		return
+		return false
 	}
 	for i := range o.Sessions {
 		item := &o.Sessions[i]
@@ -816,8 +822,12 @@ func settleStoppedOutcome(o *store.GafferOutcome) {
 			item.State, item.Note = "cancelled", "Not started: this outcome was stopped first."
 		case item.State == "starting":
 			item.State, item.Note = "unfollowed", "Started, but not followed: this outcome was stopped first. Look after it from the floor."
+		default:
+			continue
 		}
+		changed = true
 	}
+	return changed
 }
 
 func (s *Service) Outcomes(uid int64) ([]store.GafferOutcome, error) {
@@ -866,6 +876,8 @@ func (s *Service) ArchiveOutcome(uid int64, id string, revision int64, archive b
 	}
 	var active bool
 	o, err := s.store.UpdateGafferOutcomeFor(uid, id, revision, func(o *store.GafferOutcome) bool {
+		// Judged as the page shows it: what a stopped outcome never started is not still moving.
+		settleStoppedOutcome(o)
 		if archive && !o.Finished() {
 			active = true
 			return false
@@ -891,7 +903,14 @@ func (s *Service) DeleteOutcome(uid int64, id string, revision int64) error {
 	if _, err := s.chatPrincipal(uid); err != nil {
 		return err
 	}
-	return s.store.DeleteGafferOutcomeFor(uid, id, revision)
+	// Judged as the page shows it, as an archive is.
+	o, err := s.store.UpdateGafferOutcomeFor(uid, id, revision, func(o *store.GafferOutcome) bool {
+		return settleStoppedOutcome(o) && o.Finished()
+	})
+	if err != nil {
+		return err
+	}
+	return s.store.DeleteGafferOutcomeFor(uid, id, o.Revision)
 }
 
 func (s *Service) wakeOutcomes() {
@@ -907,6 +926,7 @@ func (s *Service) wakeOutcomes() {
 // and is joined by Close. The caller holds s.mu.
 func (s *Service) startOutcomeSupervisor(ctx context.Context) {
 	s.outcomeWake = make(chan struct{}, 1)
+	ctx = context.WithValue(ctx, resumeUntil{}, time.Now().Add(outcomeResumeWait))
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
@@ -979,28 +999,11 @@ func (s *Service) advanceOutcomes(ctx context.Context) {
 	}
 }
 
-const (
-	maxAutoReports    = 6
-	autoReportSpacing = 10 * time.Minute
-)
-
-// autoReportEvent names what an outcome's pipelines have finished or stopped
-// at: the pipelines that are done, ready to merge, not started or no longer
-// followed. It is empty while every pipeline is still at work.
-func autoReportEvent(o store.GafferOutcome) string {
-	var parts []string
-	for _, piece := range o.Sessions {
-		switch piece.State {
-		case "done", "delivery_review", "ready_to_merge", "failed", "unfollowed":
-			parts = append(parts, piece.Key+":"+piece.State)
-		}
-	}
-	return strings.Join(parts, ",")
-}
+const autoReportSpacing = 10 * time.Minute
 
 // autoReports asks for a report on each outcome whose owner chose that, once
 // per change in which pipelines have finished or stopped. It is bounded: at
-// most maxAutoReports for an outcome, and not within autoReportSpacing of its
+// most store.MaxGafferAutoReports for an outcome, and not within autoReportSpacing of its
 // last report. A report starts nothing and only ever proposes.
 func (s *Service) autoReports(ctx context.Context) {
 	rows, err := s.store.AutoReportGafferOutcomes()
@@ -1011,8 +1014,8 @@ func (s *Service) autoReports(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		event := autoReportEvent(o)
-		if event == "" || event == o.AutoReportedFor || o.AutoReports >= maxAutoReports {
+		event := o.AutoReportEvent()
+		if event == "" || event == o.AutoReportedFor || o.AutoReports >= store.MaxGafferAutoReports {
 			continue
 		}
 		if o.Report != nil && time.Since(time.UnixMilli(o.Report.At)) < autoReportSpacing {
@@ -1640,6 +1643,16 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 			// whose answer was lost is adopted, not repeated.
 			return false
 		}
+		if until, _ := ctx.Value(resumeUntil{}).(time.Time); errors.Is(err, ErrLaunchUnknown) && time.Now().Before(until) {
+			// The controller has just started and machines are still reconnecting:
+			// the launch is asked for again instead of being given up.
+			select {
+			case <-ctx.Done():
+				return false
+			case <-time.After(outcomeFollowEvery):
+			}
+			return true
+		}
 		if err != nil {
 			state, note := "failed", "Not started: "+clipBytes(err.Error(), 400)
 			if staged && item.Stage > 0 {
@@ -1806,6 +1819,10 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 			default:
 				return unfollowed("This session already has a goal.")
 			}
+		}
+		if v.RequiresProviderAccess {
+			// Switched off since the plan was approved: setting the goal would switch it back on.
+			return unfollowed("This outcome’s Gaffer provider is no longer allowed session text and code. Allow both in Gaffer settings, then try this pipeline again.")
 		}
 		if v.SetupAllowed {
 			in := GoalSetupInput{GoalInput: GoalInput{GoalPins: v.Pins, Text: goal, MaxReviews: o.MaxReviews, Hours: o.Hours}, ConversationRevision: v.ConversationRevision, Confirmed: true, Action: "start"}

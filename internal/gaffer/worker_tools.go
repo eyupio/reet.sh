@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -147,10 +148,14 @@ func (s *Service) answerRounds(ctx context.Context, job *chatJob, c store.Gaffer
 		tools = append(tools, hostToolDefs(host)...)
 		system += hostToolsGuidance
 	}
+	maxTokens := 4096
+	if len(host) > 0 {
+		maxTokens = hostToolMaxTokens
+	}
 	hostRounds := 0
-	// readSessionText is set once a tool has put a working agent's words (a
-	// handover note, a report) in front of the model in this turn, or the
-	// history repeats such a result from an earlier turn.
+	// readSessionText is set once a tool has put words the person did not write
+	// (a working agent's handover note or report, a skill's text) in front of the
+	// model in this turn, or the history repeats such a result from an earlier turn.
 	readSessionText := job.replayedSessionText
 	allUsage := true
 	for round := 0; round < 2; round++ {
@@ -163,7 +168,7 @@ func (s *Service) answerRounds(ctx context.Context, job *chatJob, c store.Gaffer
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		calls, usage, err := s.answerRound(ctx, backend, elicore.Request{Model: turn.Model, System: system, Messages: messages, Tools: tools, MaxTokens: 4096}, job.uid, turn)
+		calls, usage, err := s.answerRound(ctx, backend, elicore.Request{Model: turn.Model, System: system, Messages: messages, Tools: tools, MaxTokens: maxTokens}, job.uid, turn)
 		turn.InputTokens += usage.InputTokens
 		turn.OutputTokens += usage.OutputTokens
 		allUsage = allUsage && usage.Reported
@@ -189,9 +194,6 @@ func (s *Service) answerRounds(ctx context.Context, job *chatJob, c store.Gaffer
 			return nil
 		}
 		if tool, ok := host[calls[0].Name]; ok {
-			if turn.Cut || len(calls) != 1 {
-				return errors.New("Gaffer's tool request was cut short. Nothing was run.")
-			}
 			if hostRounds >= maxHostToolRounds {
 				return errors.New("Gaffer reached the limit of six tools in one turn. Ask again to carry on.")
 			}
@@ -200,15 +202,15 @@ func (s *Service) answerRounds(ctx context.Context, job *chatJob, c store.Gaffer
 				return err
 			}
 			if readSessionText && !tool.ReadOnly {
-				// As in a session's chat: once the model has read what a working
-				// agent wrote, that text can propose a change but never make one.
+				// As in a session's chat: once the model has read what someone
+				// else wrote, that text can propose a change but never make one.
 				tool.Mode = "ask"
 			}
 			result, asked, err := s.runHostTool(ctx, job, c, turn, tool, calls[0])
 			if err != nil {
 				return err
 			}
-			readSessionText = readSessionText || tool.SessionText && !asked
+			readSessionText = readSessionText || (tool.SessionText || tool.OthersText) && !asked
 			messages = append(messages, elicore.Message{Role: elicore.RoleAssistant, ToolCalls: calls}, elicore.Message{Role: elicore.RoleTool, ToolCallID: calls[0].ID, Content: result})
 			if asked || hostRounds >= maxHostToolRounds {
 				// A call waiting for the person ends the tool use: the model only reports.
@@ -221,7 +223,7 @@ func (s *Service) answerRounds(ctx context.Context, job *chatJob, c store.Gaffer
 			round--
 			continue
 		}
-		if round != 0 || turn.Cut || len(calls) != 1 {
+		if round != 0 {
 			return errors.New("Gaffer allows one complete worker tool call per enabled request. No further instruction was queued.")
 		}
 		if job.goalID != "" && (calls[0].Name == goalQuestionTool.Name || job.stage && calls[0].Name == handOverTool.Name) {
@@ -298,6 +300,10 @@ func (s *Service) answerRounds(ctx context.Context, job *chatJob, c store.Gaffer
 	}
 	return errors.New("Gaffer reached the worker-message round limit.")
 }
+
+// errToolRequestCut ends a round whose answer stopped part-way through a tool request, whichever tool it was for.
+var errToolRequestCut = errors.New("The provider's answer was cut short before its tool request was complete. Nothing was run or queued.")
+
 func (s *Service) answerRound(ctx context.Context, backend elicore.Provider, request elicore.Request, uid int64, turn *store.GafferTurn) ([]elicore.ToolCall, elicore.Usage, error) {
 	stream, err := backend.Chat(ctx, request)
 	if err != nil {
@@ -322,8 +328,10 @@ func (s *Service) answerRound(ctx context.Context, backend elicore.Provider, req
 			if len(request.Tools) == 0 {
 				return nil, usage, errors.New("Gaffer cannot execute model-requested tools in this conversation. No further action was run.")
 			}
-			calls = append(calls, *event.ToolCall)
-			if len(calls) > 1 {
+			// reet's own tools (the live ones) run one at a time: of several asked for at once the first is kept, and the model may ask again.
+			if len(calls) == 0 {
+				calls = append(calls, *event.ToolCall)
+			} else if !slices.ContainsFunc(request.Tools, func(t elicore.Tool) bool { return t.Live && t.Name == calls[0].Name }) {
 				return nil, usage, errors.New("The provider requested multiple worker instructions. None was queued.")
 			}
 		}
@@ -339,7 +347,7 @@ func (s *Service) answerRound(ctx context.Context, backend elicore.Provider, req
 				}
 				turn.Cut = true
 				if len(calls) > 0 {
-					return nil, usage, errors.New("The provider response was cut short; its worker instruction was not queued.")
+					return nil, usage, errToolRequestCut
 				}
 				return nil, usage, nil
 			}
@@ -354,7 +362,7 @@ func (s *Service) answerRound(ctx context.Context, backend elicore.Provider, req
 		if event.Done {
 			turn.Cut = event.Cut
 			if len(calls) > 0 && event.Cut {
-				return nil, usage, errors.New("The provider response was cut short; its worker instruction was not queued.")
+				return nil, usage, errToolRequestCut
 			}
 			return calls, usage, nil
 		}

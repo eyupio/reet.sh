@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -468,6 +469,12 @@ func TestWireEventTrimsAndValidates(t *testing.T) {
 	wire, ok = wireEvent(event)
 	if !ok || wire.Kind != "permission" || wire.PermissionID != "permission-0123456789" {
 		t.Fatalf("wire %+v %v", wire, ok)
+	}
+	// A cut path names a different file than the one asked for, so the card cannot be allowed.
+	event.Path = "/" + strings.Repeat("p", 2<<10)
+	wire, ok = wireEvent(event)
+	if !ok || !wire.Truncated || len(wire.Path) != 1<<10 {
+		t.Fatalf("cut path: truncated=%v path bytes=%d ok=%v", wire.Truncated, len(wire.Path), ok)
 	}
 	_ = time.Second
 }
@@ -1101,4 +1108,48 @@ func TestChatControlsRefuseAfterSupervisorClose(t *testing.T) {
 	if err := h.setAgentMode(t.Context(), id, "mode"); !errors.Is(err, terminalhost.ErrManagerClosed) {
 		t.Fatalf("setAgentMode after close: %v", err)
 	}
+}
+
+// refusingChat is a chat process that is already in a turn, or that refuses a
+// prompt before its turn begins.
+type refusingChat struct {
+	*fakeChat
+	working bool
+	refuse  error
+}
+
+func (r *refusingChat) Working() bool                        { return r.working }
+func (r *refusingChat) Prompt(context.Context, string) error { return r.refuse }
+
+// The controller is told a prompt went before the process takes it. One the
+// process is too busy for is refused up front, and one it still refuses before
+// its turn begins is said in the chat instead of being dropped.
+func TestARefusedPromptIsNeverLostSilently(t *testing.T) {
+	h, proc, out := testChatHost(t)
+	const sessionID = "session-0123456789"
+	if _, err := h.open("request-0123456789", sessionID, terminalproto.Create{
+		Title: "Chat", Cols: 100, Rows: 30, Tool: "opencode", Structured: true, Trust: true, Dir: h.sup.opts.Home,
+	}, true); err != nil {
+		t.Fatal(err)
+	}
+	cs := h.find(sessionID)
+	refusing := &refusingChat{fakeChat: proc, working: true}
+	h.sup.mu.Lock()
+	cs.process = refusing
+	h.sup.mu.Unlock()
+	if err := h.prompt(sessionID, "while it works", nil); !errors.Is(err, terminalhost.ErrOperationConflict) {
+		t.Fatalf("a prompt to a working process answered %v", err)
+	}
+	refusing.working, refusing.refuse = false, acpagent.ErrBusy
+	if err := h.prompt(sessionID, "raced a turn", nil); err != nil {
+		t.Fatal(err)
+	}
+	waitUntil(t, "the refused prompt to be said in the chat", func() bool {
+		for _, notice := range out.events("notice") {
+			if notice.Bad && strings.Contains(notice.Text, "was not sent") {
+				return true
+			}
+		}
+		return false
+	})
 }

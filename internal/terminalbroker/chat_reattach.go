@@ -180,6 +180,10 @@ func (b *Broker) reattachChat(ctx context.Context, uid int64, session string, tr
 	// before it answers: the ring must exist first. It is never closed here,
 	// because the transcript is kept.
 	b.chatLog(uid, session)
+	// The chat ended, so what was allowed for it is forgotten.
+	b.mu.Lock()
+	delete(b.approvals, chatKey{uid, session})
+	b.mu.Unlock()
 	// Once sent, the reattach runs on the machine whether or not the browser
 	// stays, so a cancelled request must not abandon the answer. A fresh
 	// request id every call: a reused one is answered from the machine's

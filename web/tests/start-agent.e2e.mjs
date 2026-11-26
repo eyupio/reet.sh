@@ -20,7 +20,7 @@ const A='connector-laptop000000001',B='connector-oldbox00000001',C='connector-sp
 const UPLOAD_REF='/home/dev/.local/state/reet/launch-uploads/launch0123456789abcdef/img-0123456789abcdef.png'
 const HOME_A='/home/dev',SITE='/home/dev/work/site'
 let authMode='accounts',viewer=false,machinesFail=false,theme='light',machineReads=0
-let yoloAllowed=true,profileDefaults={},modelsFail=false,favourites=[],folderProjects=[]
+let yoloAllowed=true,profileDefaults={},modelsFail=false,favourites=[],folderProjects=[],baseHold=null
 const tmachines=[
  {agentId:A,host:'dev-laptop',ready:true,serverEnabled:true,capabilities:{protocolVersion:1,os:'linux',osUser:'dev',terminalEnabled:true,terminalControl:true,healthEnabled:true,readiness:'ready',launch:true,agentsV2:true,models:true,worktree:true,browse:true,tools:['claude','codex','gemini','cline']}},
  // An older connector: no launch capability. The tools list is there only to show that it is not enough on its own.
@@ -103,6 +103,8 @@ await page.route('**/api/**',async route=>{
  else if(path.endsWith('/history'))return route.fulfill({body:''})
  else if(path.endsWith('/command-history'))data={entries:[],sources:[],truncated:false,skipped:0}
  else if(path==='/api/v2/settings/yolo')data={allowed:yoloAllowed,changedBy:'Sam'}
+ // The base check answers only while a check holds it, so the dialog can be looked at as it waits.
+ else if(baseHold&&path===`/api/v2/machines/${A}/base-check`){await baseHold;data={base:'main',relation:'same',local:'a'.repeat(40),start:'a'.repeat(40)}}
  else{unmocked.push(`${method} ${path}`);return route.fulfill({status:404,json:{error:`Unmocked ${path}`}})}
  await route.fulfill({json:data})
 })
@@ -1221,6 +1223,18 @@ try{
  await p.start.click()
  await expect.poll(()=>posts.length).toBe(yoloPosts+1)
  expect(JSON.parse(posts.at(-1))).toMatchObject({yolo:true})
+ // So does changing between a chat and the agent's own terminal: the confirmation's sentence was about one of them.
+ Object.assign(tmachines[0].capabilities,{acp:true,acpAgents:[{tool:'codex',adapter:'codex-acp',state:'available',minimumVersion:'1.13.1'}]})
+ d=await openAt(A);p=parts(d)
+ await p.pick('Codex')
+ await expect(d.getByLabel('Session',{exact:true})).toHaveValue('reet')
+ await d.getByRole('radio',{name:'YOLO',exact:true}).click()
+ await page.getByRole('alertdialog').getByRole('button',{name:'Start with YOLO'}).click()
+ await expect(d.getByRole('radio',{name:'YOLO',exact:true})).toBeChecked()
+ await d.getByLabel('Session',{exact:true}).selectOption('terminal')
+ await expect(d.getByRole('radio',{name:'Ask me',exact:true})).toBeChecked()
+ await page.keyboard.press('Escape')
+ delete tmachines[0].capabilities.acp;delete tmachines[0].capabilities.acpAgents
  // A machine that does not accept it says so and keeps Ask me.
  tmachines[0].capabilities.yolo=false
  d=await openAt(A);p=parts(d)
@@ -1326,6 +1340,21 @@ try{
  const latestBody=JSON.parse(posts.at(-1))
  expect(latestBody).toMatchObject({agentId:A,dir:PROJECT_DIR,base:'main',pullLatest:true,projectId:PROJECT_ID})
  expect(latestBody.worktree).toMatch(/^[0-9a-f]{32}$/)
+ // While the machine is asked where that worktree would start, the dialog is as locked as while it starts: nothing
+ // can be changed that the start already under way would not carry.
+ let releaseBase;baseHold=new Promise(resolve=>{releaseBase=resolve})
+ d=await openAt(A);p=parts(d)
+ await p.project.selectOption(PROJECT_ID)
+ await p.pick('Claude Code')
+ await p.prompt.fill('update the readme')
+ const heldPosts=posts.length
+ await p.start.click()
+ await expect(d.getByText('Checking where this starts on dev-laptop…',{exact:true})).toBeVisible()
+ await expect(p.prompt).toBeDisabled()
+ await expect(d.getByRole('radio',{name:'Ask me',exact:true})).toBeDisabled()
+ releaseBase();baseHold=null
+ await expect.poll(()=>posts.length).toBe(heldPosts+1)
+ expect(JSON.parse(posts.at(-1))).toMatchObject({prompt:'update the readme',projectId:PROJECT_ID})
  folderProjects=[]
 
  // A repository From GitHub, with no project made first: chosen from the machine's list, cloned and saved as a project

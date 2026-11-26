@@ -391,6 +391,21 @@ func TestAToolCallMayCarryAFullOutcome(t *testing.T) {
 	if _, err := hostToolArgs(elicore.ToolCall{ID: "c1", Arguments: huge}); err == nil {
 		t.Fatal("an oversized call was accepted")
 	}
+	// The provider is given the room to write such a call, only where reet's tools are on offer.
+	for _, tools := range [][]HostTool{{writeTool}, nil} {
+		s, _, p, v, _, provider, _ := hostFixture(t, tools, "Nothing to do.")
+		ask(t, s, p, v, "a", "Hello.")
+		want := `"max_tokens":4096`
+		if len(tools) > 0 {
+			want = `"max_tokens":16384`
+		}
+		provider.mu.Lock()
+		body := provider.bodies[0]
+		provider.mu.Unlock()
+		if !strings.Contains(body, want) {
+			t.Fatalf("with %d tools the request lacks %s", len(tools), want)
+		}
+	}
 }
 
 // Session text read in an earlier turn is replayed to the model in the next
@@ -428,5 +443,102 @@ func TestAChangeInALaterTurnAfterSessionTextWasReadStillAsks(t *testing.T) {
 	}
 	if len(second.Tools) != 1 || second.Tools[0].Name != "reet_stop_outcome" || second.Tools[0].State != "pending" || second.Tools[0].Mode != "ask" {
 		t.Fatalf("the change should wait for the person: %+v", second.Tools)
+	}
+}
+
+// cancellingHost cancels the answer while its tool is at work, as a person
+// pressing Cancel answer does.
+type cancellingHost struct {
+	s            *Service
+	uid          int64
+	conversation string
+}
+
+func (h *cancellingHost) GafferTools(int64) []HostTool { return []HostTool{writeTool} }
+func (h *cancellingHost) CallGafferTool(context.Context, int64, string, json.RawMessage) (string, error) {
+	_ = h.s.CancelTurn(h.uid, h.conversation, strings.Repeat("a", 32))
+	return `{"stopped":true}`, nil
+}
+
+// A tool that ran is on the turn and in the activity log even when the answer
+// was cancelled while it ran.
+func TestAToolThatRanDuringACancelIsStillRecorded(t *testing.T) {
+	s, _, p, v, _, _, log := hostFixture(t, []HostTool{writeTool}, `reet_stop_outcome {"outcome_id":"x"}`, "Done.")
+	s.SetToolHost(&cancellingHost{s: s, uid: p.UserID, conversation: v.Conversation.ID})
+	turn := ask(t, s, p, v, "a", "Stop outcome x.")
+	if turn.State != "cancelled" || len(turn.Tools) != 1 || turn.Tools[0].State != "ran" {
+		t.Fatalf("turn: state=%s tools=%+v", turn.State, turn.Tools)
+	}
+	log.mu.Lock()
+	defer log.mu.Unlock()
+	if len(log.rows) != 1 || log.rows[0].action != "gaffer-tool-call" {
+		t.Fatalf("audit: %+v", log.rows)
+	}
+}
+
+// A model may ask for several of reet's tools in one answer. The first runs,
+// the rest are dropped and the turn carries on: it does not fail.
+func TestOfSeveralToolsAskedForAtOnceOnlyTheFirstRuns(t *testing.T) {
+	s, _, p := settingsFixture(t)
+	host := &fakeToolHost{tools: []HostTool{readTool, writeTool}, fail: map[string]string{}}
+	s.SetToolHost(host)
+	requests := 0
+	fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		delta := map[string]any{"content": "One outcome is running."}
+		if requests == 1 {
+			call := func(i int, name string) map[string]any {
+				return map[string]any{"index": i, "id": fmt.Sprintf("c%d", i), "type": "function", "function": map[string]any{"name": name, "arguments": "{}"}}
+			}
+			delta = map[string]any{"tool_calls": []any{call(0, "reet_list_factory"), call(1, "reet_stop_outcome")}}
+		}
+		raw, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"delta": delta, "finish_reason": "stop"}}})
+		fmt.Fprintf(w, "data: %s\n\ndata: [DONE]\n\n", raw)
+	}))
+	t.Cleanup(fake.Close)
+	turn := ask(t, s, p, conversationFixture(t, s, p, fake.URL), "a", "What is in the Factory?")
+	if turn.State != "completed" || len(turn.Tools) != 1 || turn.Tools[0].Name != "reet_list_factory" || turn.Tools[0].State != "ran" {
+		t.Fatalf("turn: state=%s error=%q tools=%+v", turn.State, turn.Error, turn.Tools)
+	}
+	if got := host.made(); len(got) != 1 || got[0] != "reet_list_factory {}" {
+		t.Fatalf("calls made: %v", got)
+	}
+}
+
+// A tool request the provider's output limit cut off is not run, and the
+// turn says what happened in words that fit any tool.
+func TestAToolRequestCutShortIsNotRunAndSaysSo(t *testing.T) {
+	s, _, p := settingsFixture(t)
+	host := &fakeToolHost{tools: []HostTool{writeTool}, fail: map[string]string{}}
+	s.SetToolHost(host)
+	fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		call := map[string]any{"index": 0, "id": "c0", "type": "function", "function": map[string]any{"name": "reet_stop_outcome", "arguments": `{"outcome_id":"ab`}}
+		raw, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"tool_calls": []any{call}}, "finish_reason": "length"}}})
+		fmt.Fprintf(w, "data: %s\n\ndata: [DONE]\n\n", raw)
+	}))
+	t.Cleanup(fake.Close)
+	turn := ask(t, s, p, conversationFixture(t, s, p, fake.URL), "a", "Stop abc.")
+	if turn.State != "failed" || turn.Error != errToolRequestCut.Error() || len(turn.Tools) != 0 || len(host.made()) != 0 {
+		t.Fatalf("turn: state=%s error=%q tools=%+v", turn.State, turn.Error, turn.Tools)
+	}
+}
+
+// A skill's text is written by its author, not the person. Once a tool has put
+// such text in front of the model, a change waits for the person even on
+// Allow, in that turn and in a later one that repeats the result.
+func TestAChangeAfterReadingOthersTextAsksEvenOnAllow(t *testing.T) {
+	skill := HostTool{Name: "reet_get_skill", Title: "Read a skill", Description: "Read it.", Parameters: json.RawMessage(`{"type":"object","properties":{"id":{"type":"string"}}}`), ReadOnly: true, Mode: "allow", OthersText: true}
+	s, _, p, v, host, _, _ := hostFixture(t, []HostTool{skill, writeTool},
+		`reet_get_skill {"id":"x"}`, `reet_stop_outcome {"outcome_id":"abc"}`, "I’ve asked to stop abc.", `reet_stop_outcome {"outcome_id":"def"}`, "I’ve asked to stop def.")
+	turn := ask(t, s, p, v, "a", "What does skill x do?")
+	if turn.State != "completed" || len(turn.Tools) != 2 || !turn.Tools[0].OthersText || turn.Tools[1].State != "pending" || turn.Tools[1].Mode != "ask" {
+		t.Fatalf("same turn: %+v", turn.Tools)
+	}
+	later := ask(t, s, p, v, "b", "Stop def.")
+	if later.State != "completed" || len(later.Tools) != 1 || later.Tools[0].State != "pending" {
+		t.Fatalf("later turn: %+v", later.Tools)
+	}
+	if got := host.made(); len(got) != 1 || !strings.HasPrefix(got[0], "reet_get_skill") {
+		t.Fatalf("a change ran after a skill was read: %v", got)
 	}
 }

@@ -196,11 +196,7 @@ func askAntigravity(ctx context.Context, r *Reader, s signIn) allowance {
 		if b.Remaining != nil {
 			left = *b.Remaining
 		}
-		limit := terminalproto.AccountLimit{Kind: w.kind, Label: w.label, UsedPercent: percent(100 - left*100)}
-		if at, err := time.Parse(time.RFC3339, b.ResetTime); err == nil && at.UnixMilli() > 0 {
-			limit.ResetsAt = at.UnixMilli()
-		}
-		limits = append(limits, limit)
+		limits = append(limits, terminalproto.AccountLimit{Kind: w.kind, Label: w.label, UsedPercent: percent(100 - left*100), ResetsAt: rfc3339Millis(b.ResetTime)})
 	}
 	if len(limits) == 0 {
 		// Buckets this reader does not know are an answer in another shape.

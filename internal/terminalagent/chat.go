@@ -728,20 +728,37 @@ func chatUnavailable(cs *chatSession) bool {
 
 func (h *chatHost) startPrompt(cs *chatSession, text string, images []acpagent.Attachment) bool {
 	h.sup.mu.Lock()
-	if h.sup.closed || chatUnavailable(cs) {
+	// A turn the process already runs (one begun in its own terminal, say)
+	// would refuse this prompt after the controller was told it went.
+	if h.sup.closed || chatUnavailable(cs) || cs.process.Working() {
 		h.sup.mu.Unlock()
 		return false
 	}
 	cs.busy = true
+	before := cs.lastStatus
 	h.sup.wg.Add(1)
 	h.sup.mu.Unlock()
 	go func() {
 		defer h.sup.wg.Done()
 		defer func() { h.sup.mu.Lock(); cs.busy = false; h.sup.mu.Unlock() }()
+		var err error
 		if len(images) > 0 {
-			_ = cs.process.PromptWithAttachments(h.sup.ctx, text, images)
+			err = cs.process.PromptWithAttachments(h.sup.ctx, text, images)
 		} else {
-			_ = cs.process.Prompt(h.sup.ctx, text)
+			err = cs.process.Prompt(h.sup.ctx, text)
+		}
+		// A turn that began said so with a status, and reports its own end. A
+		// prompt refused before that would otherwise be lost without a word.
+		h.sup.mu.Lock()
+		began := cs.lastStatus != before
+		h.sup.mu.Unlock()
+		name := terminalproto.ToolName(cs.tool)
+		switch {
+		case began:
+		case errors.Is(err, acpagent.ErrBusy):
+			h.sup.publish(cs, acpagent.Event{Kind: "notice", Bad: true, Text: name + " was busy, so that message was not sent. Send it again."})
+		case errors.Is(err, acpagent.ErrClosed):
+			h.sup.publish(cs, acpagent.Event{Kind: "notice", Bad: true, Text: "The chat had closed, so that message was not sent to " + name + "."})
 		}
 	}()
 	return true
@@ -947,8 +964,6 @@ func (h *chatHost) end(sessionID string) (terminalproto.SessionChanged, error) {
 	h.sup.ended(cs, 0)
 	return terminalproto.SessionChanged{State: terminalproto.Exited, ExitCode: cs.exit, ACPSessionID: reportedACP(cs.tool, cs.acpID, h.link.history), WorktreePath: cs.worktreePath, WorktreeRepo: cs.worktreeRepo}, nil
 }
-
-func (h *chatHost) ended(cs *chatSession, code int) { h.sup.ended(cs, code) }
 
 // announceRunning tells the currently attached connection that startup
 // finished. It deliberately ignores link.live: a link being flushed is still
@@ -1444,6 +1459,7 @@ func wireEvent(event acpagent.Event) (terminalproto.ACPEvent, bool) {
 	}
 	if len(wire.Path) > 1<<10 {
 		wire.Path = cutText(wire.Path, 1<<10)
+		wire.Truncated = true
 	}
 	if len(wire.Title) > 200 {
 		// The title is only a label. Some agents use the whole shell command as
@@ -1626,5 +1642,10 @@ func (h *chatHost) setAgentMode(ctx context.Context, sessionID, mode string) err
 	}
 	changeCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
-	return process.SetMode(changeCtx, mode)
+	err := process.SetMode(changeCtx, mode)
+	// The read-back, even after an error: an unconfirmed switch may have applied.
+	if reader, ok := cs.process.(interface{ Mode() string }); ok && h.sup.registry != nil {
+		h.sup.registry.setMode(sessionID, reader.Mode())
+	}
+	return err
 }

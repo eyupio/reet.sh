@@ -135,7 +135,7 @@ type rpcCall struct {
 }
 
 type pendingPermission struct {
-	nativeID string
+	toolID   string
 	rpcID    json.RawMessage
 	allowID  string
 	rejectID string
@@ -146,12 +146,10 @@ type pendingPermission struct {
 // Prompt runs one turn at a time and Cancel may be called from any goroutine.
 type Session struct {
 	opts   Options
-	binary string
 	native *nativeView
 	cmd    *exec.Cmd
 	stdin  io.WriteCloser
 	stdout io.ReadCloser
-	stderr *cappedBuffer
 
 	configMu     sync.Mutex
 	steerMu      sync.Mutex
@@ -280,8 +278,7 @@ func Start(ctx context.Context, opts Options) (*Session, error) {
 		return nil, err
 	}
 	cmd.Stdout = stdoutWriter
-	stderr := &cappedBuffer{limit: 4 << 10}
-	cmd.Stderr = stderr
+	cmd.Stderr = io.Discard
 	if err := cmd.Start(); err != nil {
 		_ = stdin.Close()
 		_ = stdout.Close()
@@ -289,7 +286,7 @@ func Start(ctx context.Context, opts Options) (*Session, error) {
 		return nil, ErrExited
 	}
 	_ = stdoutWriter.Close()
-	s := &Session{opts: opts, binary: binary, native: native, cmd: cmd, stdin: stdin, stdout: stdout, stderr: stderr,
+	s := &Session{opts: opts, native: native, cmd: cmd, stdin: stdin, stdout: stdout,
 		calls: map[int64]rpcCall{}, pending: map[string]*pendingPermission{}, tools: map[string]string{}, held: map[string]heldTool{},
 		toolStart: map[string]time.Time{}, done: make(chan struct{})}
 	readDone := make(chan struct{})
@@ -312,6 +309,12 @@ func Start(ctx context.Context, opts Options) (*Session, error) {
 		}
 		_ = stdout.Close()
 		s.ended()
+		// Settle this while the group id is still the agent's: Close never signals a group already seen gone.
+		if waitGroupGone(cmd.Process.Pid, 2*time.Second) {
+			s.mu.Lock()
+			s.retired = true
+			s.mu.Unlock()
+		}
 	}()
 	initCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
@@ -578,6 +581,11 @@ func (s *Session) emitLocked(event Event) {
 	s.opts.OnEvent(event)
 }
 
+// writeTimeout bounds one frame to the agent. An agent that is alive but has
+// stopped reading would otherwise hold the write lock, and a prompt's turn
+// lock, for good: Stop, the turn deadlines and End would all wait behind it.
+var writeTimeout = 15 * time.Second
+
 func (s *Session) nextRequestID() int64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -599,7 +607,15 @@ func (s *Session) write(message any) error {
 	if closed {
 		return ErrClosed
 	}
+	if pipe, ok := s.stdin.(interface{ SetWriteDeadline(time.Time) error }); ok {
+		_ = pipe.SetWriteDeadline(time.Now().Add(writeTimeout))
+	}
 	_, err = s.stdin.Write(data)
+	if errors.Is(err, os.ErrDeadlineExceeded) {
+		// A frame cut short cannot be resumed, so the agent is ended; the waiter then releases every call and card.
+		s.killGroup()
+		return ErrExited
+	}
 	return err
 }
 
@@ -1222,10 +1238,7 @@ func (s *Session) handlePermission(rpcID json.RawMessage, raw json.RawMessage) {
 			locations = append(locations, location.Path)
 		}
 	}
-	pending := &pendingPermission{rpcID: rpcID, allowID: allowID, rejectID: rejectID}
-	if s.native != nil {
-		pending.nativeID = params.ToolCall.ToolCallID
-	}
+	pending := &pendingPermission{toolID: params.ToolCall.ToolCallID, rpcID: rpcID, allowID: allowID, rejectID: rejectID}
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
@@ -1234,7 +1247,9 @@ func (s *Session) handlePermission(rpcID json.RawMessage, raw json.RawMessage) {
 	}
 	s.pending[permissionID] = pending
 	pending.timer = time.AfterFunc(s.opts.permissionTimeout(), func() {
-		s.resolve(permissionID, "cancelled", "timeout")
+		if s.resolve(permissionID, "cancelled", "timeout") != nil {
+			return // answered as the timer fired: the answer stands
+		}
 		s.emit(Event{Kind: "notice", Text: "The approval request timed out, so " + s.opts.Agent.displayName() + " was stopped.", Bad: true})
 		_ = s.sendCancel()
 	})
@@ -1254,9 +1269,9 @@ func (s *Session) handlePermission(rpcID json.RawMessage, raw json.RawMessage) {
 		Path: path, Diff: diff, Locations: locations, Truncated: truncated,
 		Text: rationale})
 	if s.native != nil {
-		reply := s.native.takePermissionReply(pending.nativeID)
+		reply := s.native.takePermissionReply(pending.toolID)
 		if reply != "" {
-			s.nativePermissionReply(pending.nativeID, reply)
+			s.nativePermissionReply(pending.toolID, reply)
 		}
 	}
 }
@@ -1321,7 +1336,7 @@ func (s *Session) resolve(id, decision, reason string) error {
 		return ErrNoPermission
 	}
 	if s.native != nil {
-		s.native.retirePermission(pending.nativeID)
+		s.native.retirePermission(pending.toolID)
 	}
 	if pending.timer != nil {
 		pending.timer.Stop()
@@ -1394,7 +1409,15 @@ func (s *Session) Cancel() error {
 	s.turnMu.Unlock()
 	// Read before the cards are cancelled and the agent winds the turn down.
 	s.mu.Lock()
-	toolRunning := len(s.toolStart) > 0
+	toolRunning := false
+	for id := range s.toolStart {
+		// A call whose card is still waiting has not started.
+		asked := false
+		for _, card := range s.pending {
+			asked = asked || card.toolID == id
+		}
+		toolRunning = toolRunning || !asked
+	}
 	s.mu.Unlock()
 	endChat := working && toolRunning && s.opts.Agent.EndChatOnStopWhileToolRuns
 	s.cancelCards()
@@ -1999,8 +2022,9 @@ func waitGroupGone(pgid int, timeout time.Duration) bool {
 	}
 }
 
-// GroupRetired reports whether Close confirmed that every process the agent
-// started is gone. It is false before Close and when retirement timed out.
+// GroupRetired reports whether every process the agent started is confirmed
+// gone: after Close, or once an agent that exited by itself took its group with
+// it. It is false while the agent runs and when retirement timed out.
 func (s *Session) GroupRetired() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -2057,8 +2081,11 @@ func (s *Session) Close() {
 	closed := s.closed
 	s.mu.Unlock()
 	if closed {
-		retired := true
-		if s.cmd != nil && s.cmd.Process != nil {
+		s.mu.Lock()
+		retired := s.retired
+		s.mu.Unlock()
+		// A group seen gone is not signalled again: by now its id may name an unrelated group.
+		if !retired && s.cmd != nil && s.cmd.Process != nil {
 			retired = retireGroup(s.cmd.Process.Pid, 2*time.Second)
 		}
 		s.mu.Lock()
@@ -2107,11 +2134,10 @@ func (s *Session) SetModel(ctx context.Context, model string) error {
 func (s *Session) setModel(ctx context.Context, model string, startup bool) error {
 	s.configMu.Lock()
 	defer s.configMu.Unlock()
-	s.turnMu.Lock()
-	defer s.turnMu.Unlock()
-	if s.working || s.nativeBusy {
+	if !s.beginConfiguring() {
 		return ErrBusy
 	}
+	defer s.endConfiguring()
 	s.mu.Lock()
 	id := s.acpID
 	s.mu.Unlock()
@@ -2149,6 +2175,25 @@ func (s *Session) setModel(ctx context.Context, model string, startup bool) erro
 		return ErrModel
 	}
 	return nil
+}
+
+// beginConfiguring claims an idle chat for a switch. No turn can start until
+// endConfiguring, so the turn lock is not held while the agent answers: the
+// reader needs that lock to place a request that arrives before the answer.
+func (s *Session) beginConfiguring() bool {
+	s.turnMu.Lock()
+	defer s.turnMu.Unlock()
+	if s.working || s.nativeBusy {
+		return false
+	}
+	s.configuring = true
+	return true
+}
+
+func (s *Session) endConfiguring() {
+	s.turnMu.Lock()
+	s.configuring = false
+	s.turnMu.Unlock()
 }
 
 func (s *Session) unconfirmedModel(startup bool) {
@@ -2258,11 +2303,14 @@ func (s *Session) SetMode(ctx context.Context, mode string) error {
 	if !allowed {
 		return ErrMode
 	}
-	s.turnMu.Lock()
-	defer s.turnMu.Unlock()
-	if s.working || s.nativeBusy {
+	if !s.configMu.TryLock() {
 		return ErrBusy
 	}
+	defer s.configMu.Unlock()
+	if !s.beginConfiguring() {
+		return ErrBusy
+	}
+	defer s.endConfiguring()
 	s.mu.Lock()
 	id, previous := s.acpID, s.mode
 	s.mu.Unlock()

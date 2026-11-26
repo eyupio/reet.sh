@@ -49,17 +49,20 @@ func ephemeralCache() map[string]any {
 	return map[string]any{"type": "ephemeral"}
 }
 
-// cacheLastMessage puts one breakpoint at the end of the newest turn, which
-// is what lets the next turn reuse the whole conversation so far. Anthropic
-// accepts the mark on a text, tool_use or tool_result block, so the content is
-// always sent as blocks here rather than as a bare string.
-func cacheLastMessage(msgs []map[string]any) {
-	if len(msgs) == 0 {
+// cacheMessage puts one breakpoint at the end of message i, which is what lets
+// a later request reuse the conversation up to there. Anthropic accepts the
+// mark on a text, tool_use or tool_result block, so the content is always sent
+// as blocks here rather than as a bare string.
+func cacheMessage(msgs []map[string]any, i int) {
+	if i < 0 || i >= len(msgs) {
 		return
 	}
-	last := msgs[len(msgs)-1]
+	last := msgs[i]
 	switch content := last["content"].(type) {
 	case string:
+		if content == "" {
+			return
+		}
 		last["content"] = []any{map[string]any{"type": "text", "text": content, "cache_control": ephemeralCache()}}
 	case []any:
 		if len(content) == 0 {
@@ -76,6 +79,11 @@ func (p *Anthropic) body(req elicore.Request, maxTokens int) ([]byte, error) {
 		maxTokens = anthropicDefaultMaxTokens
 	}
 	msgs := make([]map[string]any, 0, len(req.Messages))
+	// The API refuses tool_use and tool_result blocks in a request that defines
+	// no tools, so a call made earlier and its answer then go as plain text.
+	plain := len(req.Tools) == 0
+	// answered is the last finished answer: where the turns before this one end.
+	answered := -1
 	for _, m := range req.Messages {
 		switch m.Role {
 		case elicore.RoleSystem:
@@ -83,15 +91,21 @@ func (p *Anthropic) body(req elicore.Request, maxTokens int) ([]byte, error) {
 			// message in the turns is folded into it.
 			continue
 		case elicore.RoleTool:
+			if plain {
+				msgs = append(msgs, map[string]any{"role": "user", "content": "The tool answered:\n" + m.Content})
+				continue
+			}
 			msgs = append(msgs, map[string]any{"role": "user", "content": []any{
 				map[string]any{"type": "tool_result", "tool_use_id": m.ToolCallID, "content": m.Content},
 			}})
 		case elicore.RoleAssistant:
 			if len(m.ToolCalls) == 0 {
+				answered = len(msgs)
 				msgs = append(msgs, map[string]any{"role": "assistant", "content": m.Content})
 				continue
 			}
 			var blocks []any
+			text := m.Content
 			if m.Content != "" {
 				blocks = append(blocks, map[string]any{"type": "text", "text": m.Content})
 			}
@@ -101,13 +115,23 @@ func (p *Anthropic) body(req elicore.Request, maxTokens int) ([]byte, error) {
 					input = json.RawMessage("{}")
 				}
 				blocks = append(blocks, map[string]any{"type": "tool_use", "id": c.ID, "name": c.Name, "input": input})
+				text = strings.TrimSpace(text + "\nI used the tool " + c.Name + " with this input: " + string(input))
+			}
+			if plain {
+				msgs = append(msgs, map[string]any{"role": "assistant", "content": text})
+				continue
 			}
 			msgs = append(msgs, map[string]any{"role": "assistant", "content": blocks})
 		default:
 			msgs = append(msgs, map[string]any{"role": "user", "content": m.Content})
 		}
 	}
-	cacheLastMessage(msgs)
+	cacheMessage(msgs, len(msgs)-1)
+	// The newest turn can hold what the next request will not repeat, such as a
+	// snapshot sent before the prompt, so the end of the earlier turns is marked
+	// too: that prefix does repeat. With the system prompt and the tools that
+	// makes four marks, the most the API takes.
+	cacheMessage(msgs, answered)
 	out := map[string]any{"model": p.model(req.Model), "max_tokens": maxTokens, "messages": msgs, "stream": true}
 	system := req.System
 	for _, m := range req.Messages {
@@ -206,7 +230,9 @@ func newAnthropicDecoder() Decoder {
 			} `json:"delta"`
 			Message *struct {
 				Usage *struct {
-					Input int `json:"input_tokens"`
+					Input         int `json:"input_tokens"`
+					CacheCreation int `json:"cache_creation_input_tokens"`
+					CacheRead     int `json:"cache_read_input_tokens"`
 				} `json:"usage"`
 			} `json:"message"`
 			Usage *struct {
@@ -231,7 +257,9 @@ func newAnthropicDecoder() Decoder {
 			return nil, fmt.Errorf("the provider answered with an error: %s", msg)
 		case "message_start":
 			if frame.Message != nil && frame.Message.Usage != nil {
-				usage.InputTokens, usage.Reported = frame.Message.Usage.Input, true
+				// With cache marks input_tokens is only what was neither written to the cache nor read from it.
+				u := frame.Message.Usage
+				usage.InputTokens, usage.Reported = u.Input+u.CacheCreation+u.CacheRead, true
 			}
 		case "content_block_start":
 			if frame.ContentBlock != nil && frame.ContentBlock.Type == "tool_use" {

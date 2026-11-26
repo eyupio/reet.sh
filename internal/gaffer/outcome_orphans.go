@@ -38,10 +38,11 @@ func (s *Service) stopPipelineGoal(uid int64, conversation, note string) {
 		return
 	}
 	g, err := s.store.GafferGoalFor(uid, conversation)
-	if err != nil || g.State == "stopped" || g.State == "completed" || g.ActiveTurnID != "" {
+	if err != nil || g.State == "stopped" || g.State == "completed" {
 		return
 	}
-	_ = s.store.ObserveGafferGoal(g, "stopped", note, 0)
+	// A goal that waits for the person would follow again by itself once its session moved.
+	_ = s.store.StopGafferGoal(g, note)
 }
 
 const sessionGoneNote = "Its session no longer exists, so nothing is following this pipeline any more. Retry it to start a new session, or archive or delete the outcome."

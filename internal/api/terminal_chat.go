@@ -34,32 +34,11 @@ func (s *server) registerTerminalChatRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v2/terminal/sessions/{id}/reattach", s.terminal(s.terminalChatReattach))
 }
 
-func (s *server) terminalChatSession(w http.ResponseWriter, r *http.Request) (store.TerminalSession, bool) {
-	id := r.PathValue("id")
-	if !terminalproto.ValidID(id) {
-		writeErr(w, 400, "invalid terminal request")
-		return store.TerminalSession{}, false
-	}
-	session, err := s.st.TerminalSessionFor(s.uid(r), id)
-	if err != nil || !session.Structured {
-		writeErr(w, 404, "that reet session is not available")
-		return store.TerminalSession{}, false
-	}
-	return session, true
-}
-
 func (s *server) terminalChat(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	if !terminalproto.ValidID(id) {
-		writeErr(w, 400, "invalid terminal request")
+	if _, ok := s.terminalChatTarget(w, r); !ok {
 		return
 	}
-	session, err := s.st.TerminalSessionFor(s.uid(r), id)
-	if err != nil || !session.Structured {
-		writeErr(w, 404, "that reet session is not available")
-		return
-	}
-	snapshot, truncated, events, cancel := s.terminals.SubscribeChat(s.uid(r), id)
+	snapshot, truncated, events, cancel := s.terminals.SubscribeChat(s.uid(r), r.PathValue("id"))
 	defer cancel()
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-store")
@@ -253,6 +232,8 @@ func (s *server) terminalChatError(w http.ResponseWriter, err error) {
 		writeErr(w, 409, "update reet on that machine to switch approval mode")
 	case errors.Is(err, terminalbroker.ErrACPQuestionUnsupported):
 		writeErr(w, 409, "that machine or agent cannot answer questions from reet")
+	case errors.Is(err, terminalbroker.ErrPermissionTruncated):
+		writeErrCode(w, 409, "permission_truncated", "", err.Error(), "")
 	case errors.Is(err, terminalbroker.ErrQuestionGone):
 		writeErrCode(w, 409, "question_gone", "", "That question is no longer waiting.", "")
 	case errors.As(err, new(*terminalbroker.QuestionInvalidError)):
@@ -464,7 +445,7 @@ func (s *server) terminalReattachError(w http.ResponseWriter, err error) {
 }
 
 func (s *server) terminalChatPreview(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.terminalChatSession(w, r); !ok {
+	if _, ok := s.terminalChatTarget(w, r); !ok {
 		return
 	}
 	data, mime, err := s.terminals.ChatPreview(r.Context(), s.uid(r), r.PathValue("id"), r.PathValue("previewId"))

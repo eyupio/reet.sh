@@ -588,7 +588,7 @@ func (s *Session) nativePermissionReply(request, decision string) {
 	s.mu.Lock()
 	var ids []string
 	for id, pending := range s.pending {
-		if pending.nativeID == request && request != "" {
+		if pending.toolID == request && request != "" {
 			ids = append(ids, id)
 		}
 	}

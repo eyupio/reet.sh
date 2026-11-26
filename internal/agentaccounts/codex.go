@@ -31,7 +31,7 @@ func (r *Reader) codex() signIn {
 		fileOK, fileReadable = false, false
 	}
 	if item, keychainOK := r.macKeychainItem("Codex Auth", ""); keychainOK {
-		if keychain, parsed, readable := codexSignIn([]byte(item)); readable && parsed && (!fileOK || codexLater(keychain, file)) {
+		if keychain, parsed, readable := codexSignIn([]byte(item)); readable && parsed && (!fileOK || keychain.ExpiresAt > file.ExpiresAt) {
 			file, fileOK = keychain, true
 		}
 	}
@@ -104,17 +104,6 @@ func codexSignIn(data []byte) (codexCredential, bool, bool) {
 		out.ExpiresAt = int64(access.Expires)
 	}
 	return out, out.AccessToken != "" || out.APIKey != "", true
-}
-
-// codexLater reports whether a is the later of two sign-ins.
-func codexLater(a, b codexCredential) bool {
-	if a.ExpiresAt == 0 {
-		return false
-	}
-	if b.ExpiresAt == 0 {
-		return true
-	}
-	return a.ExpiresAt > b.ExpiresAt
 }
 
 // askCodex reads the allowance of a ChatGPT plan: one or two windows, each a

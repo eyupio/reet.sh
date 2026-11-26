@@ -316,7 +316,7 @@ func (b *Broker) stepChatQueue(uid int64, session string) {
 			return
 		}
 	}
-	err = b.PromptChat(ctx, uid, session, q.Text, q.Images)
+	err = b.promptChat(ctx, uid, session, q.Text, q.Images, true)
 	if err == nil {
 		finish("sent", "")
 		return

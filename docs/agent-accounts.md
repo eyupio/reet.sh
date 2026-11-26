@@ -37,8 +37,11 @@ whatever each machine reports. Every other agent has no plan figure: reet cannot
   [Usage](usage.md).
 - **Settings → Agents → Usage.** A sentence on what is read, and a link to the Usage page. There is no switch.
 
-These show the figures each machine last read, which the controller keeps; they look again every two minutes and
-never ask a machine to read. Only machines that read sign-ins are asked. An agent with no plan to read (an API key,
+These show the figures each machine last read, which the controller keeps; they look again every two minutes. A look
+that finds the kept figures more than five minutes old has the controller ask an online machine to read once, as any
+read of them does (see [Controller cache and API](#controller-cache-and-api)), so a page left open has each machine
+read about every six minutes. Only **Check sign-ins** asks for figures newer than the machine's own five-minute
+memory. Only machines that read sign-ins are asked. An agent with no plan to read (an API key,
 no sign-in, or an agent reet does not read) has no chip. The marks are reet's own, an initial on a tile, not the
 vendors' logos.
 
@@ -54,7 +57,7 @@ started; the only commands run are those read-only tools and `gh auth`.
 | Codex | `auth.json` in `~/.codex`, or in the folder `CODEX_HOME` names; on macOS also the login keychain's `Codex Auth` item when the file holds none, the later token winning | the address and plan claims of the identity token; an `OPENAI_API_KEY` there is a sign-in with no plan |
 | OpenCode | its key for OpenCode's own models (`opencode-go`, else `opencode`), from the first of: OpenCode 2's store `opencode.db` in `$XDG_DATA_HOME/opencode` or `~/.local/share/opencode` (or the file `OPENCODE_DB` names), opened read-only and only when it has OpenCode 2's tables; `auth.json` in that folder, not read when that store is there; `OPENCODE_API_KEY` in the environment reet's connector runs with | no name: the account shows as *Signed in*, on its machine; the plan word comes from the provider's answer (*Go*) |
 | Google Antigravity | `antigravity-oauth-token` in `~/.gemini/antigravity-cli`, or in the folder `ANTIGRAVITY_APP_DATA_DIR` names, plain or in its keyring library's `go-keyring-base64:` form; also the Linux Secret Service item `service gemini, username antigravity` through `secret-tool`, or the macOS login keychain's `gemini`/`antigravity` item, the later token winning | the address claim of the identity token; no plan word |
-| GitHub Copilot | `apps.json` and `hosts.json` in `$XDG_CONFIG_HOME/github-copilot` or `~/.config/github-copilot`, entries for `github.com` only (a key named `github.com` or `github.com:` and an app id; another host's key, even one whose name starts the same way, is never read); and the GitHub CLI's own sign-in for `github.com`, through `gh auth status` or, on an older CLI, `gh auth token`; the tokens are tried in turn | the login; the plan word comes from the provider's answer (*Free*, or the Copilot plan) |
+| GitHub Copilot | `apps.json` and `hosts.json` in `$XDG_CONFIG_HOME/github-copilot` or `~/.config/github-copilot`, entries for `github.com` only (a key named `github.com` or `github.com:` and an app id; another host's key, even one whose name starts the same way, is never read); and the GitHub CLI's own sign-in for `github.com`, through `gh auth status` or, on an older CLI, `gh auth token`: its token for the login those files name, or for every account it holds when they name none; the tokens are tried in turn | the login; the plan word comes from the provider's answer (*Free*, or the Copilot plan) |
 
 What this cannot see is said plainly rather than guessed:
 

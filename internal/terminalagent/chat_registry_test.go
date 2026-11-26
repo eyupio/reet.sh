@@ -251,3 +251,56 @@ func TestSupervisorRemembersAndResumesAcrossProcesses(t *testing.T) {
 		t.Fatal("remembered chat was not resumed")
 	}
 }
+
+// chosenModeChat is a chat process whose mode can be switched and read back.
+type chosenModeChat struct{ *fakeChat }
+
+func (c *chosenModeChat) SetMode(_ context.Context, mode string) error {
+	c.mu.Lock()
+	c.mode = mode
+	c.mu.Unlock()
+	return nil
+}
+
+// The adapter loads a conversation in its start mode. After a connector restart
+// the chat must be back in the mode the person chose, which the controller
+// still shows.
+func TestRestartPutsAChatBackInItsChosenMode(t *testing.T) {
+	home := t.TempDir()
+	layout := terminalhost.Layout{Dir: t.TempDir()}
+	work := filepath.Join(home, "work")
+	if err := os.MkdirAll(work, 0700); err != nil {
+		t.Fatal(err)
+	}
+	process := func(mode string) *chosenModeChat {
+		return &chosenModeChat{&fakeChat{done: make(chan struct{}, 1), closed: make(chan struct{}), mode: mode}}
+	}
+	supervisor := func(p *chosenModeChat) (*chatSupervisor, context.CancelFunc) {
+		ctx, cancel := context.WithCancel(context.Background())
+		t.Cleanup(cancel)
+		sup := newChatSupervisor(ctx, terminalhost.ManagerOptions{Home: home, Layout: layout})
+		t.Cleanup(sup.Close)
+		sup.lookPath = func(string) (string, error) { return "/bin/true", nil }
+		sup.start = func(context.Context, acpagent.Options) (chatProcess, error) { return p, nil }
+		return sup, cancel
+	}
+
+	sup1, cancel1 := supervisor(process("act"))
+	h1 := sup1.attach(context.Background(), 1, (&sent{}).send, true, true)
+	const id = "session-0123456789"
+	if _, err := h1.open("request-0123456789", id, terminalproto.Create{
+		Title: "Planned", Cols: 100, Rows: 30, Tool: "opencode", Structured: true, Trust: true, Dir: work,
+	}, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := h1.setAgentMode(context.Background(), id, "plan"); err != nil {
+		t.Fatal(err)
+	}
+	cancel1()
+	sup1.Close()
+
+	second := process("act")
+	sup2, _ := supervisor(second)
+	sup2.startResume()
+	waitUntil(t, "the restored chat to return to its chosen mode", func() bool { return second.Mode() == "plan" })
+}

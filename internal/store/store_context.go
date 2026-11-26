@@ -333,33 +333,44 @@ func (s *Store) ContextEventsFor(uid int64, session string, text bool) ([]Stored
 
 // ContextLatestReplyFor returns the working model's most recent reply: the
 // text of every agent event after the last message it was sent, oldest first,
-// with the sequence numbers it spans. Each event's text is capped, and only
-// the latest 60 events are read. It reads retained events only.
-func (s *Store) ContextLatestReplyFor(uid int64, session string) ([]string, int64, int64, int64, error) {
-	rows, err := s.db.Query(`SELECT seq,at,substr(COALESCE(json_extract(event,'$.text'),''),1,16000) FROM terminal_chat_events
+// with the sequence numbers it spans. An event is one chunk of a message, so
+// the chunks of one message are joined into one part. It reads back from the
+// newest event until it has enough bytes, and more says older ones were left
+// unread. It reads retained events only.
+func (s *Store) ContextLatestReplyFor(uid int64, session string, enough int) (parts []string, first, last, at int64, more bool, err error) {
+	rows, err := s.db.Query(`SELECT seq,at,COALESCE(json_extract(event,'$.messageId'),''),substr(COALESCE(json_extract(event,'$.text'),''),1,16000) FROM terminal_chat_events
  WHERE user_id=? AND session_id=? AND json_valid(event) AND json_extract(event,'$.kind')='agent'
  AND seq>COALESCE((SELECT MAX(seq) FROM terminal_chat_events WHERE user_id=? AND session_id=? AND json_valid(event) AND json_extract(event,'$.kind')='user'),0)
- ORDER BY seq DESC LIMIT 60`, uid, session, uid, session)
+ ORDER BY seq DESC`, uid, session, uid, session)
 	if err != nil {
-		return nil, 0, 0, 0, err
+		return nil, 0, 0, 0, false, err
 	}
 	defer rows.Close()
-	var parts []string
-	var first, last, at int64
+	size, message := 0, ""
 	for rows.Next() {
 		var seq, when int64
-		var text string
-		if err = rows.Scan(&seq, &when, &text); err != nil {
-			return nil, 0, 0, 0, err
+		var id, text string
+		if err = rows.Scan(&seq, &when, &id, &text); err != nil {
+			return nil, 0, 0, 0, false, err
+		}
+		if size >= enough {
+			more = true
+			break
 		}
 		if last == 0 {
 			last, at = seq, when
 		}
 		first = seq
-		parts = append(parts, text)
+		size += len(text)
+		if id != "" && id == message {
+			parts[len(parts)-1] = text + parts[len(parts)-1]
+		} else {
+			parts = append(parts, text)
+		}
+		message = id
 	}
 	for i, j := 0, len(parts)-1; i < j; i, j = i+1, j-1 {
 		parts[i], parts[j] = parts[j], parts[i]
 	}
-	return parts, first, last, at, rows.Err()
+	return parts, first, last, at, more, rows.Err()
 }

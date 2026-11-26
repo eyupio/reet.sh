@@ -54,6 +54,9 @@ var (
 	// ErrQuestionGone means the question is no longer waiting: it was answered,
 	// cancelled, timed out, or never existed for this chat.
 	ErrQuestionGone = errors.New("that question is no longer waiting")
+	// ErrPermissionTruncated means the card shows only part of what it asks, so
+	// it cannot be allowed from here.
+	ErrPermissionTruncated = errors.New("This request is too large to review in full here, so it can only be denied.")
 )
 
 // QuestionInvalidError is an answer the machine refused. The question is still
@@ -139,9 +142,14 @@ type chatLog struct {
 	st        *store.Store
 	uid       int64
 	sessionID string
-	loadOnce  sync.Once
-	events    []ChatEvent
-	seq       int64
+	// loaded says the stored transcript is in the ring. A closed chat's ring is
+	// unloaded, and loaded again for its next reader or event.
+	loaded bool
+	events []ChatEvent
+	seq    int64
+	// live is set by the first event published in this process. Until then the
+	// stored row still describes the chat, even once its transcript is loaded.
+	live      bool
 	bytes     int
 	truncated bool
 	subs      map[int]chan ChatEvent
@@ -172,7 +180,9 @@ type chatLog struct {
 	// flushWG counts batches that have left l.writes but have not finished
 	// their store commit. close waits for it before returning.
 	flushWG sync.WaitGroup
-	closing bool
+	// flushing is the same count, readable under mu.
+	flushing int
+	closing  bool
 }
 
 const (
@@ -200,9 +210,9 @@ func (l *chatLog) publishEvent(event terminalproto.ACPEvent, startsTurn bool) {
 	if err != nil || len(data) > maxChatBytes {
 		return
 	}
-	l.ensureLoaded()
 	nowMs := time.Now().UnixMilli()
 	l.mu.Lock()
+	l.loadLocked()
 	var batch []chatWrite
 	var trimSeq int64
 	// Persist after unlocking: subscribers and the ring must not wait for a WAL
@@ -211,6 +221,7 @@ func (l *chatLog) publishEvent(event terminalproto.ACPEvent, startsTurn bool) {
 		l.mu.Unlock()
 		l.persist(batch, trimSeq)
 	}()
+	l.live = true
 	l.updatedAt = nowMs
 	switch event.Kind {
 	case "user":
@@ -470,6 +481,7 @@ func (l *chatLog) takeWritesLocked() ([]chatWrite, int64) {
 	batch := l.writes
 	l.writes = nil
 	l.flushWG.Add(1)
+	l.flushing++
 	var trimSeq int64
 	if l.trims >= 32 && len(l.events) > 0 {
 		l.trims = 0
@@ -487,14 +499,19 @@ func (l *chatLog) flushLater() {
 }
 
 // persist writes one batch and trims the stored transcript afterwards. It
-// never runs while l.mu is held.
-func (l *chatLog) persist(batch []chatWrite, trimSeq int64) {
+// never runs while l.mu is held. It reports whether the batch is stored.
+func (l *chatLog) persist(batch []chatWrite, trimSeq int64) bool {
 	if len(batch) == 0 {
-		return
+		return true
 	}
-	defer l.flushWG.Done()
+	defer func() {
+		l.mu.Lock()
+		l.flushing--
+		l.mu.Unlock()
+		l.flushWG.Done()
+	}()
 	if l.st == nil {
-		return
+		return true
 	}
 	events := make([]store.StoredChatEvent, len(batch))
 	for i := range batch {
@@ -503,10 +520,30 @@ func (l *chatLog) persist(batch []chatWrite, trimSeq int64) {
 	l.writeMu.Lock()
 	defer l.writeMu.Unlock()
 	if err := l.st.AppendTerminalChatEventsFor(l.uid, l.sessionID, events); err != nil {
-		return
+		return false
 	}
 	if trimSeq > 0 {
 		_ = l.st.TrimTerminalChatEventsFor(l.uid, l.sessionID, trimSeq)
+	}
+	return true
+}
+
+// unload frees the ring of a chat that has closed, once it is stored and nobody
+// reads it. A long-running controller otherwise keeps every ended chat's
+// transcript in memory. The attention state stays.
+func (l *chatLog) unload() {
+	l.mu.Lock()
+	if !l.loaded || l.closing || len(l.subs) > 0 {
+		l.mu.Unlock()
+		return
+	}
+	batch, trimSeq := l.takeWritesLocked()
+	l.mu.Unlock()
+	stored := l.persist(batch, trimSeq)
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if stored && len(l.subs) == 0 && len(l.writes) == 0 && l.flushing == 0 {
+		l.events, l.bytes, l.loaded = nil, 0, false
 	}
 }
 
@@ -553,9 +590,15 @@ func (b *Broker) ApplyChatAttention(uid int64, s *store.TerminalSession) {
 	if s.State.ReservesQuota() {
 		l = b.restoreChat(uid, *s)
 	} else {
+		// The chat has closed: what was allowed for it is forgotten, and its
+		// ring goes once nobody reads it.
 		b.mu.Lock()
 		l = b.chats[chatKey{uid, s.ID}]
+		delete(b.approvals, chatKey{uid, s.ID})
 		b.mu.Unlock()
+		if l != nil {
+			l.unload()
+		}
 	}
 	if l == nil {
 		return
@@ -649,14 +692,10 @@ func previewText(s string, max int) (string, bool) {
 	return s[:max] + "…", true
 }
 
-func mustJSON(event terminalproto.ACPEvent) []byte {
-	data, _ := json.Marshal(event)
-	return data
-}
-
 func (l *chatLog) subscribe() (snapshot []ChatEvent, truncated bool, events <-chan ChatEvent, cancel func()) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	l.loadLocked()
 	snapshot = append([]ChatEvent(nil), l.events...)
 	truncated = l.truncated
 	ch := make(chan ChatEvent, 256)
@@ -692,6 +731,7 @@ func (l *chatLog) subscribe() (snapshot []ChatEvent, truncated bool, events <-ch
 func (l *chatLog) permissionEvent(permissionID string) (terminalproto.ACPEvent, bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	l.loadLocked()
 	for i := len(l.events) - 1; i >= 0; i-- {
 		event := l.events[i].ACPEvent
 		if event.Kind == "permission" && event.PermissionID == permissionID {
@@ -733,38 +773,34 @@ func (b *Broker) chatLog(uid int64, session string) *chatLog {
 	return l
 }
 
-// ensureLoaded restores a chat's stored transcript once, so a controller
-// restart or a reboot does not lose the conversation the browser was showing.
-// A live ring always wins: an event published before this runs keeps its seq
-// and the stored rows continue from there.
-func (l *chatLog) ensureLoaded() {
-	if l.st == nil {
+// loadLocked restores a chat's stored transcript into the ring, so a controller
+// restart, a reboot or an unloaded ring does not lose the conversation the
+// browser was showing. A live ring always wins: an event published before this
+// runs keeps its seq and the stored rows continue from there. The caller holds
+// l.mu, so a reader or an event never sees a ring between unloaded and loaded.
+func (l *chatLog) loadLocked() {
+	if l.st == nil || l.loaded {
 		return
 	}
-	l.loadOnce.Do(func() {
-		stored, err := l.st.TerminalChatEventsFor(l.uid, l.sessionID)
-		if err != nil || len(stored) == 0 {
-			return
+	l.loaded = true
+	stored, err := l.st.TerminalChatEventsFor(l.uid, l.sessionID)
+	if err != nil || len(stored) == 0 || len(l.events) > 0 {
+		return
+	}
+	for _, e := range stored {
+		var event terminalproto.ACPEvent
+		if json.Unmarshal(e.Event, &event) != nil {
+			continue
 		}
-		l.mu.Lock()
-		defer l.mu.Unlock()
-		if len(l.events) > 0 {
-			return
-		}
-		for _, e := range stored {
-			var event terminalproto.ACPEvent
-			if json.Unmarshal(e.Event, &event) != nil {
-				continue
-			}
-			l.events = append(l.events, ChatEvent{Seq: e.Seq, ACPEvent: event, size: len(e.Event)})
-			l.bytes += len(e.Event)
-		}
-		if len(l.events) == 0 {
-			return
-		}
-		l.seq = l.events[len(l.events)-1].Seq
-		l.truncated = l.events[0].Seq > 1
-	})
+		l.events = append(l.events, ChatEvent{Seq: e.Seq, ACPEvent: event, size: len(e.Event)})
+		l.bytes += len(e.Event)
+	}
+	if len(l.events) == 0 {
+		return
+	}
+	// Never back: an unloaded ring keeps counting from where it was.
+	l.seq = max(l.seq, l.events[len(l.events)-1].Seq)
+	l.truncated = l.events[0].Seq > 1
 }
 
 func (b *Broker) restoreChat(uid int64, s store.TerminalSession) *chatLog {
@@ -781,7 +817,7 @@ func (b *Broker) restoreChat(uid int64, s store.TerminalSession) *chatLog {
 	}()
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if l.seq == 0 {
+	if !l.live {
 		if s.BellAt > 0 && l.waitingAt == 0 {
 			l.waitingAt = s.BellAt
 			l.lastState = "waiting"
@@ -989,8 +1025,10 @@ func (b *Broker) publishChat(uid int64, session string, event terminalproto.ACPE
 
 // permissionKey names the narrowest repeatable thing a card asks for. It is
 // empty when a card has nothing stable to match, so it is never remembered.
+// A truncated card shows only the start of what it asks, which a different
+// request can share, so it has no key either.
 func permissionKey(event terminalproto.ACPEvent) string {
-	if event.ToolKind == "" {
+	if event.ToolKind == "" || event.Truncated {
 		return ""
 	}
 	if event.Command != "" {
@@ -1050,9 +1088,7 @@ func (b *Broker) autoAnswer(uid int64, session, permissionID string) {
 // cancel it. A reconnecting client always starts from a reset and the full
 // current ring; Seq lets it ignore a duplicate it has already shown.
 func (b *Broker) SubscribeChat(uid int64, session string) ([]ChatEvent, bool, <-chan ChatEvent, func()) {
-	l := b.chatLog(uid, session)
-	l.ensureLoaded()
-	return l.subscribe()
+	return b.chatLog(uid, session).subscribe()
 }
 
 // CloseChat forgets a chat's in-memory history and closes its subscribers.
@@ -1112,6 +1148,13 @@ func (b *Broker) liveStructuredSession(uid int64, session string) (store.Termina
 }
 
 func (b *Broker) PromptChat(ctx context.Context, uid int64, session, text string, images []string) error {
+	return b.promptChat(ctx, uid, session, text, images, false)
+}
+
+// promptChat is PromptChat. queued is a delivery from the queue, whose message
+// is shown only once the machine has answered: a busy agent leaves it queued,
+// and it would otherwise be shown twice with a false "not sent" in between.
+func (b *Broker) promptChat(ctx context.Context, uid int64, session, text string, images []string, queued bool) error {
 	if !terminalproto.ValidACPPrompt(text, images) {
 		return terminalproto.ErrInvalid
 	}
@@ -1156,17 +1199,27 @@ func (b *Broker) PromptChat(ctx context.Context, uid int64, session, text string
 	if strings.TrimSpace(shown) == "" && len(images) > 0 {
 		shown = "Image attached."
 	}
-	b.chatLog(uid, session).publish(terminalproto.ACPEvent{Kind: "user", Text: shown})
+	echo := terminalproto.ACPEvent{Kind: "user", Text: shown}
+	if !queued {
+		b.chatLog(uid, session).publish(echo)
+	}
 	reply, err := p.callWithin(ctx, terminalproto.Message{RequestID: ID(), SessionID: session, Body: &terminalproto.ACPPrompt{Text: text, Images: images}}, chatCallTimeout)
 	ack := chatAck(reply, err)
 	if r, ok := reply.Body.(*terminalproto.Result); ok && r.Code == terminalproto.Failed {
 		ack = ErrACPImageUnavailable
 	}
+	if queued {
+		if errors.Is(ack, ErrACPBusy) {
+			return ack
+		}
+		b.chatLog(uid, session).publish(echo)
+	}
 	if ack != nil {
-		text := "That message was not sent to OpenCode."
+		name := terminalproto.ToolName(s.Tool)
+		text := "That message was not sent to " + name + "."
 		var lost errReplyLost
 		if errors.As(err, &lost) {
-			text = "We didn't hear back. OpenCode may have the message; check the chat before sending it again."
+			text = "We didn't hear back. " + name + " may have the message; check the chat before sending it again."
 		}
 		b.chatLog(uid, session).publish(terminalproto.ACPEvent{Kind: "notice", Text: text, Bad: true})
 		return ack
@@ -1218,12 +1271,9 @@ func (b *Broker) PermissionChat(ctx context.Context, uid int64, session, permiss
 	if err != nil {
 		return err
 	}
-	if allow && forSession {
-		if event, ok := b.chatLog(uid, session).permissionEvent(permissionID); ok {
-			if key := permissionKey(event); key != "" {
-				b.allowForSession(uid, session, key)
-			}
-		}
+	event, shown := b.chatLog(uid, session).permissionEvent(permissionID)
+	if allow && shown && event.Truncated {
+		return ErrPermissionTruncated
 	}
 	reply, err := p.callWithin(ctx, terminalproto.Message{RequestID: ID(), SessionID: session,
 		Body: &terminalproto.ACPPermission{PermissionID: permissionID, Allow: allow}}, chatCallTimeout)
@@ -1233,6 +1283,13 @@ func (b *Broker) PermissionChat(ctx context.Context, uid int64, session, permiss
 	if r, ok := reply.Body.(*terminalproto.Result); ok {
 		switch r.Code {
 		case terminalproto.OK:
+			// Remembered only once the machine took the answer: a card that was
+			// already denied or closed must not allow its repeats.
+			if allow && forSession && shown {
+				if key := permissionKey(event); key != "" {
+					b.allowForSession(uid, session, key)
+				}
+			}
 			return nil
 		case terminalproto.Conflict:
 			return ErrACPBusy
@@ -1343,6 +1400,15 @@ func (b *Broker) SetChatYolo(ctx context.Context, uid int64, session string, yol
 	}
 	reply, err := p.callWithin(ctx, terminalproto.Message{RequestID: ID(), SessionID: session,
 		Body: &terminalproto.ACPMode{Yolo: yolo}}, chatCallTimeout)
+	var lost errReplyLost
+	if yolo && errors.As(err, &lost) {
+		// The machine may have switched and be answering cards itself, so the
+		// chat must not go on saying Ask me. Turning it off again is one click.
+		_ = b.st.SetTerminalYoloFor(uid, session, true)
+		_ = b.st.AddEventFor(uid, "machine", "yolo-mode", "", map[string]string{
+			"machine": s.AgentID, "tool": s.Tool, "session": session, "mode": "yolo", "reply": "lost",
+		})
+	}
 	if err := chatAck(reply, err); err != nil {
 		return err
 	}

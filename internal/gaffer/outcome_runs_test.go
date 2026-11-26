@@ -202,6 +202,8 @@ type outcomeRig struct {
 func outcomeFixture(t *testing.T) *outcomeRig {
 	t.Helper()
 	outcomeFollowEvery = 10 * time.Millisecond
+	// A machine that cannot be reached is given up at once, unless a test waits for it.
+	outcomeResumeWait = 0
 	s, st, p := settingsFixture(t)
 	rig := &outcomeRig{}
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

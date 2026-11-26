@@ -424,11 +424,17 @@ const (
 	outcomeFollowWait = 60 * time.Second
 )
 
-// outcomeStartWait is how long one launch is waited for.
+// outcomeStartWait is how long one launch is waited for. outcomeResumeWait is
+// how long after a controller start a launch waits for its machine to
+// reconnect, as a resumed project run does.
 var (
 	outcomeStartWait   = 90 * time.Second
 	outcomeFollowEvery = 2 * time.Second
+	outcomeResumeWait  = 2 * time.Minute
 )
+
+// resumeUntil is, on the outcome supervisor's context, when outcomeResumeWait ends.
+type resumeUntil struct{}
 
 func clipBytes(text string, limit int) string {
 	text = strings.Join(strings.Fields(text), " ")
@@ -907,6 +913,7 @@ func (s *Service) wakeOutcomes() {
 // and is joined by Close. The caller holds s.mu.
 func (s *Service) startOutcomeSupervisor(ctx context.Context) {
 	s.outcomeWake = make(chan struct{}, 1)
+	ctx = context.WithValue(ctx, resumeUntil{}, time.Now().Add(outcomeResumeWait))
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
@@ -1639,6 +1646,16 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 			// The same request ID is sent again after a restart, so a launch
 			// whose answer was lost is adopted, not repeated.
 			return false
+		}
+		if until, _ := ctx.Value(resumeUntil{}).(time.Time); errors.Is(err, ErrLaunchUnknown) && time.Now().Before(until) {
+			// The controller has just started and machines are still reconnecting:
+			// the launch is asked for again instead of being given up.
+			select {
+			case <-ctx.Done():
+				return false
+			case <-time.After(outcomeFollowEvery):
+			}
+			return true
 		}
 		if err != nil {
 			state, note := "failed", "Not started: "+clipBytes(err.Error(), 400)

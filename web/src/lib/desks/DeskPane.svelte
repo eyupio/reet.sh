@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { tick } from 'svelte'
+  import { tick, type Snippet } from 'svelte'
   import TerminalPane, { type TerminalActions } from '../terminal/TerminalPane.svelte'
   import type { ConnectionState } from '../terminal/connection'
   import { hasHiddenChars, SESSIONS_PER_ACCOUNT, SESSIONS_PER_MACHINE, sessionHref, stripHiddenChars, type TerminalMachine, type TerminalSession } from '../terminal/api'
@@ -18,7 +18,7 @@
   // blank terminal. Reopening is the desk's to do (it owns the desk's version); the pane only asks.
   // The terminal draws no chrome of its own: the desk draws one toolbar for the focused pane from its `actions`.
   let { tab, pane, session, machine, ready, focused = true, failure, busy = false, error = '', canContinue = false, visible = true, hold = false, admitted = true, layout = true, zoomed = false, tabs = [], startup = '', receiving = false, template = false, phone = false,
-    onfocus, onrename, oncolour, onclose, onreopen, onactions, onsettled, onsplit, onzoom, onswap, onmovetab, onmovetonewtab, onstartcommand, onstartup, onreceivable, oninput }: {
+    onfocus, onrename, oncolour, onclose, onreopen, onactions, onsettled, onsplit, onzoom, onswap, onmovetab, onmovetonewtab, onstartcommand, onstartup, onreceivable, oninput, bar }: {
     tab: Tab
     pane: Pane
     session: TerminalSession | undefined
@@ -77,6 +77,8 @@
     onreceivable?: (ok: boolean) => void
     /** Typed keys, a paste or Compose's text, once this pane's terminal has sent them (TerminalPane's `oninput`). */
     oninput?: (data: string, paste: boolean, at: number) => void
+    /** The desk's command bar, drawn inside the pane's terminal area when this is the focused pane. */
+    bar?: Snippet
   } = $props()
 
   let terminal = $state<TerminalPane>()
@@ -209,6 +211,7 @@
     {:else if card}
       <PaneStateCard {card} {dir} {busy} {error} onaction={act} />
     {/if}
+    {#if bar}{@render bar()}{/if}
   </div>
 </section>
 

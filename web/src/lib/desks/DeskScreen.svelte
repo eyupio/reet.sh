@@ -994,6 +994,10 @@
     <div class="area" id={panelId} role="tabpanel" aria-labelledby={activeTab ? `desk-tab-${activeTab.id}` : undefined}>
       {#if activeTab && activePane}
         {@const t = activeTab}
+        {#snippet commandBarForFocused()}
+          <CommandBar bind:this={commandBar} name={paneName(activePane)} actions={actionsFor[activePaneId]} session={activeSession?.id} agentId={activePane.host}
+            dir={activeSession?.liveDir || activePane.dir} shell={!!activeSession && !activeSession.tool} history={machineById.get(activePane.host)?.capabilities?.commandHistory ?? false} />
+        {/snippet}
         <SplitArea bind:this={split} tab={t} focused={activePaneId} {zoomed} single={phone} name={pid => paneName(t.panes[pid])}
           onratio={(path, ratio) => change({ kind: 'ratio', tab: t.id, path, ratio })}
           onmove={(paneId, onto, edge) => change({ kind: 'move', tab: t.id, pane: paneId, onto, edge })}>
@@ -1020,7 +1024,8 @@
                 onswap={other => change({ kind: 'swap', tab: t.id, a: pid, b: other })}
                 onmovetab={to => moveToTab(t, pid, to)}
                 onmovetonewtab={() => moveToNewTab(t, pid)}
-                onclose={() => askClose(t.id, pid)} />
+                onclose={() => askClose(t.id, pid)}
+                bar={pid === activePaneId && !template && (!typing || barTyping) ? commandBarForFocused : undefined} />
             {/if}
           {/snippet}
         </SplitArea>
@@ -1032,10 +1037,6 @@
         </div>
       {/if}
     </div>
-    {#if activeTab && activePane && !template && (!typing || barTyping)}
-      <CommandBar bind:this={commandBar} name={paneName(activePane)} actions={actionsFor[activePaneId]} session={activeSession?.id} agentId={activePane.host}
-        dir={activeSession?.liveDir || activePane.dir} shell={!!activeSession && !activeSession.tool} history={machineById.get(activePane.host)?.capabilities?.commandHistory ?? false} />
-    {/if}
   {/if}
 </section>
 

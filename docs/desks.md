@@ -101,7 +101,7 @@ command…, Open in Sessions (when the pane has a session) and Close, with the c
   it will take.
 - **Theatre view** (the last toolbar button) folds the top bar and the desk header away, leaving the tab bar, the toolbar
   and the panes. It is not saved.
-- **The command bar** under the panes runs a command in the focused pane's shell. Empty, it offers what you might do
+- **The command bar** inside the focused pane's terminal area runs a command in its shell. Empty, it offers what you might do
   next: `cd` into each folder of the folder the shell is in, then the commands you ran lately and the ones you saved.
   As you type it completes the command, and the last word to a folder (`cd w` offers `web/`, and `cd web/` then offers
   that folder's own folders). The arrow keys choose a suggestion and Tab or a press takes it; that only fills the field.

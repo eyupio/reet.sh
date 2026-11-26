@@ -2958,6 +2958,9 @@ try {
     await openDesk()
     const bar = page.getByRole('form', { name: 'Command bar for reet' })
     const field = bar.getByRole('combobox'), labels = bar.locator('[role=option] > span')
+    // The bar is drawn inside the focused pane's terminal area, not under the panes as a whole.
+    expect(await bar.evaluate(el => el.closest('.desk-pane')?.getAttribute('data-pane'))).toBe('pane-deploy')
+    expect(await page.locator('.desk-screen > form[aria-label^="Command bar"]').count()).toBe(0)
     // Empty: the folders of the shell's folder to cd into, then the commands run lately and saved.
     await expect(labels).toHaveText(['cd cmd/', 'cd web/', 'cd ..', 'git status', 'go test ./...', 'df -h'])
     // Alt+Shift+K moves from the terminal to the bar; Tab takes the suggestion and runs nothing.
@@ -3002,7 +3005,9 @@ try {
     // A pane with no shell running has a bar that says so and takes nothing.
     sessions = sessions.map(x => x.id === 'sess-logs' ? { ...x, state: 'exited', exitCode: 0 } : x)
     await tab('logs').click()
-    await expect(page.getByRole('form', { name: 'Command bar for platform logs' }).getByRole('combobox')).toBeDisabled()
+    const logsBar = page.getByRole('form', { name: 'Command bar for platform logs' })
+    await expect(logsBar.getByRole('combobox')).toBeDisabled()
+    expect(await logsBar.evaluate(el => el.closest('.desk-pane')?.getAttribute('data-pane'))).toBe('pane-logs')
     expect(errors).toEqual([])
     console.log('ok - the command bar offers the next actions, completes a folder and runs only on Enter')
   }

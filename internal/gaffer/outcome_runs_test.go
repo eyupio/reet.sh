@@ -1379,6 +1379,41 @@ func TestThePersonMovesAPipelineOnWhateverTheStageGoalSays(t *testing.T) {
 	}
 }
 
+// Approving the plan allows the outcome's provider its sessions' text and
+// code. Switched off afterwards they stay off: the next stage's session is
+// started but not followed, and its pipeline says why.
+func TestAStageStartDoesNotSwitchProviderAccessBackOn(t *testing.T) {
+	r := outcomeFixture(t)
+	r.s.StartGoalSupervisor()
+	created, err := r.s.CreateOutcome(r.p.UserID, pipelineInput(r, false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	code := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
+	o := r.settle(t, created.ID)
+	allowed, err := r.st.GafferProviderFor(r.p.UserID, o.ProviderID)
+	if err != nil || !allowed.AllowSessions || !allowed.AllowCode {
+		t.Fatalf("approving the plan allows the provider: %+v %v", allowed, err)
+	}
+	in := inputFrom(allowed)
+	in.AllowSessions, in.AllowCode, in.MakeDefault = false, false, true
+	if _, err = r.s.Save(r.p, in); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = r.s.MovePipelineOn(r.p.UserID, created.ID, code.Key, "code"); err != nil {
+		t.Fatal(err)
+	}
+	review := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool {
+		return p.Stage == 1 && p.State != "advancing" && p.State != "starting"
+	})
+	if review.State != "unfollowed" || review.SessionID == "" || !strings.Contains(review.Note, "no longer allowed session text and code") {
+		t.Fatalf("the next stage: %+v", review)
+	}
+	if after, err := r.st.GafferProviderFor(r.p.UserID, o.ProviderID); err != nil || after.AllowSessions || after.AllowCode {
+		t.Fatalf("the provider after the next stage started: %+v %v", after, err)
+	}
+}
+
 // A message sent again after its answer was lost is answered with the turn
 // already saved, in a pipeline's own chat too, where the turn carries the
 // messaging grant although the request asked for no relay.

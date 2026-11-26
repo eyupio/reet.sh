@@ -1807,6 +1807,10 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 				return unfollowed("This session already has a goal.")
 			}
 		}
+		if v.RequiresProviderAccess {
+			// Switched off since the plan was approved: setting the goal would switch it back on.
+			return unfollowed("This outcome’s Gaffer provider is no longer allowed session text and code. Allow both in Gaffer settings, then try this pipeline again.")
+		}
 		if v.SetupAllowed {
 			in := GoalSetupInput{GoalInput: GoalInput{GoalPins: v.Pins, Text: goal, MaxReviews: o.MaxReviews, Hours: o.Hours}, ConversationRevision: v.ConversationRevision, Confirmed: true, Action: "start"}
 			in.Revision = replaces

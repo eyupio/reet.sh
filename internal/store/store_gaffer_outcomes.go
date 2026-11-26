@@ -487,6 +487,11 @@ func (s *Store) CreateGafferOutcomeFor(uid int64, o GafferOutcome) (GafferOutcom
 		}
 		return o, err
 	}
+	// Approving the plan is where the person allows the outcome's provider its
+	// sessions' text and code. A stage start never allows them again by itself.
+	if _, err = tx.Exec(`UPDATE gaffer_providers SET allow_sessions=1,allow_code=1,revision=revision+1,updated_at=? WHERE user_id=? AND id=? AND (allow_sessions=0 OR allow_code=0)`, now(), uid, o.ProviderID); err != nil {
+		return o, err
+	}
 	// Only an outcome with nothing still moving is dropped: one whose pipelines
 	// are followed or waiting for a merge decision is kept however old it is.
 	if _, err = tx.Exec(`DELETE FROM gaffer_outcomes WHERE user_id=? AND json_extract(data,'$.state')!='starting'

@@ -692,11 +692,6 @@ func previewText(s string, max int) (string, bool) {
 	return s[:max] + "…", true
 }
 
-func mustJSON(event terminalproto.ACPEvent) []byte {
-	data, _ := json.Marshal(event)
-	return data
-}
-
 func (l *chatLog) subscribe() (snapshot []ChatEvent, truncated bool, events <-chan ChatEvent, cancel func()) {
 	l.mu.Lock()
 	defer l.mu.Unlock()

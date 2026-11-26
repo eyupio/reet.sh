@@ -965,8 +965,6 @@ func (h *chatHost) end(sessionID string) (terminalproto.SessionChanged, error) {
 	return terminalproto.SessionChanged{State: terminalproto.Exited, ExitCode: cs.exit, ACPSessionID: reportedACP(cs.tool, cs.acpID, h.link.history), WorktreePath: cs.worktreePath, WorktreeRepo: cs.worktreeRepo}, nil
 }
 
-func (h *chatHost) ended(cs *chatSession, code int) { h.sup.ended(cs, code) }
-
 // announceRunning tells the currently attached connection that startup
 // finished. It deliberately ignores link.live: a link being flushed is still
 // writable, and this state must not wait behind the chat-event queue.

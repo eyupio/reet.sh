@@ -245,7 +245,7 @@
   }
   textarea { resize: vertical; line-height: 1.5; min-height: 110px; }
   input:hover, select:hover, textarea:hover { border-color: var(--muted); }
-  input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-color: var(--accent); }
+  input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; border-color: var(--accent); }
   [aria-invalid='true'] { border-color: var(--warn); }
   .note { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.5; }
   .over { color: var(--warn); font-weight: 600; }
@@ -258,7 +258,7 @@
   .pills label:hover { color: var(--ink); }
   .pills label.on { background: var(--card); color: var(--ink); box-shadow: 0 0 0 1px var(--line-strong); }
   .pills input { width: auto; min-height: 0; margin: 0; accent-color: var(--accent); }
-  .pills label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .pills label:has(input:focus-visible) { outline: 2px solid var(--focus); outline-offset: 1px; }
   .tier { display: flex; align-items: center; gap: 8px 14px; flex-wrap: wrap; }
   .tier select { width: auto; min-width: 160px; }
   .crew { color: var(--muted); font-size: 14px; }
@@ -271,7 +271,7 @@
   .row-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 28px; }
   .link { border: 0; padding: 0; background: none; color: var(--accent-text); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
   .link:hover { text-decoration: underline; }
-  .link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+  .link:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 4px; }
   .chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; }
   .chip { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; padding: 2px 2px 2px 12px; border: 1px solid var(--line-strong); border-radius: 999px; background: var(--bg); font: 14px/20px var(--mono); letter-spacing: -0.02em; }
   .chip.gone { border-color: var(--warn); color: var(--warn); }
@@ -279,7 +279,7 @@
   .chip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .chip button { display: inline-grid; place-items: center; flex: none; width: 28px; height: 28px; border: 0; border-radius: 50%; background: transparent; color: var(--muted); font: inherit; cursor: pointer; }
   .chip button:hover { background: var(--bg-sunk); color: var(--bad); }
-  .chip button:focus-visible { outline: 2px solid var(--accent); outline-offset: 0; }
+  .chip button:focus-visible { outline: 2px solid var(--focus); outline-offset: 0; }
   @media (max-width: 1100px) { .named { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .named .field:nth-child(2) { grid-column: 1 / -1; grid-row: 2; } }
   @media (max-width: 900px) { .inspector { grid-template-columns: minmax(0, 1fr); } }
 
@@ -292,13 +292,13 @@
   .icon[aria-disabled='true'] { color: var(--line-strong); cursor: default; }
   .icon:active:not([aria-disabled='true']) { background: var(--bg-sunk); }
   .icon.remove { color: var(--bad); }
-  .icon:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .icon:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
   .close { min-height: 44px; padding: 0 10px; }
   .parts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg-sunk); }
   .parts:focus { outline: none; }
   .parts [role='tab'] { min-height: 44px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); font: inherit; font-size: 15px; font-weight: 600; cursor: pointer; }
   .parts [role='tab'][aria-selected='true'] { background: var(--card); color: var(--ink); box-shadow: 0 0 0 1px var(--line-strong); }
-  .parts [role='tab']:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .parts [role='tab']:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
   .flag { color: var(--warn); font-weight: 700; }
   .part { display: grid; gap: 8px; min-width: 0; }
   .choice {
@@ -309,7 +309,7 @@
   .choice:active:not(:disabled) { background: var(--bg-sunk); }
   .choice:disabled { cursor: default; }
   .choice:disabled .name { color: var(--muted); }
-  .choice:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .choice:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
   .choice .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .choice .tick { grid-column: 2; grid-row: 1; color: var(--accent-text); font-weight: 700; text-align: center; }
   .choice .sub { grid-column: 1 / -1; color: var(--muted); font-size: 14px; line-height: 1.4; }
@@ -319,5 +319,10 @@
   .sheet-body .named { grid-template-columns: minmax(0, 1fr); }
   .sheet-body .named .field:nth-child(2) { grid-column: auto; grid-row: auto; }
   .sheet-body input, .sheet-body select, .sheet-body textarea, .sheet-body .named :global(.model select), .sheet-body .named :global(.model input) { min-height: 44px; font-size: 16px; }
-  @media (pointer: coarse) { .retry { min-height: 44px; } .tools .btn, .pills label, .tier select, input, select { min-height: 44px; } .chip button { width: 40px; height: 40px; } }
+  /* On a touch screen every control is 44 px; the chip's ✕ reaches it past the chip's edge, so the chip keeps its size. */
+  @media (pointer: coarse) {
+    .retry, .link { min-height: 44px; }
+    .tools .btn, .pills label, .tier select, input, select { min-height: 44px; }
+    .chip button { width: 44px; height: 44px; margin: -6px -6px -6px -4px; }
+  }
 </style>

@@ -66,7 +66,7 @@
   }
   .add:hover { border-color: var(--accent); color: var(--accent-text); }
   .add:active { background: var(--tint); }
-  .add:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+  .add:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
   .empty { display: grid; gap: 4px; margin-right: 20px; padding: 18px 22px; border: 1.5px dashed var(--line-strong); border-radius: 12px; background: var(--card); color: var(--muted); text-align: center; }
   .empty p { margin: 0; font-size: 14px; }
   .empty .lead { color: var(--ink); font-weight: 600; font-size: 15px; }

@@ -13,6 +13,8 @@
 
   const own = $derived(stage.kind === 'custom')
   const title = $derived(stageTitle(stage).trim())
+  // Who does it, a part at a time: each stays whole, and the line wraps only before a ·.
+  const parts = $derived(stageWho(stage).split(' · '))
   const skills = $derived(stage.skills?.length ?? 0)
   const summary = $derived.by(() => {
     const prompt = !!stage.prompt?.trim()
@@ -33,11 +35,12 @@
 </script>
 
 <button type="button" class="card" class:vertical class:bad={!!problem} data-stage-index={at} data-drop={aim ? aim.take ? 'take' : 'refuse' : undefined} aria-pressed={selected}
+  aria-keyshortcuts={vertical ? 'Alt+ArrowUp Alt+ArrowDown Delete' : 'Alt+ArrowLeft Alt+ArrowRight Delete'}
   onclick={onselect} onkeydown={keys} use:draggable={drag && { item: () => ({ type: 'card', from: at }), ...drag }}>
   <span class="grip" aria-hidden="true">⠿</span>
   <span class="title" class:unnamed={!title}>{title || 'Unnamed stage'}</span>
   <span class="origin">{own ? 'Your own' : stage.kind === 'merge' ? 'Built in · waits for you' : 'Built in'}</span>
-  <span class="who">{stageWho(stage)}</span>
+  <span class="who">{#each parts as part, i (i)}{#if i}{' '}{/if}<span>{i ? '·\u00a0' : ''}{part}</span>{/each}</span>
   <span class="summary">{#if aim && !aim.take}{aim.note}{:else}{aim ? `${summary} · ` : summary}{#if aim}<span class="preview">{aim.note}</span>{/if}{/if}</span>
   {#if problem}<span class="problem" title={problem}><span class="mark" aria-hidden="true">!</span>{problem}</span>{/if}
 </button>
@@ -51,7 +54,7 @@
   }
   .card:hover { border-color: var(--line-strong); }
   .card:active { background: var(--card-raised); border-color: var(--muted); }
-  .card:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+  .card:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
   .card[aria-pressed='true'] { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-wash), var(--shadow); }
   .card.bad:not([aria-pressed='true']) { border-color: var(--warn); }
   .grip { grid-area: grip; color: var(--faint); font-size: 14px; line-height: 22px; cursor: grab; }
@@ -67,8 +70,10 @@
   .origin { grid-area: origin; color: var(--muted); font-size: 14px; line-height: 20px; }
   .who {
     grid-area: who; justify-self: start; max-width: 100%; box-sizing: border-box; margin: 4px 0 2px; padding: 2px 8px; border-radius: 6px;
-    background: var(--bg-sunk); color: var(--ink-soft); font: 14px/20px var(--mono); letter-spacing: -0.03em; overflow-wrap: anywhere;
+    background: var(--bg-sunk); color: var(--ink-soft); font: 14px/20px var(--mono); letter-spacing: -0.03em; overflow: hidden;
   }
+  /* The model and the effort each stay whole, wrapping only between them; a name wider than the card is cut short. */
+  .who > span { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: top; }
   .summary { grid-area: summary; color: var(--muted); font-size: 14px; line-height: 20px; }
   .problem { grid-area: problem; color: var(--warn); font-size: 14px; line-height: 20px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; }
   .mark { font-weight: 700; margin-right: 6px; }

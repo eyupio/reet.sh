@@ -33,7 +33,7 @@ export function draggable(node: HTMLElement, opts: (DragHooks & { item: () => Dr
   const o = opts
   // idle; pending (pressed, not yet picked up); live (dragging); done (cancelled, waiting for the pointer to come up).
   let phase: 'idle' | 'pending' | 'live' | 'done' = 'idle'
-  let id = 0, touch = false, x0 = 0, y0 = 0, x = 0, y = 0, timer = 0, swallow = false, touchAction = ''
+  let id = 0, touch = false, x0 = 0, y0 = 0, x = 0, y = 0, timer = 0, swallow = false, swallowing = 0, touchAction = ''
   node.style.setProperty('-webkit-touch-callout', 'none')
 
   function begin() {
@@ -68,6 +68,7 @@ export function draggable(node: HTMLElement, opts: (DragHooks & { item: () => Dr
   }
 
   function down(event: PointerEvent) {
+    swallow = false; clearTimeout(swallowing)
     if (phase !== 'idle' || !event.isPrimary || (event.pointerType === 'mouse' && event.button !== 0)) return
     phase = 'pending'; id = event.pointerId; touch = event.pointerType === 'touch'
     x0 = x = event.clientX; y0 = y = event.clientY
@@ -105,9 +106,11 @@ export function draggable(node: HTMLElement, opts: (DragHooks & { item: () => Dr
     finish(false)
   }
   // A pointer lost mid-drag (the node taken away, capture released) is a cancel.
-  // The window losing focus (alt-tab with the button held) may send no pointerup or cancel: cancel the drag now.
-  function away(event: Event) { if (phase === 'live' && (event.type === 'blur' || document.visibilityState === 'hidden')) { finish(false); reset(); swallow = false } }
-  const lost = () => { if (phase === 'live') { finish(false); reset(); swallow = false } }
+  // The window losing focus (alt-tab with the button held) may send no pointerup or cancel: cancel the drag now. The button
+  // may still be down, so the click its release makes is swallowed too, until the next press or half a second has passed.
+  function stop() { finish(false); reset(); clearTimeout(swallowing); swallowing = window.setTimeout(() => { swallow = false }, 500) }
+  function away(event: Event) { if (phase === 'live' && (event.type === 'blur' || document.visibilityState === 'hidden')) stop() }
+  const lost = () => { if (phase === 'live') stop() }
   const click = (event: MouseEvent) => { if (swallow) { event.preventDefault(); event.stopImmediatePropagation() } }
   // Once a touch drag has started, the finger moving must not scroll the page or the line.
   const touchmove = (event: TouchEvent) => { if (phase === 'live' || phase === 'done') event.preventDefault() }
@@ -122,6 +125,7 @@ export function draggable(node: HTMLElement, opts: (DragHooks & { item: () => Dr
     destroy() {
       if (phase === 'live') finish(false)
       reset()
+      clearTimeout(swallowing)
       node.removeEventListener('pointerdown', down)
       node.removeEventListener('lostpointercapture', lost)
       node.removeEventListener('click', click, true)

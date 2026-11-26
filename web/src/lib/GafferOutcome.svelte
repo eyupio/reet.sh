@@ -287,7 +287,6 @@
       }
     })
   })
-  $effect(() => { if (!needsTrust) trust = false })
   $effect(() => {
     const agentId = machine?.agentId
     if (!agentId) return
@@ -401,7 +400,7 @@
     return [
       { label: 'Your account allows YOLO', ok: account, detail: account ? (yoloSetting?.changedBy ? `set by ${yoloSetting.changedBy}` : 'set by an owner') : yoloSetting ? 'An owner or admin can allow YOLO for this account in Settings.' : 'Reading the account setting…' },
       { label: `${host} accepts YOLO sessions`, ok: !!machine?.capabilities?.yolo, detail: machine?.capabilities?.yolo ? 'reported by the machine' : `${host} doesn’t accept YOLO sessions.` },
-      { label: 'Every agent in the crew has a YOLO option', ok: !without.length, detail: without.length ? `${without.join(' and ')} has no option reet can use for that.` : runTools.filter(Boolean).length ? [...new Set(runTools.filter(Boolean))].map(chatToolName).join(', ') : 'No agent chosen' },
+      { label: pathway ? 'Every agent this pathway uses has a YOLO option' : 'Every agent in the crew has a YOLO option', ok: !without.length, detail: without.length ? `${without.join(' and ')} has no option reet can use for that.` : runTools.filter(Boolean).length ? [...new Set(runTools.filter(Boolean))].map(chatToolName).join(', ') : 'No agent chosen' },
     ]
   })
   const launchesInWorktree = $derived(!!project?.isRepo && !!machine?.capabilities?.worktree)
@@ -543,7 +542,7 @@
     if (upload === null) { busy = false; return }
     writeFloorDefaults(userId, { ...readFloorDefaults(userId, BUILT_IN_GOAL_PROMPTS[0].text), maxReviews, hours })
     const body: Omit<GafferOutcomeInput, 'requestId'> = {
-      objective: objective.trim(), ...(pathway ? { pathway: pathway.id } : {}), projectId: project.id, tool, model: model.trim(), provider: sourceShown ? chosenSource : '', trust, yolo: yolo && !yoloWhy, autoReport, automation, balanceBelow: balancePercent(balanceBelow), autoMerge: autoMerge && hasMerge, maxReviews, hours, confirmed: true, ...(upload.paths.length ? { images: upload.paths } : {}),
+      objective: objective.trim(), ...(pathway ? { pathway: pathway.id } : {}), projectId: project.id, tool, model: model.trim(), provider: sourceShown ? chosenSource : '', trust: trust && needsTrust, yolo: yolo && !yoloWhy, autoReport, automation, balanceBelow: balancePercent(balanceBelow), autoMerge: autoMerge && hasMerge, maxReviews, hours, confirmed: true, ...(upload.paths.length ? { images: upload.paths } : {}),
       sessions: sessions.map(item => ({ title: item.title.trim(), prompt: cleanPrompt(item.prompt), ...(cleanCriteria(item.criteria).length ? { criteria: cleanCriteria(item.criteria) } : {}), ...(pathway ? {} : { stages: withReportedEfforts(stagePlan(item.stages ?? DEFAULT_STAGES, crewSent, machine?.capabilities?.acpProvider === true, item), machine?.capabilities ? efforts : null) }) })),
       ...(latestOverride === null ? {} : { pullLatest: latestOverride ? 'yes' as const : 'no' as const }),
     }
@@ -568,7 +567,7 @@
     const skipped = skippedKeys(gaps)
     // The crew is sent tier by tier exactly as the readiness above reads it, so what is shown is what starts.
     const crewChosen = { light: tierCrew(sentFor('light')), standard: tierCrew(sentFor('standard')), heavy: tierCrew(sentFor('heavy')) }
-    const body: Omit<TemplateLaunchInput, 'requestId'> = { version: one.version, projectId: project.id, tool, model: model.trim(), provider: sourceShown ? chosenSource : '', trust, yolo: yolo && !yoloWhy, autoReport, automation, balanceBelow: balancePercent(balanceBelow), crew: crewChosen, confirmed: true, ...(skipped.length ? { skippedSkills: skipped } : {}), ...(latestOverride === null ? {} : { pullLatest: latestOverride ? 'yes' as const : 'no' as const }) }
+    const body: Omit<TemplateLaunchInput, 'requestId'> = { version: one.version, projectId: project.id, tool, model: model.trim(), provider: sourceShown ? chosenSource : '', trust: trust && needsTrust, yolo: yolo && !yoloWhy, autoReport, automation, balanceBelow: balancePercent(balanceBelow), crew: crewChosen, confirmed: true, ...(skipped.length ? { skippedSkills: skipped } : {}), ...(latestOverride === null ? {} : { pullLatest: latestOverride ? 'yes' as const : 'no' as const }) }
     try {
       record = await launchGafferTemplate(one.id, { ...body, requestId: launchIds.idFor(JSON.stringify(body)) }, life.signal)
       launchIds.clear(); step = 'results'; watch(record.id); await onstarted()
@@ -657,7 +656,7 @@
       {/if}
     {:else if step === 'plan'}
       <p class="objective"><span class="eyebrow">Outcome</span>{objective.trim()}</p>
-      {#if !declined}<PathwayChoice {pathways} bind:value={pathwayId}/>{/if}
+      {#if !declined}<PathwayChoice bind:pathways bind:value={pathwayId}/>{/if}
       {#if planThread.length}
         <section class="talk" aria-label="Conversation with Gaffer">
           {#each planThread as turn, index (index)}

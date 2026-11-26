@@ -16,7 +16,9 @@ gaffer-settings job runs them. User docs: a Pathways section in `docs/factory.md
 **Checked:** each task was built test first and reviewed by a second reader. Both browser suites were run at 1280 and
 390 px, in light and dark. Touch dragging was tested with simulated touch in Chromium only, not on a real phone or
 tablet. Screenshots were compared with the owner's approved mockups. `npm run check` in `web/` passes. `pathways`
-takes about 76 seconds and `pathways-choice` about 17 seconds on their own in the cloud container.
+takes about 76 seconds and `pathways-choice` about 17 seconds on their own in the cloud container. A whole-branch review
+was then made and its findings fixed: 44 px targets on tablets, the dialogs reading pathways again when the window comes
+back, a sticky palette, many pathways in the choice, and a pathway deleted somewhere else.
 
 **Not done:** Gaffer's own suggestion of a pathway and the MCP tools are the next pull request. Over MCP an agent still
 cannot see the name of an earlier stage of the person's own. On a phone, dragging reorders stages only (adding and

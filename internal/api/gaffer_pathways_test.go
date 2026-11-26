@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -350,5 +351,35 @@ func TestPathwaySkillsListsWhatAStageCanLoad(t *testing.T) {
 	}
 	if code, _ := gafferClient(t, &http.Client{}, srv, "GET", "/api/v2/gaffer/pathways/skills", ""); code != 401 {
 		t.Fatalf("signed out: %d", code)
+	}
+}
+
+// A skill is left out of the shelf only when it cannot be loaded (switched
+// off, too large); a failed read answers 500, so the editor never calls a
+// skill gone that is not.
+func TestPathwaySkillsLeavesOutOnlyWhatCannotLoad(t *testing.T) {
+	st, srv, owner := templateServer(t)
+	base := ""
+	if _, err := st.SaveLibraryContentFor(1, "", store.PrivateSkillWrite{RequestID: strings.Repeat("b", 32), ExpectedBase: &base, Name: "huge", Files: []skillbundle.ContentFile{{Path: "SKILL.md", Data: []byte("---\nname: huge\ndescription: Too long\n---\n" + strings.Repeat("x", 13000))}}}); err != nil {
+		t.Fatal(err)
+	}
+	off, err := json.Marshal(buddySystemConfig{Version: 1, Overrides: []skillbuddy.Skill{{ID: "builtin:review", Name: "Review", Source: "builtin", Disabled: true}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetSetting(buddySystemKey, string(off)); err != nil {
+		t.Fatal(err)
+	}
+	code, got := gafferClient(t, owner, srv, "GET", "/api/v2/gaffer/pathways/skills", "")
+	if code != 200 || strings.Contains(got, `"huge"`) || strings.Contains(got, `"builtin:review"`) || !strings.Contains(got, `"builtin:`) {
+		t.Fatalf("unloadable skills: %d %s", code, got)
+	}
+	was := pathwaySkillLoad
+	t.Cleanup(func() { pathwaySkillLoad = was })
+	pathwaySkillLoad = func(s *server, uid int64, id string) (skillbuddy.Skill, error) {
+		return skillbuddy.Skill{}, errors.New("database is locked")
+	}
+	if code, got := gafferClient(t, owner, srv, "GET", "/api/v2/gaffer/pathways/skills", ""); code != 500 || strings.Contains(got, "skills\":") {
+		t.Fatalf("a failed read: %d %s", code, got)
 	}
 }

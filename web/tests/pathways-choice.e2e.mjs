@@ -11,7 +11,7 @@ const now=Date.now(),pid='a'.repeat(32),oid='e'.repeat(32)
 const provider={id:pid,revision:1,name:'Workshop Gaffer',kind:'openai_compatible',baseUrl:'https://example.test/v1',model:'gaffer-model',enabled:true,isDefault:true,localOnly:false,allowSessions:true,allowCode:true,hasKey:true,createdAt:now,updatedAt:now}
 const ADAPTERS={claude:'claude-agent-acp',codex:'codex-acp',opencode:'opencode',antigravity:'agy'}
 // The machine, with the agents it offers (Claude Code unless a test says otherwise).
-const machineWith=(tools=['claude'],ready=true)=>({agentId:'a1',host:'workshop',ready,serverEnabled:true,capabilities:{protocolVersion:1,os:'linux',osUser:'test',terminalEnabled:true,terminalControl:true,readiness:'ready',launch:true,acp:true,acpLiveControls:true,acpStartOptions:true,inspect:true,acpAgents:tools.map(tool=>({tool,adapter:ADAPTERS[tool],state:'available',options:[]}))}})
+const machineWith=(tools=['claude'],ready=true,yolo=false)=>({agentId:'a1',host:'workshop',ready,serverEnabled:true,capabilities:{protocolVersion:1,...(yolo?{yolo:true}:{}),os:'linux',osUser:'test',terminalEnabled:true,terminalControl:true,readiness:'ready',launch:true,acp:true,acpLiveControls:true,acpStartOptions:true,inspect:true,acpAgents:tools.map(tool=>({tool,adapter:ADAPTERS[tool],state:'available',options:[]}))}})
 const project={id:'p1',host:'a1',machine:'workshop',dir:'/work/billing',name:'billing',isRepo:true,baseBranch:'',worktreeDefault:'',colour:'',position:0,version:1,createdAt:now,updatedAt:now}
 
 // Pathways as /api/v2/gaffer/pathways answers them (internal/api/gaffer_pathways.go): two to choose from, one that cannot
@@ -39,9 +39,10 @@ const BASELINE_ADD={"revision":3,"confirmed":true,"sessions":[{"title":"Changelo
 
 // `pathways` is what the list read answers: an array, {status, json} for a failure, or null for the helper's own answer (none). `pathwayId` marks the outcome's
 // first pipeline as started from that pathway. `refuse` is a sentence the next start is refused with.
-// `tools` are the agents the machine offers, `crew` the saved crew's tiers and `accounts` the machine's sign-ins.
-function fixture({pathways=PATHWAYS,pathwayId,tools,crew,accounts}={}){
- const box={starts:[],adds:[],refuse:'',machines:[machineWith(tools)]}
+// `tools` are the agents the machine offers, `crew` the saved crew's tiers and `accounts` the machine's sign-ins. `yolo` lets the
+// account and the machine use YOLO. `box.pathways` can be changed to answer the next read differently.
+function fixture({pathways=PATHWAYS,pathwayId,tools,crew,accounts,yolo=false}={}){
+ const box={starts:[],adds:[],refuse:'',machines:[machineWith(tools,true,yolo)],pathways}
  const session={key:'a',title:'Export API',prompt:'p',state:'done',note:'Finished.',sessionId:'s-a',conversationId:'a'.repeat(32),sessionState:'ended',updatedAt:now-3600000,stage:1,stages:[{kind:'code',tool:'claude',model:'',state:'done',requestId:'r'}],...(pathwayId?{pathwayId,pathwayName:'Quick fix'}:{})}
  const outcome={id:oid,revision:3,objective:'Ship CSV export for billing.',state:'settled',note:'',agentId:'a1',projectId:'p1',projectName:'billing',dir:'/work/billing',tool:'claude',providerId:pid,maxReviews:12,hours:24,createdAt:now-7200000,updatedAt:now-3600000,sessions:[session],
   report:{text:'Nothing covers the changelog.',at:now,model:'gaffer-model',inputTokens:1,outputTokens:1,usageReported:true,proposals:[{title:'Changelog entry',prompt:'Add a changelog entry. Do not merge.',why:'No pipeline covers it.',stages:['code','pr']}]}}
@@ -53,7 +54,7 @@ function fixture({pathways=PATHWAYS,pathwayId,tools,crew,accounts}={}){
   '/api/v2/terminal/sessions':{sessions:[]},
   '/api/v2/terminal/machines':()=>({machines:box.machines}),
   '/api/v2/folder-projects':{projects:[project],savedWaiting:0},
-  '/api/v2/settings/yolo':{allowed:false},
+  '/api/v2/settings/yolo':{allowed:yolo},
   '/api/v2/gaffer/outcomes':r=>{
    if(r.method()!=='POST')return{outcomes:[outcome]}
    const b=r.postDataJSON();box.starts.push(b)
@@ -65,7 +66,7 @@ function fixture({pathways=PATHWAYS,pathwayId,tools,crew,accounts}={}){
  }
  if(crew)routes['/api/v2/gaffer/crew']=savedCrew(crew)
  if(accounts)routes['/api/v2/machines/a1/accounts']={state:'read',sentence:'',planLimits:false,checkedAt:now,accounts}
- if(pathways!==null)routes['/api/v2/gaffer/pathways']=Array.isArray(pathways)?{pathways}:pathways
+ if(pathways!==null)routes['/api/v2/gaffer/pathways']=Array.isArray(pathways)?()=>({pathways:box.pathways}):pathways
  return {box,routes}
 }
 const open=async(width,theme,over={})=>{
@@ -167,6 +168,8 @@ try{
     const edit=outcome.getByRole('link',{name:'Edit pathway',exact:true})
     await expect(edit).toHaveAttribute('href','/factory/pathways/p2')
     await expect(edit).toHaveAttribute('target','_blank')
+    // It sits in the chosen pathway's own row.
+    expect(await edit.evaluate(a=>a.closest('label')?.querySelector('input:checked')?.value)).toBe('p2')
     await expect(outcome.getByRole('textbox',{name:'Pipeline 1 prompt',exact:true})).toBeVisible()
     await dialogFits(page)
     await bringUp(group.locator('..'));await shot(page,'outcome-pathway',width,theme)
@@ -379,6 +382,92 @@ try{
     expect(w.errors).toEqual([])
    } finally { await w.context.close() }
   }
+ }
+ // 9. Many pathways: the first six, then Standard stages; the rest behind "Show all", with a search once there are more
+ //    than twelve rows. A chosen pathway further down stays in sight when the list is folded again.
+ const MANY=Array.from({length:30},(_,n)=>pathway(`m${n+1}`,`Line ${n+1}`,[st('code'),st('pr')]))
+ for(const [width,theme] of [[1280,'light'],[390,'dark']]){
+  const {f,w,page}=await open(width,theme,{pathways:MANY})
+  try{
+   const outcome=await toPlan(page)
+   const group=outcome.getByRole('radiogroup',{name:'Pathway',exact:true})
+   const names=()=>group.getByRole('radio').evaluateAll(els=>els.map(el=>el.closest('label').querySelector('strong').textContent))
+   await expect.poll(names).toEqual(['Line 1','Line 2','Line 3','Line 4','Line 5','Line 6',STANDARD])
+   await expect(group.getByRole('radio',{name:new RegExp(`^${STANDARD}`)})).toBeChecked()
+   await expect(outcome.getByRole('searchbox')).toHaveCount(0)
+   const all=outcome.getByRole('button',{name:'Show all 30 pathways',exact:true})
+   await dialogFits(page)
+   await bringUp(group.locator('..'));await shot(page,'many-folded',width,theme)
+   await all.click()
+   await expect(group.getByRole('radio')).toHaveCount(31)
+   await expect(group.getByRole('radio').last()).toHaveAccessibleName(new RegExp(`^${STANDARD}`))
+   const search=outcome.getByRole('searchbox',{name:'Search pathways',exact:true})
+   await expect(search).toBeFocused()
+   await search.fill('Line 2')
+   await expect.poll(names).toEqual(['Line 2',...Array.from({length:10},(_,n)=>`Line ${20+n}`),STANDARD])
+   await group.getByRole('radio',{name:/^Line 27/}).check()
+   await search.fill('')
+   await dialogFits(page)
+   await bringUp(group.locator('..'));await shot(page,'many-open',width,theme)
+   await outcome.getByRole('button',{name:'Show fewer',exact:true}).click()
+   await expect.poll(names).toEqual(['Line 27','Line 1','Line 2','Line 3','Line 4','Line 5',STANDARD])
+   await expect(group.getByRole('radio',{name:/^Line 27/})).toBeChecked()
+   await group.getByRole('radio',{name:/^Line 27/}).focus()
+   await page.keyboard.press('ArrowDown')
+   await expect(group.locator('label:has(input:checked) strong')).toHaveText('Line 1')
+   if(width===1280)expect((await startOutcome(page,f,outcome)).pathway).toBe('m1')
+   expect(w.errors).toEqual([])
+  } finally { await w.context.close() }
+ }
+ // 10. A pathway switched off or changed in another tab (Edit pathway opens one) is read again when the window comes back:
+ //     a choice no longer offered goes back to Standard stages and says so, and the body is the one sent before pathways.
+ {
+  const {f,w,page}=await open(1280,'light')
+  try{
+   const outcome=await toPlan(page)
+   const group=outcome.getByRole('radiogroup',{name:'Pathway',exact:true})
+   await group.getByRole('radio',{name:/^Careful release/}).check()
+   f.box.pathways=PATHWAYS.map(p=>p.id==='p2'?{...p,enabled:false}:p.id==='p1'?{...p,stages:[st('code'),st('review'),st('pr'),st('merge')]}:p)
+   await page.evaluate(()=>window.dispatchEvent(new Event('focus')))
+   await expect(group.getByRole('radio',{name:new RegExp(`^${STANDARD}`)})).toBeChecked()
+   await expect(outcome.getByRole('status').filter({hasText:'Careful release is no longer on, so this is back on Standard stages.'})).toBeVisible()
+   await expect(group.getByRole('radio',{name:/^Careful release/})).toHaveCount(0)
+   await expect(group.getByRole('list',{name:'Stages of Quick fix'})).toHaveText(/Code.*Review.*PR.*Merge/s)
+   await expect(outcome.getByRole('group',{name:'Pipeline 1 stages',exact:true})).toBeVisible()
+   same(await startOutcome(page,f,outcome),BASELINE_OUTCOME,'outcome')
+   // Add pipelines, on a page that comes back into view.
+   f.box.pathways=PATHWAYS
+   const {f:f2,w:w2,page:page2}=await open(1280,'light',{pathwayId:'p1'})
+   try{
+    const add=await toAdd(page2)
+    await expect(add.getByRole('radio',{name:/^Quick fix/})).toBeChecked()
+    f2.box.pathways=PATHWAYS.filter(p=>p.id!=='p1')
+    await page2.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')))
+    await expect(add.getByRole('radio',{name:new RegExp(`^${STANDARD}`)})).toBeChecked()
+    await expect(add.getByRole('status').filter({hasText:'Quick fix is no longer on, so this is back on Standard stages.'})).toBeVisible()
+    same(await addOne(page2,f2,add),BASELINE_ADD,'add')
+    expect(w2.errors).toEqual([])
+   } finally { await w2.context.close() }
+   expect(w.errors).toEqual([])
+  } finally { await w.context.close() }
+ }
+ // 11. A folder-trust tick made under Standard stages survives a trip to a pathway that needs none; the YOLO check names
+ //     the pathway's agents.
+ {
+  const {f,w,page}=await open(1280,'light',{tools:['claude','opencode'],crew:{heavy:{tool:'opencode'}},yolo:true})
+  try{
+   const outcome=await toPlan(page)
+   const trust=outcome.getByRole('checkbox',{name:/^I trust this folder/})
+   await trust.check()
+   await outcome.getByRole('radiogroup',{name:'Pathway',exact:true}).getByRole('radio',{name:/^Quick fix/}).check()
+   await expect(trust).toHaveCount(0)
+   await outcome.getByRole('radio',{name:'YOLO',exact:true}).click()
+   await expect(page.getByText('Every agent this pathway uses has a YOLO option',{exact:true})).toBeVisible()
+   await page.getByRole('button',{name:'Keep asking me',exact:true}).click()
+   await outcome.getByRole('radiogroup',{name:'Pathway',exact:true}).getByRole('radio',{name:new RegExp(`^${STANDARD}`)}).check()
+   await expect(trust).toBeChecked()
+   expect(w.errors).toEqual([])
+  } finally { await w.context.close() }
  }
  console.log('pathways-choice: ok')
 } finally { await browser.close() }

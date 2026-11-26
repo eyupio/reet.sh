@@ -144,3 +144,5 @@ export const sameEdit = (a: Pathway, b: Pathway): boolean => {
   const edit = ({ updatedAt: _t, problems: _p, ...rest }: Pathway) => JSON.stringify(rest, stable)
   return edit(a) === edit(b)
 }
+/** The same stages, in the same order, with the same settings. */
+export const sameStages = (a: PathwayStage[], b: PathwayStage[]): boolean => JSON.stringify(a, stable) === JSON.stringify(b, stable)

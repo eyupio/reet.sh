@@ -149,17 +149,18 @@
 </section>
 
 <style>
-  .palette { display: grid; align-content: start; gap: 12px; min-width: 0; }
+  /* Given a height (the editor's dock), the list scrolls under the tabs and search; in the phone's sheet it is as tall as it is. */
+  .palette { display: grid; grid-template-rows: auto auto minmax(0, 1fr); align-content: start; gap: 12px; min-width: 0; }
   .tabs { display: grid; grid-template-columns: repeat(4, auto); gap: 0; padding: 3px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
   .tabs:focus { outline: none; }
   [role='tab'] { min-height: 34px; padding: 0 6px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
   [role='tab']:hover { color: var(--ink); }
   [role='tab'][aria-selected='true'] { background: var(--tint); color: var(--accent-text); }
-  [role='tab']:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  [role='tab']:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
   .search { width: 100%; box-sizing: border-box; min-height: 40px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink); font: inherit; font-size: 14px; }
   .search:hover { border-color: var(--line-strong); }
-  .search:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-color: var(--accent); }
-  .panel { display: grid; gap: 6px; min-width: 0; }
+  .search:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; border-color: var(--accent); }
+  .panel { display: grid; grid-auto-rows: max-content; align-content: start; gap: 6px; min-width: 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 4px; margin: -4px; }
   .group { margin: 8px 0 2px; color: var(--muted); font-size: 14px; font-variant-caps: all-small-caps; letter-spacing: 0.06em; font-weight: 600; }
   .group:first-child { margin-top: 0; }
   .aim { margin: 0 0 4px; padding: 8px 10px; border-radius: 8px; background: var(--card); color: var(--muted); font-size: 14px; overflow-wrap: anywhere; }
@@ -171,7 +172,7 @@
   .item.two { row-gap: 2px; }
   .item:hover:not(:disabled, [aria-disabled='true']) { border-color: var(--line-strong); background: var(--card-raised); }
   .item:active:not(:disabled, [aria-disabled='true']) { border-color: var(--muted); }
-  .item:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .item:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
   .item:disabled, .item[aria-disabled='true'] { cursor: default; }
   .item:is(:disabled, [aria-disabled='true']) .name, .item:is(:disabled, [aria-disabled='true']) .grip { color: var(--muted); }
   /* Where an item was picked up from: dimmed, with a dashed border. */
@@ -189,7 +190,7 @@
   .why { color: var(--warn); }
   .retry { padding: 0; border: 0; background: none; color: var(--accent-text); font: inherit; font-weight: 600; cursor: pointer; }
   .retry:hover { text-decoration: underline; }
-  .retry:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+  .retry:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 4px; }
   @media (pointer: coarse) { .retry { min-height: 44px; } }
   .quiet { margin: 4px 0; color: var(--muted); font-size: 14px; }
   .status { margin: 0; color: var(--warn); font-size: 14px; }

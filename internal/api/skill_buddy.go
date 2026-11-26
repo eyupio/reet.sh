@@ -120,6 +120,12 @@ func (s *server) buddyCatalogue(uid int64) ([]skillbuddy.Skill, error) {
 	return out, nil
 }
 
+// skillCannotLoad is a load refused for the skill itself (switched off, not
+// Active, too large, no SKILL.md), as against a read that failed.
+type skillCannotLoad string
+
+func (e skillCannotLoad) Error() string { return string(e) }
+
 func (s *server) buddyLoad(uid int64, id string) (skillbuddy.Skill, error) {
 	system, _, err := s.buddySystem()
 	if err != nil {
@@ -131,14 +137,14 @@ func (s *server) buddyLoad(uid int64, id string) (skillbuddy.Skill, error) {
 		}
 	}
 	if !strings.HasPrefix(id, "library:") {
-		return skillbuddy.Skill{}, errors.New("Add community skills to your library before using them.")
+		return skillbuddy.Skill{}, skillCannotLoad("Add community skills to your library before using them.")
 	}
 	it, err := s.st.LibraryItemFor(uid, strings.TrimPrefix(id, "library:"))
 	if err != nil {
 		return skillbuddy.Skill{}, err
 	}
 	if it.Status != store.SkillActive || it.ItemType != store.LibrarySkill || it.RevisionID == "" {
-		return skillbuddy.Skill{}, errors.New("This skill needs an Active saved copy in your library first.")
+		return skillbuddy.Skill{}, skillCannotLoad("This skill needs an Active saved copy in your library first.")
 	}
 	rev, err := s.st.PrivateSkillRevisionFor(uid, it.BundleID, it.RevisionID)
 	if err != nil {
@@ -148,12 +154,12 @@ func (s *server) buddyLoad(uid int64, id string) (skillbuddy.Skill, error) {
 		if f.Path == "SKILL.md" {
 			text := string(f.Data)
 			if len(text) > 12000 {
-				return skillbuddy.Skill{}, errors.New("This skill is too large for inline guidance. Use its installed version through Skills.")
+				return skillbuddy.Skill{}, skillCannotLoad("This skill is too large for inline guidance. Use its installed version through Skills.")
 			}
 			return skillbuddy.Skill{ID: id, Name: it.Name, Source: "personal", Revision: rev.ID, Instructions: text}, nil
 		}
 	}
-	return skillbuddy.Skill{}, errors.New("This saved skill has no SKILL.md.")
+	return skillbuddy.Skill{}, skillCannotLoad("This saved skill has no SKILL.md.")
 }
 
 func (s *server) buddyRecommendations(w http.ResponseWriter, r *http.Request) {

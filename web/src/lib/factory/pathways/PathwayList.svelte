@@ -131,7 +131,7 @@
           {#each p.problems ?? [] as problem, i (i)}<p class="problem"><span class="mark" aria-hidden="true">!</span> {problem}</p>{/each}
         </div>
         <div class="controls">
-          <button type="button" role="switch" class="toggle" aria-checked={on} aria-label={`${p.name} is ${on ? 'on, switch off' : 'off, switch on'}`}
+          <button type="button" role="switch" class="toggle" aria-checked={on} aria-label={`Offer ${p.name} when starting work`}
             aria-busy={p.id in flipping} onclick={() => void toggle(p)}>
             <span class="switch" aria-hidden="true"><span class="knob"></span></span><span class="state" aria-hidden="true">{on ? 'On' : 'Off'}</span>
           </button>
@@ -180,7 +180,7 @@
   h2 { margin: 0; font: 600 1.25rem/1.3 var(--serif); letter-spacing: -0.01em; overflow-wrap: anywhere; }
   h2 a { color: var(--ink); text-decoration: none; border-radius: 4px; }
   h2 a:hover { text-decoration: underline; text-decoration-color: color-mix(in srgb, currentColor 45%, transparent); text-underline-offset: 3px; }
-  h2 a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  h2 a:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
   .line { display: flex; flex-wrap: wrap; align-items: center; row-gap: 6px; margin: 0; padding: 0; list-style: none; }
   .line li { display: flex; align-items: center; }
   /* The joining mark follows its stage, so a wrapped line never starts with one; on a narrow screen, where the line
@@ -199,7 +199,7 @@
   .toggle { display: inline-flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 8px; border: 0; border-radius: 8px; background: none; color: var(--muted); font: inherit; font-size: 14px; cursor: pointer; }
   .toggle:hover .switch { border-color: var(--muted); }
   .toggle[aria-checked='true']:hover .switch { border-color: var(--accent); }
-  .toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 0; }
+  .toggle:focus-visible { outline: 2px solid var(--focus); outline-offset: 0; }
   .toggle[aria-busy='true'] { cursor: progress; }
   .state { min-width: 26px; text-align: left; }
   .toggle[aria-checked='true'] .state { color: var(--ink); }
@@ -211,7 +211,7 @@
   @media (prefers-reduced-motion: no-preference) { .knob { transition: transform 0.16s var(--ease-out), background-color 0.16s; } }
   .more { width: 36px; height: 36px; flex: none; border: 0; border-radius: 8px; background: none; color: var(--muted); font: inherit; font-size: 20px; line-height: 1; padding: 0 0 8px; cursor: pointer; }
   .more:hover, .more[aria-expanded='true'] { color: var(--ink); background: var(--line-soft); }
-  .more:focus-visible { outline: 2px solid var(--accent); outline-offset: 0; }
+  .more:focus-visible { outline: 2px solid var(--focus); outline-offset: 0; }
 
   /* DeskMenu draws every item in the ink colour; Delete keeps the danger colour. */
   :global(.desk-menu) [role='menuitem'].danger:not(:disabled) { color: var(--bad); }

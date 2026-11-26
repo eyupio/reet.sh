@@ -11,7 +11,7 @@
   import Skeleton from '../../Skeleton.svelte'
   import {
     addSkill, blankPathway, canAddSkill, canInsert, canMove, insertStage, moveStage, newStage, patchStage, pathwayProblems, removeSkill,
-    removeStage, sameEdit, stageTitle, standardPathway, MAX_STAGE_SKILLS, type Pathway, type PathwaySkill, type PathwayStage,
+    removeStage, sameEdit, sameStages, stageTitle, standardPathway, MAX_STAGE_SKILLS, type Pathway, type PathwaySkill, type PathwayStage,
   } from '../pathways'
   import { defaultTier, stageLabel, tierLabel } from '../../gafferOutcome'
   import { targetAt, type DragHooks, type DragItem, type DragState } from './drag'
@@ -22,7 +22,8 @@
   // The pathway editor: a top bar (name, description, on or off, Save), the palette, the line of stages and the selected
   // stage's inspector. It owns the saved pathway and the draft; every edit goes through pathways.ts in the functions
   // below (add, move, remove, patch and the palette's appliers), which a drop calls too. Below 700 px wide the palette and
-  // the inspector are bottom sheets, and dragging only moves cards along the line.
+  // the inspector are bottom sheets, and dragging only moves cards along the line. Focus arrives on the name (on a touch
+  // screen, where a field would raise the keyboard, on the heading).
   let { id, start, onclose, onsaved, ontitle }: {
     id: string | null; start: 'blank' | 'standard'; onclose: () => void; onsaved: (p: Pathway) => void; ontitle?: (title: string) => void
   } = $props()
@@ -57,6 +58,8 @@
   let nameError = $state(''), descriptionError = $state(''), saveError = $state(''), notice = $state(''), info = $state('')
   // Someone else saved this pathway after it was read: their version, once read, and whether the choice is showing.
   let conflict = $state(false), theirs = $state.raw<Pathway | null>(null)
+  // Deleted somewhere else: Save makes a new pathway from the edits.
+  let deleted = $state(false)
   let asking = $state<'' | 'link' | 'back'>('')
   let said = $state('')
   let phone = $state(false), sheet = $state<'' | 'stage' | 'add'>('')
@@ -73,11 +76,19 @@
     phase = 'loading'
     try {
       const p = await getGafferPathway(id, signal())
-      saved = p; replace(p); phase = 'ready'
+      // An address that is not a pathway is gone, as a 404 is: /skills answers with the skills a stage can load.
+      if (Array.isArray(p?.stages)) { saved = p; replace(p); phase = 'ready' } else phase = 'gone'
     } catch (e) {
       if (life.signal.aborted) return
       phase = e instanceof ApiError && e.status === 404 ? 'gone' : 'failed'
     }
+    void arrive()
+  }
+  let heading = $state<HTMLElement>()
+  async function arrive() {
+    await tick()
+    const name = phase === 'ready' && matchMedia('(pointer: fine)').matches ? document.querySelector<HTMLElement>('.editor .name') : null
+    ;(name ?? heading)?.focus({ preventScroll: true })
   }
 
   async function loadShelf() {
@@ -86,6 +97,7 @@
   }
 
   onMount(() => {
+    if (id === null) void arrive()
     void loadPathway()
     void loadShelf()
     void readPromptLibrary(life.signal).then(l => { prompts = l.prompts }).catch(() => { if (!life.signal.aborted) promptsFailed = true })
@@ -115,6 +127,20 @@
   })
 
   $effect(() => { ontitle?.(`${saved.name.trim() || 'New pathway'} · Pathways · reet.sh`) })
+
+  // The palette's dock reaches the foot of the window wherever the page is scrolled: as tall as what is in view below its
+  // top, and the whole window once it sticks there. Its list scrolls inside it.
+  let dock = $state<HTMLElement>()
+  $effect(() => {
+    const node = dock, side = node?.parentElement
+    if (!node || !side) return
+    let frame = 0
+    const fit = () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(() => { node.style.maxHeight = `${innerHeight - Math.max(0, side.getBoundingClientRect().top)}px` }) }
+    fit()
+    addEventListener('scroll', fit, { passive: true })
+    addEventListener('resize', fit)
+    return () => { cancelAnimationFrame(frame); removeEventListener('scroll', fit); removeEventListener('resize', fit) }
+  })
 
   // Each named agent's models across the account's machines, read once when it is first on a stage (as Gaffer settings' crew).
   const used = $derived([...new Set(draft.stages.map(s => s.agent?.tool).filter((t): t is string => !!t))])
@@ -210,10 +236,11 @@
     const sending = draft
     const body = { ...sending, name: sending.name.trim(), description: sending.description.trim() }
     try {
-      const answer = body.id ? await saveGafferPathway(body, signal()) : await createGafferPathway({ name: body.name, description: body.description, enabled: body.enabled, stages: body.stages }, signal())
+      const answer = body.id && !deleted ? await saveGafferPathway(body, signal()) : await createGafferPathway({ name: body.name, description: body.description, enabled: body.enabled, stages: body.stages }, signal())
       // Edits made while the save was out stay in the draft, on the answer's id and time.
-      saved = answer; conflict = false
-      if (draft === sending) replace(answer)
+      saved = answer; conflict = false; deleted = false
+      // An answer with the stages on screen keeps the cards (and a drag or focus on one); edits made meanwhile stay.
+      if (draft === sending) { if (sameStages(answer.stages, sending.stages)) draft = answer; else replace(answer) }
       else draft = { ...draft, id: answer.id, createdAt: answer.createdAt, updatedAt: answer.updatedAt }
       say('Saved.')
       onsaved(answer)
@@ -221,7 +248,8 @@
       if (life.signal.aborted) return
       const code = e instanceof ApiError ? e.code : '', field = e instanceof ApiError ? e.field : ''
       const text = e instanceof Error ? e.message : String(e)
-      if (code === 'pathway_changed') { conflict = true; theirs = null; void getGafferPathway(body.id, signal()).then(p => { theirs = p }).catch(() => { /* read again on the choice */ }) }
+      if (e instanceof ApiError && e.status === 404) gone()
+      else if (code === 'pathway_changed') { conflict = true; theirs = null; void getGafferPathway(body.id, signal()).then(p => { theirs = p }).catch(() => { /* read again on the choice */ }) }
       else if (code === 'pathway_name') nameError = 'You already have a pathway with that name.'
       else if (code === 'pathway_limit') notice = text
       else if (field === 'name') nameError = text
@@ -232,8 +260,14 @@
   }
   async function newer(): Promise<Pathway | null> {
     if (theirs) return theirs
-    try { return theirs = await getGafferPathway(draft.id, signal()) } catch { notice = 'The saved pathway could not be read just now. Try again.'; return null }
+    try { return theirs = await getGafferPathway(draft.id, signal()) } catch (e) {
+      if (e instanceof ApiError && e.status === 404) gone()
+      else notice = 'The saved pathway could not be read just now. Try again.'
+      return null
+    }
   }
+  function gone() { deleted = true; conflict = false; theirs = null; notice = '' }
+  function leaveDeleted() { discard(); onclose() }
   async function loadTheirs() {
     const p = await newer()
     if (!p) return
@@ -267,7 +301,9 @@
   // Dragging. The palette's items and the cards report a drag here; the editor works out where it would land, draws the
   // ghost, the insertion bar and a sentence saying what a drop does (or why not), and a drop calls the same edits as the buttons.
   let dragging = $state.raw<DragState>(null)
-  let ghost = $state.raw<{ node: HTMLElement; dx: number; dy: number; width: number } | null>(null)
+  let ghost = $state.raw<{ node: HTMLElement; dx: number; dy: number; width: number; height: number } | null>(null)
+  // Over the line the ghost drops below the cards, so the card or gap it would land on stays in sight: the top it keeps clear of.
+  let floor = $state(0)
   let bar = $state.raw<{ left: number; top: number; width: number; height: number } | null>(null)
   let hintAt = $state.raw({ x: 0, y: 0 })
   let canvas = $state<HTMLElement>()
@@ -288,10 +324,9 @@
       const box = node.getBoundingClientRect()
       const copy = node.cloneNode(true) as HTMLElement
       for (const name of ['id', 'data-stage-index', 'data-palette-item', 'data-drop', 'data-dragging', 'aria-pressed']) copy.removeAttribute(name)
-      // A card is held where it was pressed; anything from the palette floats just above and to the right of the pointer,
-      // so the card or gap under the pointer stays in view.
-      const held = s.item.type === 'card'
-      ghost = { node: copy, dx: held ? s.x - box.left : -14, dy: held ? s.y - box.top : box.height + 10, width: box.width }
+      // On a phone a card is held where it was pressed. Otherwise what is picked up floats below and to the right of the
+      // pointer, and below the cards while over the line.
+      ghost = { node: copy, dx: phone ? s.x - box.left : -16, dy: phone ? s.y - box.top : -20, width: box.width, height: box.height }
       document.documentElement.style.userSelect = 'none'
       document.documentElement.style.setProperty('-webkit-user-select', 'none')
       document.documentElement.dataset.pathwayDrag = ''
@@ -302,7 +337,7 @@
     onend(drop) {
       const was = dragging
       cancelAnimationFrame(raf)
-      dragging = null; ghost = null; bar = null
+      dragging = null; ghost = null; bar = null; floor = 0
       document.documentElement.style.removeProperty('user-select')
       document.documentElement.style.removeProperty('-webkit-user-select')
       delete document.documentElement.dataset.pathwayDrag
@@ -322,8 +357,9 @@
     } else if (target) why = refusal(item, target.at)
     dragging = { item, x, y, target, why }
     bar = target?.type === 'slot' ? barAt(target.at, cards) : null
-    const box = line.getBoundingClientRect()
-    hintAt = { x: box.left + box.width / 2, y: cards.length ? Math.max(...cards.map(c => c.bottom)) + 18 : box.top + box.height / 2 }
+    const box = line.getBoundingClientRect(), bottom = Math.max(...cards.map(c => c.bottom))
+    floor = !phone && cards.length && x >= box.left && x <= box.right && y >= box.top && y <= bottom ? bottom + 12 : 0
+    hintAt = { x: box.left + box.width / 2, y: floor && ghost ? floor + ghost.height + 16 : cards.length ? bottom + 18 : box.top + box.height / 2 }
   }
   // The insertion bar, in the gap the slot is: between two cards, or just outside the first or last.
   function barAt(at: number, cards: DOMRect[]) {
@@ -461,7 +497,7 @@
 {/snippet}
 
 <section class="editor" class:phone aria-labelledby={`${uid}-title`}>
-  <h1 class="vh" id={`${uid}-title`}>Pathway editor</h1>
+  <h1 class="vh" id={`${uid}-title`} tabindex="-1" bind:this={heading}>Pathway editor</h1>
   {#if phase !== 'ready'}
     <div class="bar"><a class="back" href="/factory/pathways" onclick={back}><span aria-hidden="true">‹</span>&nbsp;Pathways</a></div>
     {#if phase === 'loading'}
@@ -469,7 +505,8 @@
     {:else}
       <div class="failed" role="alert">
         <p><strong>{phase === 'gone' ? 'That pathway is not available.' : 'The pathway could not be read.'}</strong> {phase === 'gone' ? 'It may have been deleted.' : 'Nothing was changed.'}</p>
-        {#if phase === 'failed'}<button class="btn" type="button" onclick={loadPathway}>Retry</button>{/if}
+        {#if phase === 'failed'}<button class="btn" type="button" onclick={loadPathway}>Retry</button>
+        {:else}<a class="btn" href="/factory/pathways" onclick={back}>Back to your pathways</a>{/if}
       </div>
     {/if}
   {:else}
@@ -510,11 +547,20 @@
         </div>
       </div>
     {/if}
+    {#if deleted}
+      <div class="banner conflict" role="alert">
+        <p><strong>This pathway was deleted somewhere else.</strong> Your edits are still on screen and nothing was saved.</p>
+        <div class="choices">
+          <button type="button" class="btn" onclick={leaveDeleted}>Discard and go to the list</button>
+          <button type="button" class="btn primary" disabled={blocked || saving} aria-busy={saving} onclick={save}>Save as a new pathway</button>
+        </div>
+      </div>
+    {/if}
     {#if notice}<p class="banner bad" role="alert"><span class="mark" aria-hidden="true">!</span>{notice}</p>{/if}
     {#if info}<p class="banner" role="status">{info}</p>{/if}
 
     <div class="body">
-      {#if !phone}<aside class="side">{@render palette()}</aside>{/if}
+      {#if !phone}<aside class="side"><div class="dock" bind:this={dock}>{@render palette()}</div></aside>{/if}
       <div class="main">
         <div class="canvas" bind:this={canvas}>
           <PathwayLine stages={draft.stages} {keys} {selected} drag={hooks} {aims} problems={problems.stages} vertical={phone} onselect={select} onmove={move} onremove={at => void remove(at)} onaddend={() => void focusPalette('stages')} />
@@ -554,7 +600,7 @@
 {#if dragging}
   <div class="drag-layer" aria-hidden="true" inert>
     {#if ghost}
-      <div class="ghost" style:width="{ghost.width}px" style:transform="translate({dragging.x - ghost.dx}px, {dragging.y - ghost.dy}px)"><div class="tilt" use:hold={ghost.node}></div></div>
+      <div class="ghost" style:width="{ghost.width}px" style:transform="translate({dragging.x - ghost.dx}px, {Math.max(dragging.y - ghost.dy, floor)}px)"><div class="tilt" use:hold={ghost.node}></div></div>
     {/if}
     <!-- Over the ghost, so the gap it will land in is never hidden. -->
     {#if bar}<div class="drop-bar" data-drag-bar style:left="{bar.left}px" style:top="{bar.top}px" style:width="{bar.width}px" style:height="{bar.height}px"></div>{/if}
@@ -574,13 +620,13 @@
   .bar { display: flex; align-items: center; gap: 12px 20px; padding: 14px 24px; border-bottom: 1px solid var(--line); background: var(--bg); }
   .back { display: inline-flex; align-items: center; flex: none; min-height: 40px; padding: 0 6px; margin-left: -6px; border-radius: 8px; color: var(--muted); text-decoration: none; font-weight: 600; font-size: 15px; }
   .back:hover { color: var(--ink); }
-  .back:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .back:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
   .names { display: grid; flex: 1 1 320px; min-width: 0; max-width: 560px; gap: 0; }
   .names input {
     width: 100%; min-width: 0; box-sizing: border-box; margin: 0; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--ink);
   }
   .names input:hover { border-color: var(--line); }
-  .names input:focus-visible { outline: 2px solid var(--accent); outline-offset: 0; background: var(--card); }
+  .names input:focus-visible { outline: 2px solid var(--focus); outline-offset: 0; background: var(--card); }
   .name { padding: 2px 8px; margin-left: -9px !important; font: 600 26px/1.25 var(--serif) !important; letter-spacing: -0.02em; text-overflow: ellipsis; }
   .name::placeholder { color: var(--faint); }
   .description { padding: 2px 8px; margin-left: -9px !important; color: var(--muted) !important; font: 15px/1.5 var(--sans); text-overflow: ellipsis; }
@@ -596,7 +642,7 @@
 
   /* The on or off switch, as on the list. */
   .toggle { display: inline-flex; align-items: center; gap: 8px; flex: none; min-height: 40px; padding: 0 8px; border: 0; border-radius: 8px; background: transparent; color: var(--ink); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
-  .toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .toggle:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
   .toggle:hover .switch { border-color: var(--muted); }
   .toggle[aria-checked='true']:hover .switch { border-color: var(--accent); }
   .switch { position: relative; flex: none; width: 42px; height: 24px; box-sizing: border-box; border: 1px solid var(--line); border-radius: 12px; background: var(--bg-sunk); }
@@ -622,7 +668,10 @@
   /* The palette at the left; the canvas and the inspector at the right. */
   .body { display: grid; grid-template-columns: 264px minmax(0, 1fr); flex: 1; min-height: 0; margin-top: 0; }
   .banner + .body, .why + .body { margin-top: 0; }
-  .side { padding: 16px; border-right: 1px solid var(--line); background: var(--bg-sunk); }
+  .side { border-right: 1px solid var(--line); background: var(--bg-sunk); }
+  /* The palette stays in sight as the page scrolls, and its list scrolls on its own below the tabs and search. */
+  .dock { position: sticky; top: 0; display: flex; flex-direction: column; max-height: 100dvh; box-sizing: border-box; padding: 16px; }
+  .dock > :global(.palette) { flex: 1 1 auto; min-height: 0; }
   .main { display: flex; flex-direction: column; min-width: 0; }
   .canvas {
     display: flex; align-items: center; flex: 1; min-height: 300px;
@@ -635,6 +684,7 @@
   .failed p { flex: 1 1 280px; margin: 0; color: var(--muted); }
   .failed strong { color: var(--bad); font-weight: 600; }
 
+  @media (pointer: coarse) { .back, .toggle { min-height: 44px; } }
   @media (max-width: 1000px) { .bar { flex-wrap: wrap; } .names { flex-basis: 100%; max-width: none; order: 3; } .actions { order: 2; } }
 
   /* A phone: a compact bar (back, name, Save), the description and switch under it, and the line top to bottom. */
@@ -646,7 +696,7 @@
   .phone .save { min-height: 44px; min-width: 72px; }
   .subbar { display: grid; gap: 4px; padding: 6px 16px 10px; border-bottom: 1px solid var(--line); }
   .subbar .description { margin-left: -9px; width: calc(100% + 9px); min-height: 44px; border: 1px solid transparent; border-radius: 8px; background: transparent; font-size: 16px; }
-  .subbar .description:focus-visible { outline: 2px solid var(--accent); outline-offset: 0; }
+  .subbar .description:focus-visible { outline: 2px solid var(--focus); outline-offset: 0; }
   .subbar .row { display: flex; align-items: center; gap: 8px; }
   .subbar .toggle { min-height: 44px; margin-left: -8px; }
   .subbar .discard { min-height: 44px; }

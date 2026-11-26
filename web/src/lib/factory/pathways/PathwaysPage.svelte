@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, tick } from 'svelte'
   import { listGafferPathways, UnauthorizedError } from '../../api'
   import PageHeader from '../../PageHeader.svelte'
   import Skeleton from '../../Skeleton.svelte'
@@ -36,18 +36,28 @@
       const read = await listGafferPathways(AbortSignal.any([life.signal, AbortSignal.timeout(15_000)]))
       if (mine !== reads) return
       pathways = read; loaded = true; failed = false
+      if (returnTo !== null) { const id = returnTo; returnTo = null; void tick().then(() => focusBack(id)) }
     } catch (e) {
       if (life.signal.aborted || mine !== reads) return
       if (e instanceof UnauthorizedError) { onsignedout(e); return }
       failed = true
     }
   }
+  // Back on the list, focus goes to the link of the pathway that was open, or for a new one to the page heading.
+  let returnTo: string | null = null
+  const leaving = (from: Route) => { if (from.kind !== 'list') returnTo = from.kind === 'edit' ? from.id : '' }
+  function focusBack(id: string) {
+    const link = id ? [...document.querySelectorAll<HTMLAnchorElement>('.pathways-page h2 a')].find(a => a.getAttribute('href') === `/factory/pathways/${encodeURIComponent(id)}`) : null
+    const heading = document.querySelector<HTMLElement>('.pathways-page h1')
+    if (!link && heading) heading.tabIndex = -1
+    ;(link ?? heading)?.focus()
+  }
   async function retry() { retrying = true; await load(); retrying = false }
 
   onMount(() => {
     if (route.kind === 'list') void load()
     // Read after every other popstate listener has run: the editor's may put its own address back to ask before leaving.
-    const back = () => setTimeout(() => { route = parse(); if (route.kind === 'list') void load() })
+    const back = () => setTimeout(() => { const from = route; route = parse(); if (route.kind === 'list') { leaving(from); void load() } })
     addEventListener('popstate', back)
     return () => { removeEventListener('popstate', back); life.abort() }
   })
@@ -55,14 +65,16 @@
   function go(next: Route) {
     const path = next.kind === 'list' ? '/factory/pathways' : `/factory/pathways/${next.kind === 'new' ? 'new' : encodeURIComponent(next.id)}`
     history.pushState(null, '', path)
+    if (next.kind === 'list') leaving(route)
     route = next
     scrollTo({ top: 0 })
     if (next.kind === 'list') void load()
   }
   const open = (id: string) => go({ kind: 'edit', id })
-  // A new pathway, once saved, takes its own address in place of /new, so back does not return to an empty editor.
+  // A new pathway, once saved, takes its own address in place of /new, so back does not return to an empty editor; so does
+  // one saved anew after the one open was deleted somewhere else.
   function created(p: Pathway) {
-    if (route.kind !== 'new') return
+    if (route.kind === 'list' || (route.kind === 'edit' && route.id === p.id)) return
     history.replaceState(null, '', `/factory/pathways/${encodeURIComponent(p.id)}`)
     route = { kind: 'edit', id: p.id }
   }

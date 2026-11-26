@@ -54,10 +54,11 @@ function fixture({list=three(),failList=0,shelf=SHELF}={}){
   if(m==='PUT'){
    const b=r.postDataJSON();box.saves.push(b)
    if(box.failSave==='changed'){box.failSave='';return err(409,'pathway_changed','That pathway changed. Reload it before trying again.')}
-   if(at>=0&&b.updatedAt!==box.list[at].updatedAt)return err(409,'pathway_changed','That pathway changed. Reload it before trying again.')
+   if(at<0)return err(404,'','That pathway is not available.')
+   if(b.updatedAt!==box.list[at].updatedAt)return err(409,'pathway_changed','That pathway changed. Reload it before trying again.')
    if(box.failSave){box.failSave='';return{status:502,json:{error:'502 Bad Gateway'}}}
    // As the server answers: the pathway saved, with a new updatedAt and what would stop a start on it now.
-   const saved={...b,updatedAt:Date.now()+box.saves.length,problems:box.list[at]?.problems??[]};box.list=box.list.map(p=>p.id===id?saved:p);return saved
+   const saved={...b,updatedAt:Date.now()+box.saves.length,problems:box.list[at].problems??[]};box.list=box.list.map(p=>p.id===id?saved:p);return saved
   }
   if(m==='DELETE'){box.deletes.push(id);if(box.failDelete){box.failDelete=false;return{status:502,json:{error:'502 Bad Gateway'}}}box.list=box.list.filter(p=>p.id!==id);return{status:204,json:null}}
   return at<0?err(404,'','That pathway is not available.'):box.list[at]
@@ -95,7 +96,7 @@ async function listRows(width,theme){
   await expect(row(page,'Careful release').locator('.chip.own')).toHaveText(['Security pass'])
   await expect(row(page,'Careful release')).toContainText('! The skill “lint-rules” on Code is no longer on your shelf.')
   await expect(row(page,'Docs only')).toContainText('Off: not offered to you or Gaffer.')
-  await expect(page.getByRole('switch',{name:'Docs only is off, switch on',exact:true})).toHaveAttribute('aria-checked','false')
+  await expect(page.getByRole('switch',{name:'Offer Docs only when starting work',exact:true})).toHaveAttribute('aria-checked','false')
   await expect(page.getByRole('link',{name:'Standard',exact:true})).toHaveAttribute('href','/factory/pathways/p1')
   await noOverflow(page)
   if(width<1000)await targets(page)
@@ -126,22 +127,22 @@ async function listSwitch(width,theme){
  try{
   await goList(page)
   const before=f.box.list[0].updatedAt
-  await page.getByRole('switch',{name:'Standard is on, switch off',exact:true}).click()
-  await expect(page.getByRole('switch',{name:'Standard is off, switch on',exact:true})).toHaveAttribute('aria-checked','false')
+  await page.getByRole('switch',{name:'Offer Standard when starting work',exact:true}).click()
+  await expect(page.getByRole('switch',{name:'Offer Standard when starting work',exact:true})).toHaveAttribute('aria-checked','false')
   expect(f.box.saves.length).toBe(1)
   expect(f.box.saves[0]).toMatchObject({id:'p1',name:'Standard',enabled:false,updatedAt:before})
   expect(f.box.saves[0].problems).toBeUndefined()
   await expect(row(page,'Standard')).toContainText('Off: not offered to you or Gaffer.')
   // A failed save rolls back.
   f.box.failSave='down'
-  await page.getByRole('switch',{name:'Docs only is off, switch on',exact:true}).click()
+  await page.getByRole('switch',{name:'Offer Docs only when starting work',exact:true}).click()
   await expect(page.getByRole('alert')).toContainText('“Docs only” could not be switched on just now. Try again.')
-  await expect(page.getByRole('switch',{name:'Docs only is off, switch on',exact:true})).toHaveAttribute('aria-checked','false')
+  await expect(page.getByRole('switch',{name:'Offer Docs only when starting work',exact:true})).toHaveAttribute('aria-checked','false')
   // Someone else's save first: the row is read again and the switch is as the server has it.
   f.box.failSave='changed'
-  await page.getByRole('switch',{name:'Careful release is on, switch off',exact:true}).click()
+  await page.getByRole('switch',{name:'Offer Careful release when starting work',exact:true}).click()
   await expect(page.getByRole('alert')).toContainText('“Careful release” was changed somewhere else, so the list now shows it as it is saved.')
-  await expect(page.getByRole('switch',{name:'Careful release is on, switch off',exact:true})).toHaveAttribute('aria-checked','true')
+  await expect(page.getByRole('switch',{name:'Offer Careful release when starting work',exact:true})).toHaveAttribute('aria-checked','true')
   expect(w.errors).toEqual([])
  }finally{await w.context.close()}
 }
@@ -153,12 +154,12 @@ async function listKeepsSaved(width,theme){
  try{
   await goList(page)
   f.box.failList=5
-  await page.getByRole('switch',{name:'Standard is on, switch off',exact:true}).click()
-  await expect(page.getByRole('switch',{name:'Standard is off, switch on',exact:true})).toHaveAttribute('aria-checked','false')
+  await page.getByRole('switch',{name:'Offer Standard when starting work',exact:true}).click()
+  await expect(page.getByRole('switch',{name:'Offer Standard when starting work',exact:true})).toHaveAttribute('aria-checked','false')
   const first=f.box.list.find(p=>p.id==='p1').updatedAt
   expect(first).not.toBe(f.box.saves[0].updatedAt)
-  await page.getByRole('switch',{name:'Standard is off, switch on',exact:true}).click()
-  await expect(page.getByRole('switch',{name:'Standard is on, switch off',exact:true})).toHaveAttribute('aria-checked','true')
+  await page.getByRole('switch',{name:'Offer Standard when starting work',exact:true}).click()
+  await expect(page.getByRole('switch',{name:'Offer Standard when starting work',exact:true})).toHaveAttribute('aria-checked','true')
   expect(f.box.saves.map(s=>[s.enabled,s.updatedAt])).toEqual([[false,f.box.saves[0].updatedAt],[true,first]])
   await expect(page.getByRole('alert')).toHaveCount(0)
   // Delete, with the list still unreadable: the row goes.
@@ -467,6 +468,17 @@ async function editorSaveInFlight(width,theme){
   await page.getByRole('button',{name:'Save',exact:true}).click()
   await expect(page.getByText('✓ Saved')).toBeVisible()
   expect(f.box.saves[1]).toMatchObject({name:'Standard B',updatedAt:answered})
+  // An answer that matches what is on screen keeps every card as it is: the same elements, and focus where it was.
+  await name.fill('Standard C')
+  f.box.hold=new Promise(r=>{release=r})
+  await page.getByRole('button',{name:'Save',exact:true}).click()
+  await page.evaluate(()=>document.querySelectorAll('[data-stage-index]').forEach(el=>{el.dataset.kept=''}))
+  await card(page,'Review').focus()
+  f.box.hold=null
+  release()
+  await expect(page.getByText('✓ Saved')).toBeVisible()
+  expect(await page.locator('[data-stage-index][data-kept]').count()).toBe(6)
+  await expect(card(page,'Review')).toBeFocused()
   expect(w.errors).toEqual([])
  }finally{await w.context.close()}
 }
@@ -651,6 +663,10 @@ async function editorLook(width,theme){
   await expect(card(page,'Merge')).toContainText('Built in · waits for you')
   await expect(card(page,'Merge')).toContainText('Always last')
   await expect(card(page,'Security audit')).toContainText('Your own')
+  // The keys a card answers to are announced; its model and effort each stay whole, wrapping only between them.
+  await expect(card(page,'Code')).toHaveAttribute('aria-keyshortcuts','Alt+ArrowLeft Alt+ArrowRight Delete')
+  await expect(card(page,'Security audit').locator('.who')).toHaveText('claude-opus-5-5 · high')
+  expect(await card(page,'Security audit').locator('.who > span').evaluateAll(els=>els.map(el=>el.getClientRects().length))).toEqual([1,1])
   await noOverflow(page)
   await shot(page,'editor',width,theme)
   await tab(page,'Skills').click()
@@ -682,6 +698,7 @@ async function editorPhone(width,theme){
   await targets(page)
   const [a,b]=[await cards(page).nth(0).boundingBox(),await cards(page).nth(1).boundingBox()]
   expect(b.y>a.y+a.height).toBe(true)
+  await expect(card(page,'Code')).toHaveAttribute('aria-keyshortcuts','Alt+ArrowUp Alt+ArrowDown Delete')
   await card(page,'Security audit').click()
   const sheet=page.getByRole('dialog',{name:'Security audit'})
   await expect(sheet).toBeVisible()
@@ -733,6 +750,11 @@ async function drag(page,from,to,{hold=false}={}){
 }
 const bar=page=>page.locator('[data-drag-bar]')
 const hint=page=>page.locator('[data-drag-hint]')
+// Mid-drag, the ghost leaves the named cards in sight.
+async function clear(page,names){
+ const g=await page.locator('.ghost').boundingBox()
+ for(const name of names){const c=await card(page,name).boundingBox();expect(g.y>=c.y+c.height||g.y+g.height<=c.y||g.x>=c.x+c.width||g.x+g.width<=c.x,`the ghost covers ${name}`).toBe(true)}
+}
 const planFirst=()=>pathway('p6','Plan first',[st('plan'),st('code'),st('custom',{name:'Security audit',prompt:'Check every new endpoint for auth.',skills:['threat-model','deps-check']}),st('pr')])
 
 // A stage block on to the line, a card along it, and a skill, a model and a prompt on to a card; Escape puts everything back.
@@ -753,6 +775,7 @@ async function editorDrag(width,theme){
   await drag(page,card(page,'Plan'),await between(page,'Code','Security audit'),{hold:true})
   await expect(bar(page)).toBeVisible()
   await expect(hint(page)).toHaveText('Drop to move Plan to place 3.')
+  await clear(page,['Plan','Code','Security audit'])
   await held(page,'drag-card',width,theme)
   await page.mouse.up()
   await expect.poll(()=>titles(page)).toEqual(['Design','Code','Plan','Security audit','PR'])
@@ -765,6 +788,7 @@ async function editorDrag(width,theme){
   await expect(card(page,'Security audit')).toHaveAttribute('data-drop','refuse')
   await expect(card(page,'Security audit')).toContainText('2 skills · full')
   await expect(hint(page)).toHaveText('Drop to give Code the skill test-first. Security audit already has 2.')
+  await clear(page,['Code','Plan'])
   await held(page,'drag-skill',width,theme)
   await page.mouse.up()
   await expect(card(page,'Code')).toContainText('1 skill')
@@ -806,6 +830,15 @@ async function editorDrag(width,theme){
   expect(await page.evaluate(()=>document.documentElement.style.userSelect)).toBe('')
   await page.mouse.up()
   await expect.poll(()=>titles(page)).toEqual(['Design','Code','Plan','Security audit','PR'])
+  // Letting go over the palette item that was dragged, after focus loss cancelled the drag, does not press it.
+  await tab(page,'Stages').click()
+  await drag(page,item(page,'stage:test'),await between(page,'Plan','Security audit'),{hold:true})
+  await page.evaluate(()=>window.dispatchEvent(new Event('blur')))
+  const home=centre(await item(page,'stage:test').boundingBox())
+  await page.mouse.move(home.x,home.y,{steps:4})
+  await page.mouse.up()
+  await page.waitForTimeout(100)
+  expect(await titles(page)).toEqual(['Design','Code','Plan','Security audit','PR'])
   // A press that does not move is still a press.
   await card(page,'Code').click()
   await expect(card(page,'Code')).toHaveAttribute('aria-pressed','true')
@@ -887,7 +920,141 @@ async function editorTouch(width,theme){
  }finally{await w.context.close()}
 }
 
+// A tablet: the desktop layout under a coarse pointer. Every control on the list and in the editor is at least 44 px tall.
+async function tabletTargets(){
+ const {w,page}=await open(1024,'light',{list:[...three(),audit()]},{touch:true})
+ try{
+  await goList(page)
+  await targets(page)
+  await goEditor(page,'p4')
+  await expect(page.locator('.side')).toBeVisible()
+  await card(page,'Security audit').click()
+  await targets(page)
+  expect(w.errors).toEqual([])
+ }finally{await w.context.close()}
+}
+
+// A long shelf: the palette keeps its tabs in sight and scrolls on its own, so its last skill can be dragged on to a card,
+// by mouse, and on a tablet by a held touch; a quick swipe there scrolls the palette and picks nothing up.
+const many=Array.from({length:200},(_,n)=>shelfSkill(`skill-${String(n+1).padStart(3,'0')}`,`Guidance number ${n+1}.`,100))
+const scrollTop=locator=>locator.evaluate(el=>{let e=el.parentElement;while(e&&!(e.scrollHeight>e.clientHeight&&/auto|scroll/.test(getComputedStyle(e).overflowY)))e=e.parentElement;return (e??document.scrollingElement).scrollTop})
+async function editorShelf(width,theme,touch=false){
+ const {w,page}=await open(width,theme,{list:[...three(),planFirst()],shelf:many},{touch})
+ try{
+  await goEditor(page,'p6')
+  await tab(page,'Skills').click()
+  const last=item(page,'skill:skill-200')
+  await last.scrollIntoViewIfNeeded()
+  await expect(last).toBeInViewport()
+  await expect(tab(page,'Skills')).toBeInViewport()
+  await expect(card(page,'Code')).toBeInViewport()
+  if(!touch){
+   await drag(page,last,await over(page,'Code'),{hold:true})
+   await expect(hint(page)).toHaveText('Drop to give Code the skill skill-200. Security audit already has 2.')
+   await held(page,'drag-shelf',width,theme)
+   await page.mouse.up()
+  }else{
+   const cdp=await page.context().newCDPSession(page)
+   const touchAt=(type,p)=>cdp.send('Input.dispatchTouchEvent',{type,touchPoints:p?[{x:Math.round(p.x),y:Math.round(p.y)}]:[]})
+   const swipe=centre(await item(page,'skill:skill-197').boundingBox()),top=await scrollTop(last)
+   await touchAt('touchStart',swipe)
+   for(let n=1;n<=8;n++)await touchAt('touchMove',{x:swipe.x,y:swipe.y+n*30})
+   await touchAt('touchEnd')
+   await expect.poll(()=>scrollTop(last)).toBeLessThan(top)
+   await expect(page.locator('.ghost')).toHaveCount(0)
+   await last.scrollIntoViewIfNeeded()
+   const from=centre(await last.boundingBox()),to=await over(page,'Code')
+   await touchAt('touchStart',from)
+   await page.waitForTimeout(400)
+   for(let n=1;n<=10;n++)await touchAt('touchMove',{x:from.x+(to.x-from.x)*n/10,y:from.y+(to.y-from.y)*n/10})
+   await expect(hint(page)).toHaveText('Drop to give Code the skill skill-200. Security audit already has 2.')
+   await touchAt('touchEnd')
+  }
+  await expect(card(page,'Code')).toContainText('1 skill')
+  await expect(card(page,'Code')).toHaveAttribute('aria-pressed','true')
+  expect(w.errors).toEqual([])
+ }finally{await w.context.close()}
+}
+
+// Deleted in another tab: Save says so and offers a new pathway from the edits, or the list. "Load the saved one" after
+// someone else's save says the same when that one has gone too.
+async function editorGone(width,theme){
+ const {f,w,page}=await open(width,theme)
+ try{
+  await goEditor(page,'p1')
+  const name=page.getByRole('textbox',{name:'Pathway name'})
+  await name.fill('Standard, kept')
+  f.box.list=f.box.list.filter(p=>p.id!=='p1')
+  await page.getByRole('button',{name:'Save',exact:true}).click()
+  const gone=page.getByRole('alert').filter({hasText:'This pathway was deleted somewhere else.'})
+  await expect(gone).toBeVisible()
+  await expect(page.getByText('That pathway is not available.')).toHaveCount(0)
+  await expect(name).toHaveValue('Standard, kept')
+  await shot(page,'editor-gone',width,theme)
+  await gone.getByRole('button',{name:'Save as a new pathway',exact:true}).click()
+  await expect(page).toHaveURL(base+'/factory/pathways/new1')
+  expect(f.box.creates).toEqual([{name:'Standard, kept',description:'The usual line, from code to merge.',enabled:true,stages:standard().stages}])
+  await expect(gone).toHaveCount(0)
+  await expect(page.getByText('✓ Saved')).toBeVisible()
+  await name.fill('Mine')
+  f.box.failSave='changed'
+  f.box.list=f.box.list.filter(p=>p.id!=='new1')
+  await page.getByRole('button',{name:'Save',exact:true}).click()
+  await page.getByRole('button',{name:'Load the saved one',exact:true}).click()
+  await expect(gone).toBeVisible()
+  await expect(page.getByText('could not be read just now')).toHaveCount(0)
+  await gone.getByRole('button',{name:'Discard and go to the list',exact:true}).click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(page).toHaveURL(base+'/factory/pathways')
+  await expect(row(page,'Careful release')).toBeVisible()
+  expect(w.errors).toEqual([])
+ }finally{await w.context.close()}
+}
+
+// An address that is not a pathway (the skills list's own path) says it is not available, with a way back to the list.
+async function editorNotAPathway(width,theme){
+ const {w,page}=await open(width,theme)
+ try{
+  await page.goto(base+'/factory/pathways/skills')
+  const alert=page.getByRole('alert')
+  await expect(alert).toContainText('That pathway is not available.')
+  await expect(page.getByRole('button',{name:'Retry',exact:true})).toHaveCount(0)
+  await alert.getByRole('link',{name:'Back to your pathways',exact:true}).click()
+  await expect(page).toHaveURL(base+'/factory/pathways')
+  await expect(row(page,'Standard')).toBeVisible()
+  expect(w.errors).toEqual([])
+ }finally{await w.context.close()}
+}
+
+// Focus follows the move: into the editor (its name, or on a touch screen its heading), and back to the pathway's link,
+// or to the page heading after a new pathway.
+async function editorFocus(width,theme){
+ const {w,page}=await open(width,theme)
+ try{
+  await goList(page)
+  await page.getByRole('link',{name:'Careful release',exact:true}).click()
+  await cards(page).first().waitFor()
+  if(width<1000)await expect(page.getByRole('heading',{name:'Pathway editor'})).toBeFocused()
+  else await expect(page.getByRole('textbox',{name:'Pathway name'})).toBeFocused()
+  await page.getByRole('link',{name:'Pathways',exact:true}).click()
+  await expect(page.getByRole('link',{name:'Careful release',exact:true})).toBeFocused()
+  await page.getByRole('button',{name:'New pathway',exact:true}).click()
+  await expect(page.getByText('No stages yet.')).toBeVisible()
+  await page.getByRole('link',{name:'Pathways',exact:true}).click()
+  await expect(page.getByRole('heading',{name:'Pathways',level:1,exact:true})).toBeFocused()
+  expect(w.errors).toEqual([])
+ }finally{await w.context.close()}
+}
+
 try{
+ await tabletTargets()
+ await editorShelf(1280,'light')
+ await editorShelf(1024,'dark',true)
+ for(const [width,theme] of [[1280,'light'],[390,'dark']]){
+  await editorGone(width,theme)
+  await editorNotAPathway(width,theme)
+  await editorFocus(width,theme)
+ }
  for(const [width,theme] of [[1280,'light'],[1280,'dark'],[390,'light'],[390,'dark']]){
   await listRows(width,theme)
   await listSwitch(width,theme)
@@ -918,5 +1085,5 @@ try{
  for(const theme of ['light','dark'])await editorPhone(390,theme)
  for(const theme of ['light','dark']){await editorDrag(1280,theme);await editorTouch(390,theme)}
  await editorDragRules(1280,'light')
- console.log('Pathways: the list, its switch, Duplicate and Delete, the empty, loading and failed states, the limit, and the way in from the Factory, and the editor (building by keyboard and buttons, saving, leaving, someone else\'s save, a missing skill, refusals, twelve stages, the phone sheets, and dragging by mouse and touch) pass at 1280 and 390, light and dark.')
+ console.log('Pathways: the list, its switch, Duplicate and Delete, the empty, loading and failed states, the limit, and the way in from the Factory, and the editor (building by keyboard and buttons, saving, leaving, someone else\'s save, a missing skill, refusals, twelve stages, the phone sheets, and dragging by mouse and touch), a long shelf in the palette, a pathway deleted elsewhere or not a pathway at all, and focus between the list and the editor pass at 1280 and 390, light and dark; touch targets and a held drag from the palette pass on a 1024 px tablet.')
 }finally{await browser.close()}

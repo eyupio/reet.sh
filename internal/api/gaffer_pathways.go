@@ -128,7 +128,8 @@ func (s *server) gafferPathwayDelete(w http.ResponseWriter, r *http.Request) {
 
 // gafferPathwaySkills lists what a pathway stage can load for the account: the
 // built-ins that are on and its Active library skills, each with the bytes it
-// adds to a stage's guidance. A skill that cannot be loaded is left out.
+// adds to a stage's guidance. A skill that cannot be loaded is left out; a
+// failed read is a 500, so no skill is called gone that is not.
 func (s *server) gafferPathwaySkills(w http.ResponseWriter, r *http.Request) {
 	uid := s.uid(r)
 	catalogue, err := s.buddyCatalogue(uid)
@@ -147,10 +148,20 @@ func (s *server) gafferPathwaySkills(w http.ResponseWriter, r *http.Request) {
 		if c.Source == "community" {
 			continue
 		}
-		if sk, err := s.buddyLoad(uid, c.ID); err == nil {
-			out = append(out, row{c.ID, c.Name, c.Description, len(skillbuddy.Prompt(sk))})
+		sk, err := pathwaySkillLoad(s, uid, c.ID)
+		var refused skillCannotLoad
+		if errors.As(err, &refused) || errors.Is(err, store.ErrPrivateSkillMissing) {
+			continue
 		}
+		if err != nil {
+			writeErr(w, 500, "Skills could not be read.")
+			return
+		}
+		out = append(out, row{c.ID, c.Name, c.Description, len(skillbuddy.Prompt(sk))})
 	}
 	sort.SliceStable(out, func(i, j int) bool { return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name) })
 	writeJSON(w, 200, map[string]any{"skills": out})
 }
+
+// pathwaySkillLoad loads a skill for the shelf; a test stands in a failing read.
+var pathwaySkillLoad = func(s *server, uid int64, id string) (skillbuddy.Skill, error) { return s.buddyLoad(uid, id) }

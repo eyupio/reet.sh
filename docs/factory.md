@@ -474,8 +474,9 @@ runs on a crew tier or a named model, and can carry up to 2 skills and a prompt 
 ![The pathway editor in dark mode, with a line of stages on the canvas](images/ui/pathways/editor-dark.png)
 
 **Building one.** Choose **Pathways** at the top of the Factory page, then **New pathway**. Drag stages, models, skills
-and prompts on to the line, and drag stages to reorder them. Dragging is never the only way: select a stage and press
-**Alt+Arrow** to move it, or **Delete** to remove it, and every drag has a button too. On a phone, dragging reorders
+and prompts on to the line, and drag stages to reorder them. Dragging is never the only way: with a stage focused, press
+**Alt** and an arrow key (left and right on a wide screen, up and down on a phone) to move it, or **Delete** to remove
+it, and every drag has a button too. On a phone, dragging reorders
 stages only; adding and applying are done by tapping.
 
 **Rules you will meet.** A built-in stage can appear once. **Merge** must be last. **Babysit** and **Merge** need a

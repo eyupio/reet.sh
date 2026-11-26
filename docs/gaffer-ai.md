@@ -949,7 +949,7 @@ previewing sends no model request. A later read may contain newer permitted even
 
 The controller reads a fresh snapshot when you explicitly send a message. It
 sends at most 16 KiB of context and up to 20 projected events from the last 40
-retained records. The snapshot carries read/update times, retention bounds and
+retained records, counting the pieces of one streamed agent message as one record. The snapshot carries read/update times, retention bounds and
 omission markers. The answer shows when retained context was read. This is not
 live machine health, current PR checks or a full transcript: reasoning, approval
 prompts, raw tool arguments/output, files and diffs are excluded.

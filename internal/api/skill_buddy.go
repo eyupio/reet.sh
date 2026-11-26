@@ -320,7 +320,7 @@ func (s *server) buddyChoose(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 				if in.Action == "selected" {
-					if len(guidance) >= 2 || size+len(text) > 2000 {
+					if len(guidance) >= 2 || size+len(text) > gaffer.MaxStageGuidanceBytes {
 						return false
 					}
 					guidance = append(guidance, sk)
@@ -332,7 +332,7 @@ func (s *server) buddyChoose(w http.ResponseWriter, r *http.Request) {
 			return false
 		})
 		if e != nil || !changed {
-			writeErr(w, 409, "The stage changed, or its guidance exceeds two skills / 2,000 bytes. Refresh and choose again.")
+			writeErr(w, 409, "The stage changed, or its guidance exceeds two skills / 6,000 bytes. Refresh and choose again.")
 			return
 		}
 	}

@@ -7,7 +7,7 @@ export type { Pathway, PathwayAgent, PathwaySkill, PathwayStage }
 
 export const MAX_PATHWAY_STAGES = 12
 export const MAX_STAGE_SKILLS = 2
-export const MAX_STAGE_GUIDANCE_BYTES = 2000
+export const MAX_STAGE_GUIDANCE_BYTES = 6000
 export const MAX_STAGE_PROMPT_BYTES = 4000
 export const MAX_STAGE_NAME = 40
 export const MAX_PATHWAY_NAME = 60

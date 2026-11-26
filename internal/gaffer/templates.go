@@ -560,8 +560,8 @@ func (s *Service) LaunchTemplate(uid int64, id string, in TemplateLaunchInput, l
 					sessions[i].Stages[j].Skills = append(sessions[i].Stages[j].Skills, sk)
 				}
 			}
-			if size > 2000 {
-				return o, false, invalid("skills", "A stage's skills must fit in 2,000 bytes. Edit the template's skills.")
+			if size > MaxStageGuidanceBytes {
+				return o, false, invalid("skills", "A stage's skills must fit in 6,000 bytes. Edit the template's skills.")
 			}
 		}
 	}

@@ -143,7 +143,7 @@ func TestUsePathwayRefusals(t *testing.T) {
 	r, p := usePathwayRig(t, true)
 	good := skillsAt(map[string]string{"a": "1", "b": "2"})
 	big := func(id string) (skillbuddy.Skill, error) {
-		return skillbuddy.Skill{ID: id, Name: id, Source: "personal", Revision: "1", Instructions: strings.Repeat("x", 1200)}, nil
+		return skillbuddy.Skill{ID: id, Name: id, Source: "personal", Revision: "1", Instructions: strings.Repeat("x", 3200)}, nil
 	}
 	lint, err := r.s.SavePathway(r.p.UserID, store.GafferPathway{Name: "Linty", Enabled: true, Stages: []store.GafferPathwayStage{{Kind: "code", Skills: []string{"lint-rules"}}}}, 0)
 	if err != nil {
@@ -165,7 +165,7 @@ func TestUsePathwayRefusals(t *testing.T) {
 		"disabled":   {off, offs[0].ID, []OutcomeSession{{Title: "One"}}, good, []string{"Careful", "switched off"}},
 		"unknown":    {r, strings.Repeat("0", 32), []OutcomeSession{{Title: "One"}}, good, []string{"not available"}},
 		"loader":     {r, lint.ID, []OutcomeSession{{Title: "One"}}, good, []string{"Linty", "code", "lint-rules"}},
-		"too big":    {r, p.ID, []OutcomeSession{{Title: "One"}}, big, []string{"Careful", "review", "2,000 bytes"}},
+		"too big":    {r, p.ID, []OutcomeSession{{Title: "One"}}, big, []string{"Careful", "review", "6,000 bytes"}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			err := tc.rig.s.UsePathway(tc.rig.p.UserID, tc.id, tc.sessions, tc.load)

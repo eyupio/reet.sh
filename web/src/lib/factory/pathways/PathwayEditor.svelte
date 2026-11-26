@@ -307,7 +307,7 @@
   // Over the line the ghost drops below the cards, so the card or gap it would land on stays in sight: the top it keeps clear of.
   let floor = $state(0)
   let bar = $state.raw<{ left: number; top: number; width: number; height: number } | null>(null)
-  let hintAt = $state.raw({ x: 0, y: 0, above: false, side: false })
+  let hintAt = $state.raw({ x: 0, y: 0, place: 'below' })
   let canvas = $state<HTMLElement>()
   let raf = 0
   const lineOf = () => canvas?.querySelector<HTMLElement>('[data-pathway-line]') ?? null
@@ -362,12 +362,19 @@
     const box = line.getBoundingClientRect(), bottom = Math.max(...cards.map(c => c.bottom))
     floor = !phone && cards.length && x >= box.left && x <= box.right && y >= box.top && y <= bottom ? bottom + 12 : 0
     const below = floor && ghost ? floor + ghost.height + 16 : cards.length ? bottom + 18 : box.top + box.height / 2
-    // Where it would not fit in the window it goes above the line, or above the pointer when that is higher (never under
-    // it); where there is no room above either, beside the pointer, to its right.
-    const tall = document.querySelector('[data-drag-hint]')?.getBoundingClientRect().height || 80
-    const out = !phone && cards.length > 0 && below + tall > windowFoot() - 8, lift = Math.min(box.top, y) - 12
-    const side = out && lift - tall < 8
-    hintAt = side ? { x: x + 20, y, above: false, side } : { x: box.left + box.width / 2, y: out ? lift : below, above: out, side }
+    // The hint has three places, each inside the window, none over the pointer, the insertion bar or the card that takes the
+    // drop: below the cards; above the line (or the pointer, when that is higher); pinned to the window's foot, or to its top
+    // when the pointer is there. With no place that is clear and inside, a clear one partly outside is used.
+    const spot = document.querySelector('[data-drag-hint]')?.getBoundingClientRect()
+    const tall = spot?.height || 80, wide = Math.min(spot?.width || 320, innerWidth - 16), foot = windowFoot()
+    const cx = Math.min(Math.max(box.left + box.width / 2, 8 + wide / 2), innerWidth - 8 - wide / 2)
+    const keep = [bar, target?.type === 'card' ? cards[target.at] : null].flatMap(r => r ? [{ left: r.left, top: r.top, right: r.left + r.width, bottom: r.top + r.height }] : [])
+    const clear = (top: number) => !(x > cx - wide / 2 - 8 && x < cx + wide / 2 + 8 && y > top - 8 && y < top + tall + 8)
+      && keep.every(r => r.right <= cx - wide / 2 - 4 || r.left >= cx + wide / 2 + 4 || r.bottom <= top - 4 || r.top >= top + tall + 4)
+    const places: [string, number][] = [['below', below], ['above', Math.min(box.top, y) - 12 - tall], ['foot', foot - 8 - tall], ['top', 8]]
+    const fits = ([, top]: [string, number]) => top >= 8 && top + tall <= foot - 8 && clear(top)
+    const place = phone || !cards.length ? places[0] : places.find(fits) ?? places.find(([, top]) => clear(top)) ?? places[2]
+    hintAt = { x: cx, y: place[1], place: place[0] }
   }
   // The insertion bar, in the gap the slot is: between two cards, or just outside the first or last.
   function barAt(at: number, cards: DOMRect[]) {
@@ -612,7 +619,7 @@
     {/if}
     <!-- Over the ghost, so the gap it will land in is never hidden. -->
     {#if bar}<div class="drop-bar" data-drag-bar style:left="{bar.left}px" style:top="{bar.top}px" style:width="{bar.width}px" style:height="{bar.height}px"></div>{/if}
-    {#if hint}<p class="drag-hint" class:phone class:above={hintAt.above} class:side={hintAt.side} data-drag-hint style:left={phone ? undefined : `${hintAt.x}px`} style:top={phone ? undefined : `${hintAt.y}px`} style:max-width={hintAt.side ? `min(560px, ${innerWidth - hintAt.x - 16}px)` : undefined}>{hint}</p>{/if}
+    {#if hint}<p class="drag-hint" class:phone data-drag-hint data-hint-place={phone ? undefined : hintAt.place} style:left={phone ? undefined : `${hintAt.x}px`} style:top={phone ? undefined : `${hintAt.y}px`}>{hint}</p>{/if}
   </div>
 {/if}
 {#if asking}
@@ -737,11 +744,9 @@
     background: var(--card) !important; box-shadow: 0 18px 36px -14px var(--scrim), var(--shadow) !important;
   }
   .drag-hint {
-    position: fixed; translate: -50% 0; max-width: min(560px, calc(100vw - 32px)); box-sizing: border-box; margin: 0; padding: 8px 12px; border-radius: 8px;
+    position: fixed; translate: -50% 0; max-width: min(560px, calc(100vw - 16px)); box-sizing: border-box; margin: 0; padding: 8px 12px; border-radius: 8px;
     background: var(--ink); color: var(--bg); font-size: 14px; line-height: 1.45; text-align: center; box-shadow: 0 12px 30px -12px var(--scrim);
   }
-  .drag-hint.above { translate: -50% -100%; }
-  .drag-hint.side { translate: 0 -50%; }
   .drag-hint.phone { left: 16px; right: 16px; bottom: calc(16px + var(--bottom-chrome, 0px)); translate: none; max-width: none; }
   :global(html[data-pathway-drag]), :global(html[data-pathway-drag] *) { cursor: grabbing !important; }
 

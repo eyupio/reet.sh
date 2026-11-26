@@ -976,6 +976,46 @@ async function editorShelf(width,theme,touch=false){
  }finally{await w.context.close()}
 }
 
+// Mid-drag on a tablet: the hint is in one of `places`, inside the window (above the tab bar when it shows), and clear of the
+// pointer, the insertion bar and any `cards` (the card that takes the drop).
+async function hintClear(page,to,places,cards=[]){
+ await expect(hint(page)).toBeVisible()
+ const h=await hint(page).boundingBox(),foot=await page.evaluate(()=>{const t=document.querySelector('nav.bottom-tabs');return t&&getComputedStyle(t).display!=='none'?t.getBoundingClientRect().top:innerHeight}),vw=await page.evaluate(()=>innerWidth)
+ expect(places,`the hint is placed ${await hint(page).getAttribute('data-hint-place')}`).toContain(await hint(page).getAttribute('data-hint-place'))
+ expect(h.x>=0&&h.x+h.width<=vw&&h.y>=0&&h.y+h.height<=foot,`the hint is inside the window: ${JSON.stringify(h)} above ${foot}`).toBe(true)
+ expect(to.x<h.x||to.x>h.x+h.width||to.y<h.y||to.y>h.y+h.height,'the hint covers the pointer').toBe(true)
+ const apart=(a,b)=>a.x>=b.x+b.width||a.x+a.width<=b.x||a.y>=b.y+b.height||a.y+a.height<=b.y
+ for(const b of await bar(page).all())expect(apart(h,await b.boundingBox()),'the hint covers the insertion bar').toBe(true)
+ for(const c of cards)expect(apart(h,await card(page,c).boundingBox()),`the hint covers ${c}`).toBe(true)
+}
+// The hint's three places: below the cards (a tall window), above the line (500 px) and pinned to the foot or the top (380
+// px, the line near the top), whichever the pointer is over, for a stage on to a gap and a skill on to a card.
+async function editorHintPlaces(theme){
+ for(const [height,places,scroll] of [[900,['below'],0],[500,['above'],0],[380,['foot','top'],1]]){
+  const {w,page}=await open(900,theme,{list:[...three(),planFirst()]},{touch:true,height})
+  try{
+   await goEditor(page,'p6')
+   const cdp=await page.context().newCDPSession(page)
+   const touchAt=(type,p)=>cdp.send('Input.dispatchTouchEvent',{type,touchPoints:p?[{x:Math.round(p.x),y:Math.round(p.y)}]:[]})
+   for(const kind of ['stage','skill']){
+    if(kind==='skill')await tab(page,'Skills').click()
+    const name=kind==='stage'?'stage:design':'skill:threat-model'
+    await item(page,name).scrollIntoViewIfNeeded()
+    if(scroll)await page.evaluate(()=>scrollTo(0,document.querySelector('[data-pathway-line]').getBoundingClientRect().top+scrollY-30))
+    await settled(page)
+    const from=centre(await item(page,name).boundingBox()),to=kind==='stage'?await between(page,'Plan','Code'):await over(page,'Code')
+    await touchAt('touchStart',from)
+    await page.waitForTimeout(400)
+    for(let n=1;n<=10;n++)await touchAt('touchMove',{x:from.x+(to.x-from.x)*n/10,y:from.y+(to.y-from.y)*n/10})
+    await hintClear(page,to,places,kind==='skill'?['Code']:[])
+    if(kind==='stage')await held(page,`p3-drag-hint-${height}`,900,theme)
+    await touchAt('touchEnd')
+    await expect(hint(page)).toHaveCount(0)
+   }
+   expect(w.errors).toEqual([])
+  }finally{await w.context.close()}
+ }
+}
 // A short window on a touch screen (a landscape tablet). The drag hint stays in view and never covers the pointer or the
 // card it would land on, and with the phone's bottom tab bar showing (500 px tall or less) the palette's last item is
 // above the bar.
@@ -1126,7 +1166,7 @@ try{
  await tabletTargets()
  await editorShelf(1280,'light')
  await editorShelf(1024,'dark',true)
- for(const theme of ['light','dark']){await editorHintShort(theme);await editorHintAbovePointer(theme);await editorDockTabs(theme)}
+ for(const theme of ['light','dark']){await editorHintShort(theme);await editorHintAbovePointer(theme);await editorHintPlaces(theme);await editorDockTabs(theme)}
  for(const [width,theme] of [[1280,'light'],[390,'dark']]){
   await editorGone(width,theme)
   await editorNotAPathway(width,theme)

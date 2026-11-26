@@ -163,16 +163,16 @@ func TestGafferToolsThatReturnSessionTextAreMarked(t *testing.T) {
 // stage the pipeline does not have, or a tier that is not one, is refused.
 func TestFactoryMCPPipelinesCarryStageTiers(t *testing.T) {
 	t.Parallel()
-	got, err := mcpPipelines([]any{map[string]any{"title": "Export", "prompt": "p", "stages": []any{"code", "pr"}, "tiers": map[string]any{"code": "heavy"}}})
+	got, err := mcpPipelines([]any{map[string]any{"title": "Export", "prompt": "p", "stages": []any{"code", "pr"}, "tiers": map[string]any{"code": "heavy"}}}, false)
 	if err != nil || len(got) != 1 || len(got[0].Stages) != 2 || got[0].Stages[0].Tier != "heavy" || got[0].Stages[0].Tool != "" || got[0].Stages[1].Tier != "" {
 		t.Fatalf("%+v %v", got, err)
 	}
 	// With no stages given the usual six are used, and a tier can still be set on one.
-	if got, err = mcpPipelines([]any{map[string]any{"title": "Export", "prompt": "p", "tiers": map[string]any{"review": "light"}}}); err != nil || len(got[0].Stages) != 6 || got[0].Stages[1].Tier != "light" {
+	if got, err = mcpPipelines([]any{map[string]any{"title": "Export", "prompt": "p", "tiers": map[string]any{"review": "light"}}}, false); err != nil || len(got[0].Stages) != 6 || got[0].Stages[1].Tier != "light" {
 		t.Fatalf("%+v %v", got, err)
 	}
 	for _, bad := range []map[string]any{{"code": "enormous"}, {"design": "heavy"}} {
-		if _, err = mcpPipelines([]any{map[string]any{"title": "Export", "prompt": "p", "stages": []any{"code"}, "tiers": bad}}); err == nil {
+		if _, err = mcpPipelines([]any{map[string]any{"title": "Export", "prompt": "p", "stages": []any{"code"}, "tiers": bad}}, false); err == nil {
 			t.Fatalf("accepted tiers %v", bad)
 		}
 	}
@@ -183,7 +183,7 @@ func TestFactoryMCPPipelinesCarryStageTiers(t *testing.T) {
 func TestFactoryMCPPipelinesCanSplitAStage(t *testing.T) {
 	t.Parallel()
 	got, err := mcpPipelines([]any{map[string]any{"title": "Export", "prompt": "p", "stages": []any{"code", "pr"}, "tiers": map[string]any{"code": "heavy"},
-		"parts": []any{map[string]any{"stage": "code", "title": "Query", "brief": "Write the query."}, map[string]any{"stage": "code", "title": "Button", "brief": "Add the button.", "tier": "light"}}}})
+		"parts": []any{map[string]any{"stage": "code", "title": "Query", "brief": "Write the query."}, map[string]any{"stage": "code", "title": "Button", "brief": "Add the button.", "tier": "light"}}}}, false)
 	if err != nil || len(got[0].Stages) != 3 {
 		t.Fatalf("%+v %v", got, err)
 	}
@@ -195,7 +195,7 @@ func TestFactoryMCPPipelinesCanSplitAStage(t *testing.T) {
 		"one part":         {map[string]any{"stage": "code", "title": "Query", "brief": "b"}},
 		"a stage it lacks": {map[string]any{"stage": "design", "title": "A", "brief": "a"}, map[string]any{"stage": "design", "title": "B", "brief": "b"}},
 	} {
-		if _, err = mcpPipelines([]any{map[string]any{"title": "Export", "prompt": "p", "stages": []any{"code"}, "parts": parts}}); err == nil {
+		if _, err = mcpPipelines([]any{map[string]any{"title": "Export", "prompt": "p", "stages": []any{"code"}, "parts": parts}}, false); err == nil {
 			t.Fatalf("accepted: %s", name)
 		}
 	}

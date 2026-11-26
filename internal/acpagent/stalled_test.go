@@ -54,3 +54,21 @@ func TestAnAgentThatStopsReadingIsEnded(t *testing.T) {
 		t.Fatal("the process group was not confirmed gone")
 	}
 }
+
+// A request the agent sends before it answers a switch needs the turn lock to
+// be placed. The switch must not hold that lock while it waits, or the reader
+// never reaches the answer and the switch is reported unconfirmed.
+func TestARequestBeforeTheSwitchAnswerDoesNotStallTheSwitch(t *testing.T) {
+	session, err := Start(context.Background(), scriptAgent(t, "read -r line\n"+
+		`echo '{"jsonrpc":"2.0","id":"p1","method":"session/request_permission","params":{"sessionId":"s1","toolCall":{"toolCallId":"call_1","kind":"execute","rawInput":{"command":"true"}},"options":[{"optionId":"r","kind":"reject_once"}]}}'`+"\n"+
+		`echo '{"jsonrpc":"2.0","id":3,"result":{"configOptions":[{"id":"model","currentValue":"stub/other"}]}}'`+"\nexec sleep 600"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := session.SetModel(ctx, "stub/other"); err != nil {
+		t.Fatalf("the switch was not confirmed: %v", err)
+	}
+}

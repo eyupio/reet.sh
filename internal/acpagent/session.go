@@ -2120,11 +2120,10 @@ func (s *Session) SetModel(ctx context.Context, model string) error {
 func (s *Session) setModel(ctx context.Context, model string, startup bool) error {
 	s.configMu.Lock()
 	defer s.configMu.Unlock()
-	s.turnMu.Lock()
-	defer s.turnMu.Unlock()
-	if s.working || s.nativeBusy {
+	if !s.beginConfiguring() {
 		return ErrBusy
 	}
+	defer s.endConfiguring()
 	s.mu.Lock()
 	id := s.acpID
 	s.mu.Unlock()
@@ -2162,6 +2161,25 @@ func (s *Session) setModel(ctx context.Context, model string, startup bool) erro
 		return ErrModel
 	}
 	return nil
+}
+
+// beginConfiguring claims an idle chat for a switch. No turn can start until
+// endConfiguring, so the turn lock is not held while the agent answers: the
+// reader needs that lock to place a request that arrives before the answer.
+func (s *Session) beginConfiguring() bool {
+	s.turnMu.Lock()
+	defer s.turnMu.Unlock()
+	if s.working || s.nativeBusy {
+		return false
+	}
+	s.configuring = true
+	return true
+}
+
+func (s *Session) endConfiguring() {
+	s.turnMu.Lock()
+	s.configuring = false
+	s.turnMu.Unlock()
 }
 
 func (s *Session) unconfirmedModel(startup bool) {
@@ -2271,11 +2289,14 @@ func (s *Session) SetMode(ctx context.Context, mode string) error {
 	if !allowed {
 		return ErrMode
 	}
-	s.turnMu.Lock()
-	defer s.turnMu.Unlock()
-	if s.working || s.nativeBusy {
+	if !s.configMu.TryLock() {
 		return ErrBusy
 	}
+	defer s.configMu.Unlock()
+	if !s.beginConfiguring() {
+		return ErrBusy
+	}
+	defer s.endConfiguring()
 	s.mu.Lock()
 	id, previous := s.acpID, s.mode
 	s.mu.Unlock()

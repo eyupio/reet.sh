@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/eyupio/reet.sh/internal/gaffer"
 	"github.com/eyupio/reet.sh/internal/skillbuddy"
 	"github.com/eyupio/reet.sh/internal/store"
 	"net/http"
@@ -55,6 +56,9 @@ func (s *server) buddyScope(uid int64, in buddyContext) (scope, stage, task stri
 					if st.SessionID == row.ID {
 						stage = st.Kind
 						task += " " + p.Title
+						if st.Kind == gaffer.CustomStage {
+							stage, task = "", task+" "+st.Name+" "+st.Prompt
+						}
 						break
 					}
 				}
@@ -73,6 +77,10 @@ func (s *server) buddyScope(uid int64, in buddyContext) (scope, stage, task stri
 			scope = fmt.Sprintf("factory:%s:%s:%d", o.ID, p.Key, in.Stage)
 			stage = st.Kind
 			task = p.Title + " " + p.Prompt + " " + st.Brief + " " + o.Objective
+			// A pathway's own stage has no kind word to rank by; its name and prompt stand in (ranked locally only).
+			if st.Kind == gaffer.CustomStage {
+				stage, task = "", task+" "+st.Name+" "+st.Prompt
+			}
 			editable = o.ArchivedAt == 0 && st.State == "pending" && in.Stage > p.Stage
 			return
 		}

@@ -153,6 +153,7 @@ type ContextPipeline struct {
 	State        string                 `json:"state"`
 	Note         string                 `json:"note,omitempty"`
 	StageInHand  string                 `json:"stageInHand,omitempty"`
+	Pathway      string                 `json:"pathway,omitempty"`
 	Stages       []ContextPipelineStage `json:"stages"`
 	Merge        string                 `json:"merge,omitempty"`
 	GoalState    string                 `json:"goalState,omitempty"`
@@ -161,6 +162,7 @@ type ContextPipeline struct {
 }
 type ContextPipelineStage struct {
 	Kind        string `json:"kind"`
+	Name        string `json:"name,omitempty"` // a custom stage's own name; its prompt is never sent
 	State       string `json:"state"`
 	Worker      string `json:"worker,omitempty"`
 	ThisSession bool   `json:"thisSession,omitempty"`
@@ -184,7 +186,7 @@ func (s *Service) contextPipeline(uid int64, session string, flags store.Context
 			if !mine || len(piece.Stages) == 0 {
 				continue
 			}
-			out := &ContextPipeline{State: piece.State, Stages: []ContextPipelineStage{}, HowItMovesOn: pipelineMovesOn}
+			out := &ContextPipeline{State: piece.State, Stages: []ContextPipelineStage{}, HowItMovesOn: pipelineMovesOn, Pathway: piece.PathwayName}
 			if piece.Stage < len(piece.Stages) {
 				out.StageInHand = piece.Stages[piece.Stage].Label()
 			}
@@ -206,6 +208,9 @@ func (s *Service) contextPipeline(uid int64, session string, flags store.Context
 			}
 			for _, stage := range piece.Stages {
 				row := ContextPipelineStage{Kind: stage.Kind, State: stage.State, Worker: stage.Tool, ThisSession: stage.SessionID == session}
+				if stage.Kind == CustomStage {
+					row.Name = stage.Label()
+				}
 				if flags.Text {
 					row.Handover, _ = contextText(stage.Summary, 600)
 				}

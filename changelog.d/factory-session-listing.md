@@ -1,0 +1,1 @@
+- **Archived or deleted Factory sessions leave Home and Sessions**: a stage session whose outcome was archived or deleted is no longer listed there, even after the outcome record is pruned. Restoring the outcome lists its sessions again.

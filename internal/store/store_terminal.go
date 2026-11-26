@@ -510,7 +510,26 @@ func (s *Store) TerminalPromptFor(uid int64, sessionID string) (string, error) {
 }
 
 func (s *Store) TerminalSessionsFor(uid int64) ([]TerminalSession, error) {
-	rows, err := s.readStmts.query(`SELECT `+terminalSessionCols+` FROM terminal_sessions WHERE user_id=? AND NOT EXISTS(SELECT 1 FROM terminal_session_archives a WHERE a.session_id=terminal_sessions.id) AND EXISTS(SELECT 1 FROM users WHERE id=? AND disabled_at=0 AND role<>'viewer') ORDER BY state IN ('creating','running','end_requested') DESC,updated_at DESC,id LIMIT 100`, uid, uid)
+	return s.terminalSessionsFor(uid, "")
+}
+
+// listingHideFactorySessions drops a Factory stage session once the outcome it
+// belongs to is archived or gone: its goal stays after the outcome is deleted,
+// so the session would otherwise reappear when the client no longer hides it.
+const listingHideFactorySessions = ` AND NOT (
+	EXISTS(SELECT 1 FROM gaffer_goals g WHERE g.user_id=terminal_sessions.user_id AND json_extract(g.data,'$.sessionId')=terminal_sessions.id AND substr(json_extract(g.data,'$.text'),1,9)='Outcome: ')
+	AND NOT EXISTS(SELECT 1 FROM gaffer_outcomes o WHERE o.user_id=terminal_sessions.user_id AND COALESCE(json_extract(o.data,'$.archivedAt'),0)=0
+		AND (EXISTS(SELECT 1 FROM json_each(o.data,'$.sessions') s WHERE json_extract(s.value,'$.sessionId')=terminal_sessions.id)
+			OR EXISTS(SELECT 1 FROM json_each(o.data,'$.sessions') s, json_each(s.value,'$.stages') st WHERE json_extract(st.value,'$.sessionId')=terminal_sessions.id))))`
+
+// TerminalSessionsForListing is the list the Home and Sessions pages read. It
+// applies the Factory filter before LIMIT so stale rows cannot crowd out live ones.
+func (s *Store) TerminalSessionsForListing(uid int64) ([]TerminalSession, error) {
+	return s.terminalSessionsFor(uid, listingHideFactorySessions)
+}
+
+func (s *Store) terminalSessionsFor(uid int64, filter string) ([]TerminalSession, error) {
+	rows, err := s.readStmts.query(`SELECT `+terminalSessionCols+` FROM terminal_sessions WHERE user_id=? AND NOT EXISTS(SELECT 1 FROM terminal_session_archives a WHERE a.session_id=terminal_sessions.id) AND EXISTS(SELECT 1 FROM users WHERE id=? AND disabled_at=0 AND role<>'viewer')`+filter+` ORDER BY state IN ('creating','running','end_requested') DESC,updated_at DESC,id LIMIT 100`, uid, uid)
 	if err != nil {
 		return nil, err
 	}

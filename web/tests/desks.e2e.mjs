@@ -281,6 +281,7 @@ const tablist = page.locator('.bar .tabs')
 const tab = name => tablist.getByRole('tab', { name, exact: true })
 const tabNames = () => tablist.getByRole('tab').evaluateAll(els => els.map(el => el.querySelector('.name')?.textContent))
 const quiet = () => page.waitForTimeout(700)
+const sent = id => sockets.get(id).input.join('')
 const newWindow = () => page.evaluate(() => { try { sessionStorage.clear() } catch { /* no page yet */ } })
 async function openDesk() {
   // A window keeps its own tab for a desk; this opens the desk as a new window would.
@@ -337,7 +338,79 @@ async function expectCard(id, state, tag, heading, primary) {
   await expect(pane(id).locator('.btn.primary')).toHaveText(primary)
 }
 
+async function commandBarPart() {
+  // ── the command bar: the next actions, completion, and Run in the focused pane's shell ──
+  reset()
+  machines[0].capabilities.commandHistory = true
+  histories.set('sess-deploy', { entries: [{ command: 'git status', source: 'bash' }, { command: 'go test ./...', source: 'bash' }], sources: [], truncated: false, skipped: 0 })
+  savedList = [{ id: 'c1', name: 'Disk', command: 'df -h', description: '', revision: 1 }]
+  folders = new Map([['/home/dev/PROD_reet', ['.git', 'cmd', 'web']], ['/home/dev/PROD_reet/web', ['src', 'tests']]])
+  await openDesk()
+  const bar = page.getByRole('form', { name: 'Command bar for reet' })
+  const field = bar.getByRole('combobox'), labels = bar.locator('[role=option] > span')
+  // The bar is drawn inside the focused pane's terminal area, not under the panes as a whole.
+  expect(await bar.evaluate(el => el.closest('.desk-pane')?.getAttribute('data-pane'))).toBe('pane-deploy')
+  expect(await page.locator('.desk-screen > form[aria-label^="Command bar"]').count()).toBe(0)
+  // Empty: the folders of the shell's folder to cd into, then the commands run lately and saved.
+  await expect(labels).toHaveText(['cd cmd/', 'cd web/', 'cd ..', 'git status', 'go test ./...', 'df -h'])
+  // Alt+Shift+K moves from the terminal to the bar; Tab takes the suggestion and runs nothing.
+  await pane('pane-deploy').locator('textarea').focus()
+  await page.keyboard.press('Alt+Shift+K')
+  await expect(field).toBeFocused()
+  await field.pressSequentially('cd w')
+  await expect(labels).toHaveText(['web/'])
+  await page.keyboard.press('Tab')
+  await expect(field).toHaveValue('cd web/')
+  // The folder just named offers its own folders.
+  await expect(labels).toHaveText(['src/', 'tests/'])
+  expect(sent('sess-deploy')).toBe('')
+  if (shots) {
+    await page.screenshot({ path: `${shots}/desk-command-bar-light.png` })
+    await page.evaluate(() => { document.documentElement.dataset.theme = 'dark' })
+    await page.screenshot({ path: `${shots}/desk-command-bar-dark.png` })
+    await page.evaluate(() => { document.documentElement.dataset.theme = 'light' })
+  }
+  // Enter types the line and Enter into the focused pane's shell, once, and the bar keeps the keyboard.
+  await page.keyboard.press('Enter')
+  await expect.poll(() => sent('sess-deploy')).toBe('cd web/\r')
+  await expect(field).toHaveValue('')
+  await expect(field).toBeFocused()
+  // What the bar ran is the first command offered; a press on a suggestion fills the field and runs nothing.
+  await expect(labels).toHaveText(['cd cmd/', 'cd web/', 'cd ..', 'cd web/', 'git status', 'go test ./...', 'df -h'].filter((x, i, all) => all.indexOf(x) === i))
+  await labels.filter({ hasText: 'git status' }).click()
+  await expect(field).toHaveValue('git status')
+  await expect(field).toBeFocused()
+  await quiet()
+  expect(sent('sess-deploy')).toBe('cd web/\r')
+  if (shots) {
+    await field.fill('')
+    await page.screenshot({ path: `${shots}/desk-command-bar-next-light.png` })
+    await page.setViewportSize({ width: 390, height: 780 })
+    await page.screenshot({ path: `${shots}/desk-command-bar-phone.png` })
+    await page.setViewportSize({ width: 1360, height: 860 })
+  }
+  // Esc gives the keyboard back to the terminal.
+  await page.keyboard.press('Escape')
+  await expect(pane('pane-deploy').locator('textarea')).toBeFocused()
+  // A pane with no shell running has a bar that says so and takes nothing.
+  sessions = sessions.map(x => x.id === 'sess-logs' ? { ...x, state: 'exited', exitCode: 0 } : x)
+  await tab('logs').click()
+  const logsBar = page.getByRole('form', { name: 'Command bar for platform logs' })
+  await expect(logsBar.getByRole('combobox')).toBeDisabled()
+  expect(await logsBar.evaluate(el => el.closest('.desk-pane')?.getAttribute('data-pane'))).toBe('pane-logs')
+  expect(errors).toEqual([])
+  console.log('ok - the command bar offers the next actions, completes a folder and runs only on Enter')
+}
+
+
 try {
+  if (process.env.REET_DESKS_ONLY === 'command-bar') {
+    await commandBarPart()
+    expect(errors).toEqual([])
+    console.log('ok - only the command bar part ran')
+    await browser.close()
+    process.exit(0)
+  }
   // ── Desks is in the top bar ──
   reset({ empty: true })
   await page.goto(`${base}/desks`)
@@ -1772,7 +1845,6 @@ try {
   const allButton = () => page.getByRole('button', { name: 'Type in all panes' })
   const stripe = () => page.locator('.stripe')
   const ask = () => page.getByRole('dialog', { name: 'Type in all panes?' })
-  const sent = id => sockets.get(id).input.join('')
   /** Turns it on with the question answered (it is asked once a page). */
   async function typeInAll(n = 3) {
     await allButton().click()
@@ -2948,69 +3020,8 @@ try {
     console.log('ok - input from a pane that is not the focused one is not sent on')
   }
 
-  // ── the command bar: the next actions, completion, and Run in the focused pane's shell ──
-  {
-    reset()
-    machines[0].capabilities.commandHistory = true
-    histories.set('sess-deploy', { entries: [{ command: 'git status', source: 'bash' }, { command: 'go test ./...', source: 'bash' }], sources: [], truncated: false, skipped: 0 })
-    savedList = [{ id: 'c1', name: 'Disk', command: 'df -h', description: '', revision: 1 }]
-    folders = new Map([['/home/dev/PROD_reet', ['.git', 'cmd', 'web']], ['/home/dev/PROD_reet/web', ['src', 'tests']]])
-    await openDesk()
-    const bar = page.getByRole('form', { name: 'Command bar for reet' })
-    const field = bar.getByRole('combobox'), labels = bar.locator('[role=option] > span')
-    // The bar is drawn inside the focused pane's terminal area, not under the panes as a whole.
-    expect(await bar.evaluate(el => el.closest('.desk-pane')?.getAttribute('data-pane'))).toBe('pane-deploy')
-    expect(await page.locator('.desk-screen > form[aria-label^="Command bar"]').count()).toBe(0)
-    // Empty: the folders of the shell's folder to cd into, then the commands run lately and saved.
-    await expect(labels).toHaveText(['cd cmd/', 'cd web/', 'cd ..', 'git status', 'go test ./...', 'df -h'])
-    // Alt+Shift+K moves from the terminal to the bar; Tab takes the suggestion and runs nothing.
-    await pane('pane-deploy').locator('textarea').focus()
-    await page.keyboard.press('Alt+Shift+K')
-    await expect(field).toBeFocused()
-    await field.pressSequentially('cd w')
-    await expect(labels).toHaveText(['web/'])
-    await page.keyboard.press('Tab')
-    await expect(field).toHaveValue('cd web/')
-    // The folder just named offers its own folders.
-    await expect(labels).toHaveText(['src/', 'tests/'])
-    expect(sent('sess-deploy')).toBe('')
-    if (shots) {
-      await page.screenshot({ path: `${shots}/desk-command-bar-light.png` })
-      await page.evaluate(() => { document.documentElement.dataset.theme = 'dark' })
-      await page.screenshot({ path: `${shots}/desk-command-bar-dark.png` })
-      await page.evaluate(() => { document.documentElement.dataset.theme = 'light' })
-    }
-    // Enter types the line and Enter into the focused pane's shell, once, and the bar keeps the keyboard.
-    await page.keyboard.press('Enter')
-    await expect.poll(() => sent('sess-deploy')).toBe('cd web/\r')
-    await expect(field).toHaveValue('')
-    await expect(field).toBeFocused()
-    // What the bar ran is the first command offered; a press on a suggestion fills the field and runs nothing.
-    await expect(labels).toHaveText(['cd cmd/', 'cd web/', 'cd ..', 'cd web/', 'git status', 'go test ./...', 'df -h'].filter((x, i, all) => all.indexOf(x) === i))
-    await labels.filter({ hasText: 'git status' }).click()
-    await expect(field).toHaveValue('git status')
-    await expect(field).toBeFocused()
-    await quiet()
-    expect(sent('sess-deploy')).toBe('cd web/\r')
-    if (shots) {
-      await field.fill('')
-      await page.screenshot({ path: `${shots}/desk-command-bar-next-light.png` })
-      await page.setViewportSize({ width: 390, height: 780 })
-      await page.screenshot({ path: `${shots}/desk-command-bar-phone.png` })
-      await page.setViewportSize({ width: 1360, height: 860 })
-    }
-    // Esc gives the keyboard back to the terminal.
-    await page.keyboard.press('Escape')
-    await expect(pane('pane-deploy').locator('textarea')).toBeFocused()
-    // A pane with no shell running has a bar that says so and takes nothing.
-    sessions = sessions.map(x => x.id === 'sess-logs' ? { ...x, state: 'exited', exitCode: 0 } : x)
-    await tab('logs').click()
-    const logsBar = page.getByRole('form', { name: 'Command bar for platform logs' })
-    await expect(logsBar.getByRole('combobox')).toBeDisabled()
-    expect(await logsBar.evaluate(el => el.closest('.desk-pane')?.getAttribute('data-pane'))).toBe('pane-logs')
-    expect(errors).toEqual([])
-    console.log('ok - the command bar offers the next actions, completes a folder and runs only on Enter')
-  }
+
+  await commandBarPart()
 
   // ── the look, in both themes and on a phone ──
   if (shots) {

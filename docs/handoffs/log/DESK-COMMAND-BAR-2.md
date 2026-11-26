@@ -13,13 +13,17 @@ What changed.
 - `DeskScreen.svelte` passes one `CommandBar` snippet to the focused pane only. The old full-width bar under `.area`
   is gone, not kept alongside. All of the bar's props, its suggestion logic, read timing, keyboard handling and
   disabled states are unchanged.
+- A pane now becomes focused on click rather than on pointerdown or focusin. Moving the bar between panes changes
+  their heights, and focusing on the press moved the pane's buttons before the release, so a press on a card action
+  could miss. The press acts first, then the pane focuses and the bar moves.
 - `docs/desks.md` says where the bar now sits.
 
-Checked: `npm run check` in `web/` (132 test files, svelte-check clean); `npm run build`; the command-bar part of
-`desks.e2e.mjs` now also asserts the bar sits inside `.desk-pane[data-pane=...]` and that no bar remains a direct child
-of the desk screen. That whole browser file was started against a built preview, but it stopped earlier in the pane
-state part (a reopen expected `folderGone` and saw `lost`), so the command-bar part has not been run to completion in
-this environment. The same file passed its earlier parts before that point.
+Checked: `npm run check` in `web/` (132 test files, svelte-check clean); `npm run build`; `desks.e2e.mjs` against a
+built preview, in full and alone with `REET_DESKS_ONLY=command-bar`. The command-bar part now also asserts the bar sits
+inside `.desk-pane[data-pane=...]` and that no bar remains a direct child of the desk screen. An earlier run failed in
+the pane state part (`folderGone` expected, `lost` seen); the same file passes on the base commit, so the cause was this
+move: focusing on the press shifted the pane's action button before release. Focusing on click fixed it, and the whole
+file now passes.
 
 Not done, not checked.
 

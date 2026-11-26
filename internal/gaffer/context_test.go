@@ -452,3 +452,49 @@ func TestContextNamesACustomStage(t *testing.T) {
 		t.Fatalf("a stage prompt reached the context: %s", raw)
 	}
 }
+
+// A late stage of a long pipeline carries many handovers beside a long reply.
+// The snapshot must still fit: it gives up events, then old handovers, then the
+// reply's start, and keeps the end of the reply a review judges the stage by.
+func TestContextOfALatePipelineStageStillFits(t *testing.T) {
+	s, st, p := settingsFixture(t)
+	row := contextSessionFixture(t, st, p)
+	provider, err := s.Save(p, Input{Name: "Reply", Kind: "openai_compatible", BaseURL: "http://127.0.0.1:1", LocalOnly: true, Enabled: true, Model: "fake-model", AllowStatus: true, AllowSessions: true, AllowCode: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := s.CreateConversation(p.UserID, ConversationInput{SessionID: row.ID, ProviderID: provider.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stages := make([]store.GafferOutcomeStage, 16)
+	for i := range stages {
+		stages[i] = store.GafferOutcomeStage{Kind: "code", State: "done", Summary: strings.Repeat("Handover item with files and what was done. ", 20)}
+	}
+	stages[15] = store.GafferOutcomeStage{Kind: "merge", State: "running", SessionID: row.ID}
+	if _, err = st.CreateGafferOutcomeFor(p.UserID, store.GafferOutcome{ID: strings.Repeat("c", 32), Objective: strings.Repeat("Make the thing better. ", 40), Sessions: []store.GafferOutcomeSession{{Key: "a", Title: "Logs", Prompt: "Tidy the logs.", Stage: 15, Stages: stages}}}); err != nil {
+		t.Fatal(err)
+	}
+	events := []map[string]any{{"kind": "user", "text": "Go on."}, {"kind": "agent", "text": strings.Repeat("Checked the run and fixed a lint error.\n", 300) + "REPLY_END"}}
+	for i, e := range events {
+		raw, _ := json.Marshal(e)
+		if err = st.AppendTerminalChatEventFor(p.UserID, row.ID, int64(i+1), time.Now().UnixMilli(), raw); err != nil {
+			t.Fatal(err)
+		}
+	}
+	x, err := s.PreviewContext(p.UserID, "gaffer", c.Conversation.ID, row.ID, store.ContextFlags{Status: true, History: true, Text: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(x)
+	r := x.LatestReply
+	if len(raw) > MaxContextBytes || !utf8.Valid(raw) || x.Pipeline == nil || len(x.Pipeline.Stages) != 16 || !x.History.Truncated {
+		t.Fatalf("snapshot: %d bytes, pipeline=%v", len(raw), x.Pipeline != nil)
+	}
+	if r == nil || !r.StartOmitted || !strings.HasSuffix(r.Text, "REPLY_END") || len(r.Text) < 2<<10 {
+		t.Fatalf("the reply's end was not kept: %+v", r)
+	}
+	if x.Pipeline.Stages[14].Handover == "" {
+		t.Fatal("the newest handover was dropped before older ones")
+	}
+}

@@ -425,14 +425,33 @@ func (s *Service) contextSnapshot(uid int64, session string, flags store.Context
 			if err != nil {
 				return x, err
 			}
-			if len(b) <= MaxContextBytes {
+			over := len(b) - MaxContextBytes
+			if over <= 0 {
 				break
 			}
-			if len(h.Events) == 0 {
+			h.Truncated = true
+			// A late pipeline stage needs these least, in this order: older events, earlier stages' handovers, the reply's start.
+			if len(h.Events) > 0 {
+				h.Events = h.Events[1:]
+				continue
+			}
+			dropped := false
+			if x.Pipeline != nil {
+				for i := range x.Pipeline.Stages {
+					if x.Pipeline.Stages[i].Handover != "" {
+						x.Pipeline.Stages[i].Handover, dropped = "", true
+						break
+					}
+				}
+			}
+			if dropped {
+				continue
+			}
+			r := x.LatestReply
+			if r == nil || r.Text == "" {
 				return x, errors.New("The context metadata exceeds its limit.")
 			}
-			h.Events = h.Events[1:]
-			h.Truncated = true
+			r.Text, r.StartOmitted = strings.ToValidUTF8(r.Text[min(over, len(r.Text)):], ""), true
 		}
 	}
 	return x, nil

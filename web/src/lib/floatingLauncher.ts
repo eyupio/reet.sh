@@ -1,9 +1,10 @@
 // Keep a floating entry point clear of growing composers and fixed action docks.
 // The regions opt in; navigation and streamed content can replace them at any time.
 // With `avoid`, the entry point also keeps off a region marked data-floating-clearance="avoid" (a row of buttons in a
-// list, an action bar): it stays where it rests unless it would cover such a region, and then moves to the nearest place
-// above that covers none. Without it such a region is ignored, so another floating thing (the sync dock) is not moved by
-// the rows of a list.
+// list, an approval): it stays where it rests unless it would cover such a region, and then moves to the nearest place
+// above that covers none. A region marked "controls" (an action bar whose buttons sit on one side) only keeps it off the
+// buttons themselves, so it may rest over the bar's empty side rather than climb above the whole bar. Without `avoid`
+// such regions are ignored, so another floating thing (the sync dock) is not moved by the rows of a list.
 export function keepLauncherClear(node: HTMLElement, options: { avoid?: boolean } = {}) {
   let frame = 0
   const regions = new Set<HTMLElement>()
@@ -29,12 +30,17 @@ export function keepLauncherClear(node: HTMLElement, options: { avoid?: boolean 
     }
     if (options.avoid) {
       const marked = [...regions].filter(region => region.dataset.floatingClearance === 'avoid')
+      const bars = [...regions].filter(region => region.dataset.floatingClearance === 'controls')
       const column = (r: DOMRect, gap: number) => r.width && r.height && r.left < box.right + gap && r.right > box.left - gap
-      bottom = clearOf(marked.map(region => region.getBoundingClientRect()).filter(r => column(r, 8)), 8, bottom, box.height, viewTop, true)
-      // No gap between the rows fits the button: keep it off the buttons themselves and let it cover text instead.
-      const controls = marked.flatMap(region => [...region.querySelectorAll<HTMLElement>('button, a[href], input, select, textarea')])
+      const rest = bottom
+      const controlsIn = (region: HTMLElement) => [...region.querySelectorAll<HTMLElement>('button, a[href], input, select, textarea')]
         .map(control => control.getBoundingClientRect()).filter(r => column(r, 4))
-      bottom = clearOf(controls, 4, bottom, box.height, viewTop, false)
+      bottom = clearOf(marked.map(region => region.getBoundingClientRect()).filter(r => column(r, 8)), 8, rest, box.height, viewTop, true)
+      // No gap between the rows fits the button: keep it off the buttons themselves and let it cover text instead.
+      bottom = clearOf(marked.flatMap(controlsIn), 4, bottom, box.height, viewTop, false)
+      // An action bar's empty side is free floor: only its buttons count, so it need not rise above the whole bar.
+      const barFloor = clearOf(bars.flatMap(controlsIn), 4, rest, box.height, viewTop, false)
+      bottom = Math.max(bottom, barFloor)
     }
     node.style.setProperty('--launcher-clearance', `${bottom}px`)
   }

@@ -122,6 +122,9 @@ try{
    // The detail's bar stays at the foot of the visible detail.
    const pane=page.locator('.pane'),barBox=await page.getByRole('group',{name:'What do you want to do?',exact:true}).boundingBox(),paneBox=await pane.boundingBox()
    expect(barBox.y+barBox.height).toBeLessThanOrEqual(paneBox.y+paneBox.height+1);expect(barBox.y+barBox.height).toBeGreaterThan(paneBox.y+paneBox.height-40)
+   // Gaffer's button rests down in the bar's empty right-hand side, not up over the detail above it, when the bar's
+   // buttons leave that side free. It still keeps off those buttons where they reach its column (F7).
+   await expect.poll(()=>page.evaluate(()=>{const l=document.querySelector('.gaffer-launcher'),c=document.querySelector('.detail .bar .choices');if(!l||!c)return false;const a=l.getBoundingClientRect(),b=document.querySelector('.detail .bar').getBoundingClientRect();return c.getBoundingClientRect().right>=a.left||(l.style.getPropertyValue('--launcher-clearance')!==''&&a.top>=b.top-1)})).toBe(true)
    expect(await sideways(page)).toBeLessThanOrEqual(width)
    await page.screenshot({path:`${shots}/factory-page-${width}-${theme}.png`})
    if(width===1280){

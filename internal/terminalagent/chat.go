@@ -1627,5 +1627,10 @@ func (h *chatHost) setAgentMode(ctx context.Context, sessionID, mode string) err
 	}
 	changeCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
-	return process.SetMode(changeCtx, mode)
+	err := process.SetMode(changeCtx, mode)
+	// The read-back, even after an error: an unconfirmed switch may have applied.
+	if reader, ok := cs.process.(interface{ Mode() string }); ok && h.sup.registry != nil {
+		h.sup.registry.setMode(sessionID, reader.Mode())
+	}
+	return err
 }

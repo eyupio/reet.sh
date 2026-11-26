@@ -32,11 +32,14 @@ type chatRecord struct {
 	Dir          string `json:"dir"`
 	Model        string `json:"model"`
 	Effort       string `json:"effort,omitempty"`
-	Yolo         bool   `json:"yolo,omitempty"`
-	Trust        bool   `json:"trust,omitempty"`
-	ACPSID       string `json:"acpSessionId"`
-	UpdatedAt    int64  `json:"updatedAt"`
-	Attempts     int    `json:"attempts,omitempty"`
+	// Mode is the agent mode the person last switched the chat to; "" is the
+	// mode the agent starts in.
+	Mode      string `json:"mode,omitempty"`
+	Yolo      bool   `json:"yolo,omitempty"`
+	Trust     bool   `json:"trust,omitempty"`
+	ACPSID    string `json:"acpSessionId"`
+	UpdatedAt int64  `json:"updatedAt"`
+	Attempts  int    `json:"attempts,omitempty"`
 }
 
 type chatRegistryFile struct {
@@ -92,6 +95,7 @@ func (r *chatRegistry) valid(rec chatRecord) bool {
 		terminalproto.ValidTitle(rec.Title) &&
 		(rec.Model == "" || terminalproto.ValidModel(rec.Model)) &&
 		(rec.Effort == "" || terminalproto.ValidModel(rec.Effort)) &&
+		(rec.Mode == "" || terminalproto.ValidAgentMode(rec.Mode)) &&
 		terminalproto.ReviewedChatTool(rec.Tool) &&
 		acpagent.Describe(rec.Tool, true, "").History &&
 		terminalproto.ValidDir(rec.Dir) &&
@@ -164,6 +168,21 @@ func (r *chatRegistry) setModel(id, model string) {
 		return
 	}
 	rec.Model = model
+	rec.UpdatedAt = time.Now().UnixMilli()
+	r.chats[id] = rec
+	r.saveLocked()
+}
+
+// setMode keeps the agent mode the process confirmed, so a restart can put the
+// chat back in it. It never recreates a record removed by End or mode handoff.
+func (r *chatRegistry) setMode(id, mode string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	rec, ok := r.chats[id]
+	if !ok {
+		return
+	}
+	rec.Mode = mode
 	rec.UpdatedAt = time.Now().UnixMilli()
 	r.chats[id] = rec
 	r.saveLocked()
@@ -381,6 +400,11 @@ func (s *chatSupervisor) resumeChat(rec chatRecord) {
 			}
 		},
 	})
+	if err == nil {
+		if err = restoreAgentMode(startCtx, process, rec.Mode); err != nil {
+			process.Close()
+		}
+	}
 	if err != nil {
 		s.mu.Lock()
 		cs.busy = false
@@ -423,7 +447,7 @@ func (s *chatSupervisor) resumeChat(rec chatRecord) {
 	s.mu.Unlock()
 
 	s.registry.remember(chatRecord{ID: rec.ID, Title: rec.Title, Tool: rec.Tool, Dir: rec.Dir,
-		Model: rec.Model, Effort: rec.Effort, Yolo: yolo, Trust: rec.Trust, ACPSID: acpID, WorktreePath: rec.WorktreePath, WorktreeRepo: rec.WorktreeRepo})
+		Model: rec.Model, Effort: rec.Effort, Mode: rec.Mode, Yolo: yolo, Trust: rec.Trust, ACPSID: acpID, WorktreePath: rec.WorktreePath, WorktreeRepo: rec.WorktreeRepo})
 	s.announceRunning(cs)
 	s.publish(cs, acpagent.Event{Kind: "notice",
 		Text: "This chat was restored after reet restarted on the machine. A reply that was still running then was stopped."})
@@ -433,4 +457,21 @@ func (s *chatSupervisor) resumeChat(rec chatRecord) {
 		<-process.Done()
 		s.ended(cs, 0)
 	}()
+}
+
+// restoreAgentMode puts a reopened chat back in the mode the person chose. The
+// adapter loads a conversation in its start mode, and the controller still
+// shows the chosen one, so a mode that cannot be restored fails the reopen.
+func restoreAgentMode(ctx context.Context, process chatProcess, mode string) error {
+	reader, ok := process.(interface{ Mode() string })
+	if mode == "" || !ok || reader.Mode() == mode {
+		return nil
+	}
+	setter, ok := process.(interface {
+		SetMode(context.Context, string) error
+	})
+	if !ok {
+		return acpagent.ErrUnsupported
+	}
+	return setter.SetMode(ctx, mode)
 }

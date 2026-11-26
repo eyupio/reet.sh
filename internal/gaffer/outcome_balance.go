@@ -58,8 +58,12 @@ func planLeft(accounts []terminalproto.AgentAccount, tool, model string, now tim
 			return out
 		}
 		name := strings.ToLower(model)
-		tightest := 100 - account.Limits[0].UsedPercent
+		tightest := 100
 		for _, limit := range account.Limits {
+			// A window that has started again since it was read has all of itself left, whatever it said then.
+			if limit.ResetsAt > 0 && !time.UnixMilli(limit.ResetsAt).After(now) {
+				continue
+			}
 			left := 100 - limit.UsedPercent
 			tightest = min(tightest, left)
 			if label := strings.ToLower(limit.Label); label != "" && (name == "" || !strings.Contains(name, label)) {

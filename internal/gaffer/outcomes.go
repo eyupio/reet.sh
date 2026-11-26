@@ -274,8 +274,10 @@ func (s *Service) preparePlan(p Principal, id string, in OutcomePlanInput) (plan
 				}
 			}
 			ask += "\n- " + pathway.Name + ":"
-			if pathway.Description != "" {
-				ask += " " + pathway.Description
+			// A saved description may hold line breaks; folding its whitespace
+			// keeps it on its pathway's line, so it cannot end the list.
+			if description := strings.Join(strings.Fields(pathway.Description), " "); description != "" {
+				ask += " " + description
 			}
 			ask += " [" + strings.Join(labels, " › ") + "]"
 		}
@@ -503,12 +505,15 @@ func outcomeSessions(raw json.RawMessage, max int, pathways []store.GafferPathwa
 				Why   string `json:"why"`
 			} `json:"parts"`
 		} `json:"sessions"`
-		Pathway    *string `json:"pathway"`
-		PathwayWhy *string `json:"pathway_why"`
+		// Raw, so that a field's presence counts even when its value is null.
+		Pathway    json.RawMessage `json:"pathway"`
+		PathwayWhy json.RawMessage `json:"pathway_why"`
 	}
 	// Without pathways the tool has no such fields, and a plan naming them is
 	// refused as any unknown field is.
-	if !strictJSON(raw, &in) || len(in.Sessions) == 0 || len(pathways) == 0 && (in.Pathway != nil || in.PathwayWhy != nil) {
+	var name, why string
+	if !strictJSON(raw, &in) || len(in.Sessions) == 0 || len(pathways) == 0 && (in.Pathway != nil || in.PathwayWhy != nil) ||
+		in.Pathway != nil && json.Unmarshal(in.Pathway, &name) != nil || in.PathwayWhy != nil && json.Unmarshal(in.PathwayWhy, &why) != nil {
 		return "", nil, nil, malformed
 	}
 	if len(in.Sessions) > max {
@@ -607,29 +612,28 @@ func outcomeSessions(raw json.RawMessage, max int, pathways []store.GafferPathwa
 		}
 		out = append(out, OutcomeSession{Title: title, Prompt: prompt, Stages: stages})
 	}
-	return summary, out, planPathway(in.Pathway, in.PathwayWhy, pathways), nil
+	return summary, out, planPathway(name, why, pathways), nil
 }
 
 // planPathway is the pathway the model named, matched without case against
 // those it was offered, or nil. Its reason is clipped and kept only as one line
 // of plain text; a bad reason drops the reason, not the suggestion.
-func planPathway(name, why *string, pathways []store.GafferPathway) *PlanPathway {
-	if name == nil || strings.TrimSpace(*name) == "" {
+func planPathway(name, why string, pathways []store.GafferPathway) *PlanPathway {
+	name = strings.TrimSpace(name)
+	if name == "" {
 		return nil
 	}
 	for _, pathway := range pathways {
-		if !strings.EqualFold(strings.TrimSpace(*name), pathway.Name) {
+		if !strings.EqualFold(name, pathway.Name) {
 			continue
 		}
 		out := &PlanPathway{ID: pathway.ID, Name: pathway.Name}
-		if why != nil {
-			text := strings.TrimSpace(*why)
-			if len(text) > maxPlanPathwayWhyBytes {
-				text = strings.TrimSpace(strings.ToValidUTF8(text[:maxPlanPathwayWhyBytes], ""))
-			}
-			if store.ValidWorkerText(text) && !strings.ContainsAny(text, "\r\n") {
-				out.Why = text
-			}
+		text := strings.TrimSpace(why)
+		if len(text) > maxPlanPathwayWhyBytes {
+			text = strings.TrimSpace(strings.ToValidUTF8(text[:maxPlanPathwayWhyBytes], ""))
+		}
+		if store.ValidWorkerText(text) && !strings.ContainsAny(text, "\r\n") {
+			out.Why = text
 		}
 		return out
 	}

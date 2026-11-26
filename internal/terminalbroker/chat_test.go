@@ -664,3 +664,41 @@ func TestChatTranscriptSurvivesControllerRestart(t *testing.T) {
 		t.Fatalf("archived transcript: %+v", snapshot)
 	}
 }
+
+// After a controller restart an open chat tab can reconnect before the session
+// list is read or the machine is back. Loading the transcript for it must not
+// stop the row's finished state being restored, or the machine's replayed idle
+// stores the chat as quiet.
+func TestFinishedChatSurvivesATabReconnectingFirstAfterRestart(t *testing.T) {
+	b, p, uid, agent := chatFixture(t)
+	s := chatSession(t, b, uid, agent)
+	for _, event := range []terminalproto.ACPEvent{{Kind: "status", State: "working"}, {Kind: "agent", MessageID: "message-0123456789", Text: "done"}, {Kind: "status", State: "idle"}} {
+		if err := p.Receive(terminalproto.Message{Version: 1, RequestID: ID(), SessionID: s.ID, Generation: p.Generation, Body: &event}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	before, err := b.st.TerminalSessionFor(uid, s.ID)
+	if err != nil || before.ChatStatus != "finished" || before.CompletedAt == 0 {
+		t.Fatalf("before the restart: %q at %d, %v", before.ChatStatus, before.CompletedAt, err)
+	}
+	st := b.st
+	b.Close()
+	restarted := New(st)
+	t.Cleanup(restarted.Close)
+	_, _, _, cancel := restarted.SubscribeChat(uid, s.ID)
+	defer cancel()
+	row, err := st.TerminalSessionFor(uid, s.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restarted.ApplyChatAttention(uid, &row)
+	if row.Attention != "finished" {
+		t.Fatalf("attention after the tab reconnected first: %q", row.Attention)
+	}
+	// The machine reconnects and replays its last status.
+	restarted.publishChat(uid, s.ID, terminalproto.ACPEvent{Kind: "status", State: "idle"})
+	after, err := st.TerminalSessionFor(uid, s.ID)
+	if err != nil || after.ChatStatus != "finished" || after.CompletedAt != before.CompletedAt {
+		t.Fatalf("after the replayed idle: %q at %d, want finished at %d, %v", after.ChatStatus, after.CompletedAt, before.CompletedAt, err)
+	}
+}

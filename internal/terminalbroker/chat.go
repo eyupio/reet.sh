@@ -145,6 +145,9 @@ type chatLog struct {
 	loadOnce  sync.Once
 	events    []ChatEvent
 	seq       int64
+	// live is set by the first event published in this process. Until then the
+	// stored row still describes the chat, even once its transcript is loaded.
+	live      bool
 	bytes     int
 	truncated bool
 	subs      map[int]chan ChatEvent
@@ -214,6 +217,7 @@ func (l *chatLog) publishEvent(event terminalproto.ACPEvent, startsTurn bool) {
 		l.mu.Unlock()
 		l.persist(batch, trimSeq)
 	}()
+	l.live = true
 	l.updatedAt = nowMs
 	switch event.Kind {
 	case "user":
@@ -784,7 +788,7 @@ func (b *Broker) restoreChat(uid int64, s store.TerminalSession) *chatLog {
 	}()
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if l.seq == 0 {
+	if !l.live {
 		if s.BellAt > 0 && l.waitingAt == 0 {
 			l.waitingAt = s.BellAt
 			l.lastState = "waiting"

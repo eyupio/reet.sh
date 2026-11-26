@@ -54,6 +54,9 @@ var (
 	// ErrQuestionGone means the question is no longer waiting: it was answered,
 	// cancelled, timed out, or never existed for this chat.
 	ErrQuestionGone = errors.New("that question is no longer waiting")
+	// ErrPermissionTruncated means the card shows only part of what it asks, so
+	// it cannot be allowed from here.
+	ErrPermissionTruncated = errors.New("This request is too large to review in full here, so it can only be denied.")
 )
 
 // QuestionInvalidError is an answer the machine refused. The question is still
@@ -989,8 +992,10 @@ func (b *Broker) publishChat(uid int64, session string, event terminalproto.ACPE
 
 // permissionKey names the narrowest repeatable thing a card asks for. It is
 // empty when a card has nothing stable to match, so it is never remembered.
+// A truncated card shows only the start of what it asks, which a different
+// request can share, so it has no key either.
 func permissionKey(event terminalproto.ACPEvent) string {
-	if event.ToolKind == "" {
+	if event.ToolKind == "" || event.Truncated {
 		return ""
 	}
 	if event.Command != "" {
@@ -1218,11 +1223,13 @@ func (b *Broker) PermissionChat(ctx context.Context, uid int64, session, permiss
 	if err != nil {
 		return err
 	}
-	if allow && forSession {
-		if event, ok := b.chatLog(uid, session).permissionEvent(permissionID); ok {
-			if key := permissionKey(event); key != "" {
-				b.allowForSession(uid, session, key)
-			}
+	event, shown := b.chatLog(uid, session).permissionEvent(permissionID)
+	if allow && shown && event.Truncated {
+		return ErrPermissionTruncated
+	}
+	if allow && forSession && shown {
+		if key := permissionKey(event); key != "" {
+			b.allowForSession(uid, session, key)
 		}
 	}
 	reply, err := p.callWithin(ctx, terminalproto.Message{RequestID: ID(), SessionID: session,

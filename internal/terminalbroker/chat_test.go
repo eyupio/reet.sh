@@ -3,6 +3,7 @@ package terminalbroker
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -239,6 +240,54 @@ func TestPermissionKeyIsNarrow(t *testing.T) {
 	}
 	if permissionKey(terminalproto.ACPEvent{ToolKind: "edit"}) != "" || permissionKey(terminalproto.ACPEvent{Command: "x"}) != "" {
 		t.Fatal("unmatchable card remembered")
+	}
+}
+
+// A truncated card shows only the start of what it asks. It is never allowed from
+// here, and it never matches a command allowed for the session: a longer command
+// that shares the shown start must still reach the person.
+func TestTruncatedCardIsNeverAllowedOrRemembered(t *testing.T) {
+	var mu sync.Mutex
+	allowed := map[string]bool{}
+	b, p, uid, agent := chatFixtureScript(t, nil, nil, nil, func(m terminalproto.Message) (terminalproto.Body, bool) {
+		if op, ok := m.Body.(*terminalproto.ACPPermission); ok && op.Allow {
+			mu.Lock()
+			allowed[op.PermissionID] = true
+			mu.Unlock()
+		}
+		return nil, true
+	})
+	s := chatSession(t, b, uid, agent)
+	shown := strings.Repeat("a", 6<<10)
+	receive := func(event terminalproto.ACPEvent) {
+		t.Helper()
+		if err := p.Receive(terminalproto.Message{Version: 1, RequestID: ID(), SessionID: s.ID, Generation: p.Generation, Body: &event}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	whole := terminalproto.ACPEvent{Kind: "permission", PermissionID: "permission-0123456789", ToolKind: "execute", Command: shown}
+	receive(whole)
+	if err := b.PermissionChat(t.Context(), uid, s.ID, whole.PermissionID, true, true); err != nil {
+		t.Fatal(err)
+	}
+	cut := terminalproto.ACPEvent{Kind: "permission", PermissionID: "permission-9876543210", ToolKind: "execute", Command: shown, Truncated: true}
+	if permissionKey(cut) != "" {
+		t.Fatal("a truncated card has a key to remember")
+	}
+	receive(cut)
+	if err := b.PermissionChat(t.Context(), uid, s.ID, cut.PermissionID, true, false); !errors.Is(err, ErrPermissionTruncated) {
+		t.Fatalf("allowing a truncated card: %v", err)
+	}
+	// An automatic answer would be sent from its own goroutine; give it time.
+	time.Sleep(200 * time.Millisecond)
+	mu.Lock()
+	sent := allowed[cut.PermissionID]
+	mu.Unlock()
+	if sent {
+		t.Fatal("a truncated card was allowed")
+	}
+	if err := b.PermissionChat(t.Context(), uid, s.ID, cut.PermissionID, false, false); err != nil {
+		t.Fatalf("denying a truncated card: %v", err)
 	}
 }
 

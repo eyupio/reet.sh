@@ -1444,6 +1444,7 @@ func wireEvent(event acpagent.Event) (terminalproto.ACPEvent, bool) {
 	}
 	if len(wire.Path) > 1<<10 {
 		wire.Path = cutText(wire.Path, 1<<10)
+		wire.Truncated = true
 	}
 	if len(wire.Title) > 200 {
 		// The title is only a label. Some agents use the whole shell command as

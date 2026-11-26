@@ -253,6 +253,8 @@ func (s *server) terminalChatError(w http.ResponseWriter, err error) {
 		writeErr(w, 409, "update reet on that machine to switch approval mode")
 	case errors.Is(err, terminalbroker.ErrACPQuestionUnsupported):
 		writeErr(w, 409, "that machine or agent cannot answer questions from reet")
+	case errors.Is(err, terminalbroker.ErrPermissionTruncated):
+		writeErrCode(w, 409, "permission_truncated", "", err.Error(), "")
 	case errors.Is(err, terminalbroker.ErrQuestionGone):
 		writeErrCode(w, 409, "question_gone", "", "That question is no longer waiting.", "")
 	case errors.As(err, new(*terminalbroker.QuestionInvalidError)):

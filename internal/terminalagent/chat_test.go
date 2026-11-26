@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -468,6 +469,12 @@ func TestWireEventTrimsAndValidates(t *testing.T) {
 	wire, ok = wireEvent(event)
 	if !ok || wire.Kind != "permission" || wire.PermissionID != "permission-0123456789" {
 		t.Fatalf("wire %+v %v", wire, ok)
+	}
+	// A cut path names a different file than the one asked for, so the card cannot be allowed.
+	event.Path = "/" + strings.Repeat("p", 2<<10)
+	wire, ok = wireEvent(event)
+	if !ok || !wire.Truncated || len(wire.Path) != 1<<10 {
+		t.Fatalf("cut path: truncated=%v path bytes=%d ok=%v", wire.Truncated, len(wire.Path), ok)
 	}
 	_ = time.Second
 }

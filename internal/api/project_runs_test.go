@@ -1,10 +1,8 @@
 package api
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"log"
 	"net/http"
 	"net/http/httptest"
 	"path"
@@ -24,7 +22,7 @@ import (
 // create's reply (the agent starts but the controller never hears).
 type runMachine struct {
 	*launchAPI
-	logs    *bytes.Buffer
+	logs    *logCapture
 	mu      sync.Mutex
 	got     []terminalproto.Message
 	running map[string]terminalproto.SessionSnapshot
@@ -39,13 +37,10 @@ type runMachine struct {
 
 func runMachineFixture(t *testing.T) *runMachine {
 	t.Helper()
-	var logs bytes.Buffer
-	original := log.Writer()
-	log.SetOutput(&logs)
-	t.Cleanup(func() { log.SetOutput(original) })
+	logs := captureLog(t)
 	srv, st, agent, _, _ := privateFixture(t, AuthAccounts, "")
 	uid, _ := st.DefaultOwner()
-	f := &runMachine{launchAPI: &launchAPI{srv: srv, st: st, uid: uid, agent: agent, cookie: terminalLogin(t, st, uid)}, logs: &logs, running: map[string]terminalproto.SessionSnapshot{}, worktrees: map[string]string{}}
+	f := &runMachine{launchAPI: &launchAPI{srv: srv, st: st, uid: uid, agent: agent, cookie: terminalLogin(t, st, uid)}, logs: logs, running: map[string]terminalproto.SessionSnapshot{}, worktrees: map[string]string{}}
 	record, err := st.BeginRemoteConnectionFor(uid, agent.ID, terminalbroker.ID(), worktreeCaps("claude", "codex"))
 	if err != nil {
 		t.Fatal(err)

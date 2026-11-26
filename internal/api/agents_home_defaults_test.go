@@ -1,9 +1,7 @@
 package api
 
 import (
-	"bytes"
 	"encoding/json"
-	"log"
 	"strings"
 	"testing"
 
@@ -84,10 +82,7 @@ func TestProfileDefaultsRoundTrip(t *testing.T) {
 }
 
 func TestSessionListingCarriesLaunchMetadataAndOnlyAnExcerptOfThePrompt(t *testing.T) {
-	var logs bytes.Buffer
-	original := log.Writer()
-	log.SetOutput(&logs)
-	t.Cleanup(func() { log.SetOutput(original) })
+	logs := captureLog(t)
 	f := launchAPIFixture(t, launchCaps("claude"))
 	f.srv.s.debug = true
 	project, err := f.st.CreateFolderProjectFor(f.uid, store.FolderProject{Host: f.agent.ID, Dir: "/home/tester/site"})

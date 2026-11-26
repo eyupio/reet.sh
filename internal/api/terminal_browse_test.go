@@ -6,7 +6,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -747,9 +746,7 @@ func TestBrowseStoresNothing(t *testing.T) {
 		}
 		return nil
 	})
-	var logs bytes.Buffer
-	log.SetOutput(&logs)
-	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	logs := captureLog(t)
 	f.srv.s.debug = true
 	// Let anything the fixture itself wrote settle before the snapshot.
 	time.Sleep(50 * time.Millisecond)

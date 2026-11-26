@@ -104,7 +104,7 @@ try{
   console.log('ok - pipeline detail')
  }
  // The page on a wide screen: the list and the detail side by side, the first waiting pipeline open on arrival.
- for(const [width,theme] of [[1280,'light'],[1440,'dark']]){
+ for(const [width,theme] of [[1280,'light'],[1440,'dark'],[1700,'light']]){
   const {f,w,page}=await open(width,{theme})
   try{
    const waiting=page.getByRole('region',{name:'Waiting for you',exact:true})
@@ -124,7 +124,7 @@ try{
    expect(barBox.y+barBox.height).toBeLessThanOrEqual(paneBox.y+paneBox.height+1);expect(barBox.y+barBox.height).toBeGreaterThan(paneBox.y+paneBox.height-40)
    // Gaffer's button rests down in the bar's empty right-hand side, not up over the detail above it, when the bar's
    // buttons leave that side free. It still keeps off those buttons where they reach its column (F7).
-   await expect.poll(()=>page.evaluate(()=>{const l=document.querySelector('.gaffer-launcher'),c=document.querySelector('.detail .bar .choices');if(!l||!c)return false;const a=l.getBoundingClientRect(),b=document.querySelector('.detail .bar').getBoundingClientRect();return c.getBoundingClientRect().right>=a.left||(l.style.getPropertyValue('--launcher-clearance')!==''&&a.top>=b.top-1)})).toBe(true)
+   await expect.poll(()=>page.evaluate(()=>{const l=document.querySelector('.gaffer-launcher'),bar=document.querySelector('.detail .bar');if(!l||!bar)return false;const a=l.getBoundingClientRect(),under=[...bar.querySelectorAll('button,a[href]')].some(n=>{const b=n.getBoundingClientRect();return b.left<a.right&&b.right>a.left});return l.style.getPropertyValue('--launcher-clearance')!==''&&(under||a.top>=bar.getBoundingClientRect().top-1)})).toBe(true)
    expect(await sideways(page)).toBeLessThanOrEqual(width)
    await page.screenshot({path:`${shots}/factory-page-${width}-${theme}.png`})
    if(width===1280){

@@ -9,18 +9,20 @@ What changed.
 
 - `PipelineDetail.svelte`: the action bar is marked `data-floating-clearance="controls"` instead of `avoid`.
 - `floatingLauncher.ts`: a `controls` region does not move the launcher above the whole region; only its buttons
-  (`button, a[href], input, select, textarea`) are obstacles, measured from the resting floor. `avoid` regions behave as
-  before, and the result never sits lower than a position the `avoid` regions require.
+  (`button, a[href], input, select, textarea`) are obstacles, measured from the resting floor. `controls` regions are
+  also skipped by the earlier dock pass, which would otherwise raise the floor above the bar before the resting
+  position is captured. `avoid` regions behave as before, and the result never sits lower than a position the `avoid`
+  regions require.
 - The button now rests in the bar's empty right side on wide screens. When the bar's buttons reach its column
   (narrower panes, wrapped choices), it still climbs above them.
 
 Checked.
 
 - Web unit tests (`npm run check`: 132 files passed) and `svelte-check` with 0 errors and 0 warnings.
-- Browser, against a built UI: `factory-pieces` (all steps, including the new assertion that at 1440 the button's top is
-  level with or below the bar's top), and these pass unchanged: `home-waiting`, `gaffer-layout`, `gaffer-widget-ux`,
-  `gaffer-factory-session`, `sessions-phone`, `navigation`, `home`, `gaffer-factory`, `factory-decision`,
-  `factory-templates`.
+- Browser, against a built UI: `factory-pieces` (all steps, including the new assertion at 1280, 1440 and 1700 px that
+  the button's top is level with or below the bar's top when no bar button reaches its column), and these pass
+  unchanged: `home-waiting`, `gaffer-layout`, `gaffer-widget-ux`, `gaffer-factory-session`, `sessions-phone`,
+  `navigation`, `home`, `gaffer-factory`, `factory-decision`, `factory-templates`.
 - `factory-pieces` also holds the button off every button and link in the bar at 1440, 834 and 390 px.
 
 Not checked.

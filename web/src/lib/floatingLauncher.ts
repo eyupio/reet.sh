@@ -22,7 +22,7 @@ export function keepLauncherClear(node: HTMLElement, options: { avoid?: boolean 
     const viewBottom = viewport && Math.abs(viewport.scale - 1) < .01 ? Math.min(innerHeight, viewTop + viewport.height) : innerHeight
     let bottom = Math.max(innerHeight - box.bottom, innerHeight - viewBottom + 20)
     for (const region of regions) {
-      if (region.dataset.floatingClearance === 'avoid') continue
+      if (region.dataset.floatingClearance === 'avoid' || region.dataset.floatingClearance === 'controls') continue
       const r = region.getBoundingClientRect()
       if (r.width && r.height && r.bottom > viewTop && r.top < viewBottom && r.left < box.right && r.right > box.left) {
         bottom = Math.max(bottom, innerHeight - r.top + 12)

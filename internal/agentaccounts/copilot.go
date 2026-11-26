@@ -90,8 +90,9 @@ func (r *Reader) copilot() signIn {
 	}
 	// The GitHub CLI holds a token of its own for every account it is signed
 	// in to. An editor's token can outlive its value by years, so the CLI's
-	// tokens are tried after it when the first is refused.
-	ghLogin, ghTokens := r.githubCLI()
+	// tokens are tried after it when the first is refused: the token of the
+	// login the files name, or of every account when they name none.
+	ghLogin, ghTokens := r.githubCLI(login)
 	if login == "" && ghLogin != "" {
 		login, display = strings.ToLower(ghLogin), ghLogin
 	}
@@ -116,8 +117,9 @@ func (r *Reader) copilot() signIn {
 // githubCLI reads the GitHub CLI's sign-ins for github.com: every account it
 // reports as signed in, and its token for each. An older CLI that cannot list
 // accounts still gives the active account's token, unless that token comes
-// from the environment, which is not a stored sign-in.
-func (r *Reader) githubCLI() (login string, tokens []string) {
+// from the environment, which is not a stored sign-in. With want, only that
+// login's token is read from a CLI that lists accounts.
+func (r *Reader) githubCLI(want string) (login string, tokens []string) {
 	if out, ok := r.readTool("gh", "auth", "status", "--hostname", "github.com", "--json", "hosts"); ok {
 		var doc struct {
 			Hosts map[string][]struct {
@@ -131,6 +133,9 @@ func (r *Reader) githubCLI() (login string, tokens []string) {
 				// A token from the environment is not a stored sign-in: the
 				// per-user lookup finds nothing for it.
 				if account.State != "success" || account.Login == "" || account.TokenSource == "GH_TOKEN" || account.TokenSource == "GITHUB_TOKEN" {
+					continue
+				}
+				if want != "" && !strings.EqualFold(account.Login, want) {
 					continue
 				}
 				token, ok := r.readTool("gh", "auth", "token", "--hostname", "github.com", "--user", account.Login)

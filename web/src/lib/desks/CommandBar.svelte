@@ -3,7 +3,7 @@
   import { browseFolder, commandHistory, hasHiddenChars, savedCommands, type BrowseResult } from '../terminal/api'
   import { pathToken, resolveDir, suggest } from './commandBar'
 
-  // The desk's command bar: one field under the panes that runs a command in the focused pane's shell, with the next
+  // The desk's command bar: one field at the foot of the focused pane that runs a command in its shell, with the next
   // actions beside it. Empty, it offers the folders of the shell's own folder to cd into and the commands run lately or
   // saved; as a command is typed it completes it. A real shell does not tell reet what is on its prompt, so the bar owns
   // its own field. A suggestion only fills the field: nothing runs without Enter or Run.
@@ -114,8 +114,8 @@
 </form>
 
 <style>
-  /* One line beside the panes' foot, the toolbar's twin: the field keeps its width and the suggestions take the rest,
-     so nothing moves as they come and go. */
+  /* One line at the focused pane's foot, the toolbar's twin: the field keeps its width and the suggestions take the
+     rest, so nothing moves as they come and go. */
   .cbar { flex: none; display: flex; align-items: center; gap: 8px; min-width: 0; padding: 4px 8px 4px 14px; border-top: 1px solid var(--line-soft); background: var(--bg); font-size: 14px; }
   .field { flex: 0 1 46ch; min-width: 20ch; display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg-sunk); cursor: text; }
   .field:focus-within { border-color: var(--accent-text); outline: 2px solid color-mix(in srgb, var(--accent-text) 28%, transparent); outline-offset: 1px; }

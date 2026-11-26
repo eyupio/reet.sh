@@ -176,3 +176,27 @@ func TestGafferPartialTurnSurvivesDatabaseReopen(t *testing.T) {
 		t.Fatalf("reopen: %+v %v %v", old, created, err)
 	}
 }
+
+// What a turn's tools were asked to do is stored with it, so it counts
+// towards the conversation's size like the prompt and the answer.
+func TestGafferToolArgumentsCountTowardsTheConversationSize(t *testing.T) {
+	s, uid, c := chatStoreFixture(t)
+	turn, _, err := s.StartGafferTurnFor(uid, GafferTurn{ID: strings.Repeat("b", 32), ConversationID: c.ID, RequestRevision: c.Revision, Prompt: "Start it.", ProviderID: c.ProviderID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 8; i++ {
+		turn.Tools = append(turn.Tools, GafferTurnTool{ID: strings.Repeat("d", 32), Name: "reet_start_outcome", Args: strings.Repeat("a", 60<<10), Mode: "allow", State: "ran"})
+	}
+	turn.State, turn.Answer = "completed", "Started."
+	if err = s.UpdateGafferTurnFor(uid, turn); err != nil {
+		t.Fatal(err)
+	}
+	c, err = s.GafferConversationFor(uid, c.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = s.StartGafferTurnFor(uid, GafferTurn{ID: strings.Repeat("e", 32), ConversationID: c.ID, RequestRevision: c.Revision, Prompt: "And another.", ProviderID: c.ProviderID}); !errors.Is(err, ErrGafferChatFull) {
+		t.Fatalf("a conversation holding 480 KiB of tool arguments took another turn: %v", err)
+	}
+}

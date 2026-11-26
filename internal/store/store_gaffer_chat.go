@@ -290,7 +290,7 @@ func (s *Store) StartGafferTurnFor(uid int64, t GafferTurn) (GafferTurn, bool, e
 			return ErrGafferConflict
 		}
 		var count, bytes, running int
-		if err = tx.QueryRow(`SELECT COUNT(*),COALESCE(SUM(length(CAST(prompt AS BLOB))+length(CAST(answer AS BLOB))),0),COALESCE(SUM(state='running'),0) FROM gaffer_turns WHERE conversation_id=?`, c.ID).Scan(&count, &bytes, &running); err != nil {
+		if err = tx.QueryRow(`SELECT COUNT(*),COALESCE(SUM(length(CAST(prompt AS BLOB))+length(CAST(answer AS BLOB))+length(CAST(tools_json AS BLOB))),0),COALESCE(SUM(state='running'),0) FROM gaffer_turns WHERE conversation_id=?`, c.ID).Scan(&count, &bytes, &running); err != nil {
 			return err
 		}
 		if running > 0 {

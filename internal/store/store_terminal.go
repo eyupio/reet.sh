@@ -510,7 +510,39 @@ func (s *Store) TerminalPromptFor(uid int64, sessionID string) (string, error) {
 }
 
 func (s *Store) TerminalSessionsFor(uid int64) ([]TerminalSession, error) {
-	rows, err := s.readStmts.query(`SELECT `+terminalSessionCols+` FROM terminal_sessions WHERE user_id=? AND NOT EXISTS(SELECT 1 FROM terminal_session_archives a WHERE a.session_id=terminal_sessions.id) AND EXISTS(SELECT 1 FROM users WHERE id=? AND disabled_at=0 AND role<>'viewer') ORDER BY state IN ('creating','running','end_requested') DESC,updated_at DESC,id LIMIT 100`, uid, uid)
+	return s.terminalSessionsFor(uid, "")
+}
+
+// listingOutcomeRefsSession is true when the outcome aliased o names the session
+// in one of its pipelines or stages.
+const listingOutcomeRefsSession = `(EXISTS(SELECT 1 FROM json_each(o.data,'$.sessions') s WHERE json_extract(s.value,'$.sessionId')=terminal_sessions.id)
+	OR EXISTS(SELECT 1 FROM json_each(o.data,'$.sessions') s, json_each(s.value,'$.stages') st WHERE json_extract(st.value,'$.sessionId')=terminal_sessions.id))`
+
+// listingHideFactorySessions drops a Factory stage session once no unarchived
+// outcome still works in it: either an archived outcome names it, or its goal
+// marks it as Factory work and its outcome is gone. Both the goal and outcome
+// can outlive the other, so neither alone is enough. The first placeholder keeps
+// an explicitly requested session, so a direct link still opens a session whose
+// outcome was archived or deleted while the lists leave it out.
+// shortcut: a deleted outcome leaves only the goal, so if that goal is removed
+// (conversation deleted, or pruned past MaxGafferConversations) the session is
+// listed again; upgrade by archiving the sessions when an outcome is deleted.
+const listingHideFactorySessions = ` AND (terminal_sessions.id=? OR NOT (
+	(EXISTS(SELECT 1 FROM gaffer_goals g WHERE g.user_id=terminal_sessions.user_id AND json_extract(g.data,'$.sessionId')=terminal_sessions.id AND substr(json_extract(g.data,'$.text'),1,9)='Outcome: ')
+		OR EXISTS(SELECT 1 FROM gaffer_outcomes o WHERE o.user_id=terminal_sessions.user_id AND COALESCE(json_extract(o.data,'$.archivedAt'),0)<>0 AND ` + listingOutcomeRefsSession + `))
+	AND NOT EXISTS(SELECT 1 FROM gaffer_outcomes o WHERE o.user_id=terminal_sessions.user_id AND COALESCE(json_extract(o.data,'$.archivedAt'),0)=0 AND ` + listingOutcomeRefsSession + `)))`
+
+// TerminalSessionsForListing is the list the Home and Sessions pages read. It
+// applies the Factory filter before LIMIT so stale rows cannot crowd out live ones.
+// A non-empty include keeps that one session, for a direct link to an archived
+// or deleted outcome's session.
+func (s *Store) TerminalSessionsForListing(uid int64, include string) ([]TerminalSession, error) {
+	return s.terminalSessionsFor(uid, listingHideFactorySessions, include)
+}
+
+func (s *Store) terminalSessionsFor(uid int64, filter string, extra ...any) ([]TerminalSession, error) {
+	args := append([]any{uid, uid}, extra...)
+	rows, err := s.readStmts.query(`SELECT `+terminalSessionCols+` FROM terminal_sessions WHERE user_id=? AND NOT EXISTS(SELECT 1 FROM terminal_session_archives a WHERE a.session_id=terminal_sessions.id) AND EXISTS(SELECT 1 FROM users WHERE id=? AND disabled_at=0 AND role<>'viewer')`+filter+` ORDER BY state IN ('creating','running','end_requested') DESC,updated_at DESC,id LIMIT 100`, args...)
 	if err != nil {
 		return nil, err
 	}

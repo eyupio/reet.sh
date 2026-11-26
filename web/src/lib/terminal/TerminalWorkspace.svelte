@@ -360,7 +360,7 @@
     // The Factory read is a helper: bounded on its own, so a slow one cannot hold up the sessions or fail the refresh.
     const factorySignal=AbortSignal.any([request.signal,AbortSignal.timeout(4000)])
     try {
-      const [nextMachines,nextSessions,nextHealth,nextProjects,nextDesks,nextOutcomes]=await Promise.all([terminalMachines(request.signal),terminalSessions(request.signal),machineHealth(request.signal).then(data=>({data,error:''})).catch(()=>({data:null,error:'Resource readings are temporarily unavailable. Existing readings are marked by their observation time.'})),folderProjectList(request.signal).then(answer=>({projects:answer.projects})).catch(()=>({projects:null})),listDesks(request.signal).then(data=>({data})).catch(()=>({data:undefined})),listGafferOutcomes(factorySignal).then(found=>({found})).catch(()=>({found:undefined}))])
+      const [nextMachines,nextSessions,nextHealth,nextProjects,nextDesks,nextOutcomes]=await Promise.all([terminalMachines(request.signal),terminalSessions(request.signal,selectedSession),machineHealth(request.signal).then(data=>({data,error:''})).catch(()=>({data:null,error:'Resource readings are temporarily unavailable. Existing readings are marked by their observation time.'})),folderProjectList(request.signal).then(answer=>({projects:answer.projects})).catch(()=>({projects:null})),listDesks(request.signal).then(data=>({data})).catch(()=>({data:undefined})),listGafferOutcomes(factorySignal).then(found=>({found})).catch(()=>({found:undefined}))])
       if(disposed)return
       // A pre-mutation observation must not overwrite a confirmed local result.
       if(version!==inventoryVersion){refreshAgain=true;return}

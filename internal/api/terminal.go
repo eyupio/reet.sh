@@ -286,7 +286,7 @@ func (s *server) terminalLaunchProgress(w http.ResponseWriter, r *http.Request) 
 
 func (s *server) terminalSessions(w http.ResponseWriter, r *http.Request) {
 	uid := s.uid(r)
-	sessions, err := s.st.TerminalSessionsFor(uid)
+	sessions, err := s.st.TerminalSessionsForListing(uid, r.URL.Query().Get("session"))
 	if err != nil {
 		terminalError(w, err)
 		return

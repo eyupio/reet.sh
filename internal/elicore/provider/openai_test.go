@@ -155,6 +155,27 @@ func TestOpenAICompatibleSendsAStableSessionHeaderOnlyToOpenCode(t *testing.T) {
 	}
 }
 
+// OpenAI's newer models answer max_tokens with a 400 that asks for
+// max_completion_tokens. Only OpenAI's own API is sent that name: another
+// compatible server may know only max_tokens.
+func TestOpenAISendsItsOwnNameForTheOutputCeiling(t *testing.T) {
+	for base, want := range map[string]string{"https://api.openai.com/v1": "max_completion_tokens", "https://openrouter.ai/api/v1": "max_tokens", "http://localhost:11434/v1": "max_tokens"} {
+		raw, err := NewOpenAICompatible(Config{BaseURL: base, Model: "m"}).body(hello(), 4096)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var body map[string]any
+		if err = json.Unmarshal(raw, &body); err != nil {
+			t.Fatal(err)
+		}
+		_, old := body["max_tokens"]
+		_, own := body["max_completion_tokens"]
+		if body[want] != float64(4096) || old == own {
+			t.Errorf("%s: want %s alone, got %s", base, want, raw)
+		}
+	}
+}
+
 func TestOpenAICompatibleCheckListsModelsThenCompletesOneToken(t *testing.T) {
 	srv := newOpenAIServer(t)
 	res, err := NewOpenAICompatible(Config{BaseURL: srv.URL, Model: "m"}).Check(context.Background())

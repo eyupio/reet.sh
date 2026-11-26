@@ -60,6 +60,12 @@ func isOpenCode(base string) bool {
 	return h == "opencode.ai" || strings.HasSuffix(h, ".opencode.ai")
 }
 
+// isOpenAI reports whether the address is OpenAI's own API.
+func isOpenAI(base string) bool {
+	u, err := url.Parse(base)
+	return err == nil && strings.ToLower(u.Hostname()) == "api.openai.com"
+}
+
 // newSessionID returns a random identifier for one adapter's lifetime.
 // OpenCode refuses a request with no x-opencode-session (a 400 saying it
 // cannot be routed efficiently), and it uses the value only to keep one
@@ -111,7 +117,12 @@ func (p *OpenAICompatible) body(req elicore.Request, maxTokens int) ([]byte, err
 		"stream_options": map[string]any{"include_usage": true},
 	}
 	if maxTokens > 0 {
-		out["max_tokens"] = maxTokens
+		// OpenAI's newer models refuse max_tokens; every other server knows only that name.
+		if isOpenAI(p.base) {
+			out["max_completion_tokens"] = maxTokens
+		} else {
+			out["max_tokens"] = maxTokens
+		}
 	}
 	// Only when set: a server that does not know the field may refuse the
 	// whole request, and empty means the provider's own default.

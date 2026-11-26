@@ -2109,6 +2109,29 @@ func TestStopEndsTheChatOnlyWhileACommandRunsWhenTheProfileAsksFor(t *testing.T)
 	}
 }
 
+// A call whose approval card is still waiting has not started. Stop there only
+// cancels the turn; the chat is not ended as if a command were running.
+func TestStopOnAWaitingCardDoesNotEndTheChat(t *testing.T) {
+	opts, got := options(t, "codex-permission", testVersion)
+	opts.Agent.EndChatOnStopWhileToolRuns = true
+	session, err := Start(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	go func() { _ = session.Prompt(context.Background(), "run the tests") }()
+	for got.next(t).Kind != "permission" {
+	}
+	if err := session.Cancel(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-session.Done():
+		t.Fatal("Stop on a waiting card ended the chat")
+	default:
+	}
+}
+
 // A tool the replayed history left unfinished is marked interrupted when the chat
 // is reopened; it must not count as a running command, or Stop in a later
 // text-only turn would end the chat and claim a command was running.

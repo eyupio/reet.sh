@@ -135,7 +135,7 @@ type rpcCall struct {
 }
 
 type pendingPermission struct {
-	nativeID string
+	toolID   string
 	rpcID    json.RawMessage
 	allowID  string
 	rejectID string
@@ -1235,10 +1235,7 @@ func (s *Session) handlePermission(rpcID json.RawMessage, raw json.RawMessage) {
 			locations = append(locations, location.Path)
 		}
 	}
-	pending := &pendingPermission{rpcID: rpcID, allowID: allowID, rejectID: rejectID}
-	if s.native != nil {
-		pending.nativeID = params.ToolCall.ToolCallID
-	}
+	pending := &pendingPermission{toolID: params.ToolCall.ToolCallID, rpcID: rpcID, allowID: allowID, rejectID: rejectID}
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
@@ -1267,9 +1264,9 @@ func (s *Session) handlePermission(rpcID json.RawMessage, raw json.RawMessage) {
 		Path: path, Diff: diff, Locations: locations, Truncated: truncated,
 		Text: rationale})
 	if s.native != nil {
-		reply := s.native.takePermissionReply(pending.nativeID)
+		reply := s.native.takePermissionReply(pending.toolID)
 		if reply != "" {
-			s.nativePermissionReply(pending.nativeID, reply)
+			s.nativePermissionReply(pending.toolID, reply)
 		}
 	}
 }
@@ -1334,7 +1331,7 @@ func (s *Session) resolve(id, decision, reason string) error {
 		return ErrNoPermission
 	}
 	if s.native != nil {
-		s.native.retirePermission(pending.nativeID)
+		s.native.retirePermission(pending.toolID)
 	}
 	if pending.timer != nil {
 		pending.timer.Stop()
@@ -1407,7 +1404,15 @@ func (s *Session) Cancel() error {
 	s.turnMu.Unlock()
 	// Read before the cards are cancelled and the agent winds the turn down.
 	s.mu.Lock()
-	toolRunning := len(s.toolStart) > 0
+	toolRunning := false
+	for id := range s.toolStart {
+		// A call whose card is still waiting has not started.
+		asked := false
+		for _, card := range s.pending {
+			asked = asked || card.toolID == id
+		}
+		toolRunning = toolRunning || !asked
+	}
 	s.mu.Unlock()
 	endChat := working && toolRunning && s.opts.Agent.EndChatOnStopWhileToolRuns
 	s.cancelCards()

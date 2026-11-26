@@ -427,7 +427,7 @@
     </details>
   </div>
 
-  {#if bar.length || asking}<div class="bar" role="group" data-floating-clearance="avoid" aria-labelledby={`${uid}-ask`}>
+  {#if bar.length || asking}<div class="bar" role="group" data-floating-clearance="controls" aria-labelledby={`${uid}-ask`}>
     <p class="ask" id={`${uid}-ask`}>What do you want to do?</p>
     {#if asking && permission && piece.sessionId}<Approval sessionId={piece.sessionId} approval={permission} {onanswered} />{/if}
     {#if bar.length}<div class="choices">{#each bar as entry (entry.key)}

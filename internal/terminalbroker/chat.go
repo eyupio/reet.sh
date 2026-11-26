@@ -142,9 +142,11 @@ type chatLog struct {
 	st        *store.Store
 	uid       int64
 	sessionID string
-	loadOnce  sync.Once
-	events    []ChatEvent
-	seq       int64
+	// loaded says the stored transcript is in the ring. A closed chat's ring is
+	// unloaded, and loaded again for its next reader or event.
+	loaded bool
+	events []ChatEvent
+	seq    int64
 	// live is set by the first event published in this process. Until then the
 	// stored row still describes the chat, even once its transcript is loaded.
 	live      bool
@@ -178,7 +180,9 @@ type chatLog struct {
 	// flushWG counts batches that have left l.writes but have not finished
 	// their store commit. close waits for it before returning.
 	flushWG sync.WaitGroup
-	closing bool
+	// flushing is the same count, readable under mu.
+	flushing int
+	closing  bool
 }
 
 const (
@@ -206,9 +210,9 @@ func (l *chatLog) publishEvent(event terminalproto.ACPEvent, startsTurn bool) {
 	if err != nil || len(data) > maxChatBytes {
 		return
 	}
-	l.ensureLoaded()
 	nowMs := time.Now().UnixMilli()
 	l.mu.Lock()
+	l.loadLocked()
 	var batch []chatWrite
 	var trimSeq int64
 	// Persist after unlocking: subscribers and the ring must not wait for a WAL
@@ -477,6 +481,7 @@ func (l *chatLog) takeWritesLocked() ([]chatWrite, int64) {
 	batch := l.writes
 	l.writes = nil
 	l.flushWG.Add(1)
+	l.flushing++
 	var trimSeq int64
 	if l.trims >= 32 && len(l.events) > 0 {
 		l.trims = 0
@@ -494,14 +499,19 @@ func (l *chatLog) flushLater() {
 }
 
 // persist writes one batch and trims the stored transcript afterwards. It
-// never runs while l.mu is held.
-func (l *chatLog) persist(batch []chatWrite, trimSeq int64) {
+// never runs while l.mu is held. It reports whether the batch is stored.
+func (l *chatLog) persist(batch []chatWrite, trimSeq int64) bool {
 	if len(batch) == 0 {
-		return
+		return true
 	}
-	defer l.flushWG.Done()
+	defer func() {
+		l.mu.Lock()
+		l.flushing--
+		l.mu.Unlock()
+		l.flushWG.Done()
+	}()
 	if l.st == nil {
-		return
+		return true
 	}
 	events := make([]store.StoredChatEvent, len(batch))
 	for i := range batch {
@@ -510,10 +520,30 @@ func (l *chatLog) persist(batch []chatWrite, trimSeq int64) {
 	l.writeMu.Lock()
 	defer l.writeMu.Unlock()
 	if err := l.st.AppendTerminalChatEventsFor(l.uid, l.sessionID, events); err != nil {
-		return
+		return false
 	}
 	if trimSeq > 0 {
 		_ = l.st.TrimTerminalChatEventsFor(l.uid, l.sessionID, trimSeq)
+	}
+	return true
+}
+
+// unload frees the ring of a chat that has closed, once it is stored and nobody
+// reads it. A long-running controller otherwise keeps every ended chat's
+// transcript in memory. The attention state stays.
+func (l *chatLog) unload() {
+	l.mu.Lock()
+	if !l.loaded || l.closing || len(l.subs) > 0 {
+		l.mu.Unlock()
+		return
+	}
+	batch, trimSeq := l.takeWritesLocked()
+	l.mu.Unlock()
+	stored := l.persist(batch, trimSeq)
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if stored && len(l.subs) == 0 && len(l.writes) == 0 && l.flushing == 0 {
+		l.events, l.bytes, l.loaded = nil, 0, false
 	}
 }
 
@@ -560,9 +590,15 @@ func (b *Broker) ApplyChatAttention(uid int64, s *store.TerminalSession) {
 	if s.State.ReservesQuota() {
 		l = b.restoreChat(uid, *s)
 	} else {
+		// The chat has closed: what was allowed for it is forgotten, and its
+		// ring goes once nobody reads it.
 		b.mu.Lock()
 		l = b.chats[chatKey{uid, s.ID}]
+		delete(b.approvals, chatKey{uid, s.ID})
 		b.mu.Unlock()
+		if l != nil {
+			l.unload()
+		}
 	}
 	if l == nil {
 		return
@@ -664,6 +700,7 @@ func mustJSON(event terminalproto.ACPEvent) []byte {
 func (l *chatLog) subscribe() (snapshot []ChatEvent, truncated bool, events <-chan ChatEvent, cancel func()) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	l.loadLocked()
 	snapshot = append([]ChatEvent(nil), l.events...)
 	truncated = l.truncated
 	ch := make(chan ChatEvent, 256)
@@ -699,6 +736,7 @@ func (l *chatLog) subscribe() (snapshot []ChatEvent, truncated bool, events <-ch
 func (l *chatLog) permissionEvent(permissionID string) (terminalproto.ACPEvent, bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	l.loadLocked()
 	for i := len(l.events) - 1; i >= 0; i-- {
 		event := l.events[i].ACPEvent
 		if event.Kind == "permission" && event.PermissionID == permissionID {
@@ -740,38 +778,34 @@ func (b *Broker) chatLog(uid int64, session string) *chatLog {
 	return l
 }
 
-// ensureLoaded restores a chat's stored transcript once, so a controller
-// restart or a reboot does not lose the conversation the browser was showing.
-// A live ring always wins: an event published before this runs keeps its seq
-// and the stored rows continue from there.
-func (l *chatLog) ensureLoaded() {
-	if l.st == nil {
+// loadLocked restores a chat's stored transcript into the ring, so a controller
+// restart, a reboot or an unloaded ring does not lose the conversation the
+// browser was showing. A live ring always wins: an event published before this
+// runs keeps its seq and the stored rows continue from there. The caller holds
+// l.mu, so a reader or an event never sees a ring between unloaded and loaded.
+func (l *chatLog) loadLocked() {
+	if l.st == nil || l.loaded {
 		return
 	}
-	l.loadOnce.Do(func() {
-		stored, err := l.st.TerminalChatEventsFor(l.uid, l.sessionID)
-		if err != nil || len(stored) == 0 {
-			return
+	l.loaded = true
+	stored, err := l.st.TerminalChatEventsFor(l.uid, l.sessionID)
+	if err != nil || len(stored) == 0 || len(l.events) > 0 {
+		return
+	}
+	for _, e := range stored {
+		var event terminalproto.ACPEvent
+		if json.Unmarshal(e.Event, &event) != nil {
+			continue
 		}
-		l.mu.Lock()
-		defer l.mu.Unlock()
-		if len(l.events) > 0 {
-			return
-		}
-		for _, e := range stored {
-			var event terminalproto.ACPEvent
-			if json.Unmarshal(e.Event, &event) != nil {
-				continue
-			}
-			l.events = append(l.events, ChatEvent{Seq: e.Seq, ACPEvent: event, size: len(e.Event)})
-			l.bytes += len(e.Event)
-		}
-		if len(l.events) == 0 {
-			return
-		}
-		l.seq = l.events[len(l.events)-1].Seq
-		l.truncated = l.events[0].Seq > 1
-	})
+		l.events = append(l.events, ChatEvent{Seq: e.Seq, ACPEvent: event, size: len(e.Event)})
+		l.bytes += len(e.Event)
+	}
+	if len(l.events) == 0 {
+		return
+	}
+	// Never back: an unloaded ring keeps counting from where it was.
+	l.seq = max(l.seq, l.events[len(l.events)-1].Seq)
+	l.truncated = l.events[0].Seq > 1
 }
 
 func (b *Broker) restoreChat(uid int64, s store.TerminalSession) *chatLog {
@@ -1059,9 +1093,7 @@ func (b *Broker) autoAnswer(uid int64, session, permissionID string) {
 // cancel it. A reconnecting client always starts from a reset and the full
 // current ring; Seq lets it ignore a duplicate it has already shown.
 func (b *Broker) SubscribeChat(uid int64, session string) ([]ChatEvent, bool, <-chan ChatEvent, func()) {
-	l := b.chatLog(uid, session)
-	l.ensureLoaded()
-	return l.subscribe()
+	return b.chatLog(uid, session).subscribe()
 }
 
 // CloseChat forgets a chat's in-memory history and closes its subscribers.

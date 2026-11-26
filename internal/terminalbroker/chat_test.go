@@ -751,3 +751,51 @@ func TestRefusedSessionAllowIsNotRemembered(t *testing.T) {
 		t.Fatal("a refused answer was remembered for the session")
 	}
 }
+
+// A closed chat's ring leaves memory once nobody reads it, with what was allowed
+// for the session. Its attention stays, and the stored transcript comes back
+// with the same sequence numbers for the next reader.
+func TestClosedChatRingIsUnloadedAndLoadsAgain(t *testing.T) {
+	b, p, uid, agent := chatFixture(t)
+	s := chatSession(t, b, uid, agent)
+	for _, event := range []terminalproto.ACPEvent{{Kind: "status", State: "working"}, {Kind: "agent", MessageID: "message-0123456789", Text: "done"}, {Kind: "status", State: "idle"}} {
+		if err := p.Receive(terminalproto.Message{Version: 1, RequestID: ID(), SessionID: s.ID, Generation: p.Generation, Body: &event}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	b.allowForSession(uid, s.ID, "execute\x00go test ./...")
+	if _, err := b.End(t.Context(), uid, s.ID, ID()); err != nil {
+		t.Fatal(err)
+	}
+	row, err := b.st.TerminalSessionFor(uid, s.ID)
+	if err != nil || !row.State.Closed() {
+		t.Fatalf("ended row: %s, %v", row.State, err)
+	}
+	l := b.chatLog(uid, s.ID)
+	ringed := func() int {
+		l.mu.Lock()
+		defer l.mu.Unlock()
+		return len(l.events)
+	}
+	before, _, _, cancel := b.SubscribeChat(uid, s.ID)
+	b.ApplyChatAttention(uid, &row)
+	if ringed() == 0 {
+		t.Fatal("the ring was unloaded under an open reader")
+	}
+	cancel()
+	b.ApplyChatAttention(uid, &row)
+	if ringed() != 0 {
+		t.Fatalf("a closed chat nobody reads still holds %d events", ringed())
+	}
+	if b.sessionAllowed(uid, s.ID, "execute\x00go test ./...") {
+		t.Fatal("a closed chat's session approval was kept")
+	}
+	if row.Attention != "finished" {
+		t.Fatalf("attention after the unload: %q", row.Attention)
+	}
+	after, _, _, cancel2 := b.SubscribeChat(uid, s.ID)
+	defer cancel2()
+	if len(after) != len(before) || len(after) == 0 || after[len(after)-1].Seq != before[len(before)-1].Seq {
+		t.Fatalf("reloaded transcript: %d events, want %d", len(after), len(before))
+	}
+}

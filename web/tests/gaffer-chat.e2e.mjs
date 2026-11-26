@@ -199,6 +199,26 @@ try{
  await expect(panel(scoped.page).getByRole('heading',{name:'This session uses a terminal.'})).toBeVisible()
  expect(scoped.errors).toEqual([]);await scoped.context.close()
 
+ // Stop on the follow bar is answered after the person has moved to another chat: the goal is stopped, and nothing of
+ // the answer lands in the chat now showing.
+ const moved=await open(),followed=moved.create(sessions[0].id);moved.create('')
+ followed.goal={id:'d'.repeat(32),conversationId:followed.conversation.id,sessionId:sessions[0].id,revision:1,text:'Keep the build green.',state:'active',note:'',maxReviews:12,usedReviews:0,createdAt:now,updatedAt:now,expiresAt:now+86400000,nextAt:now,lastSeq:-1,inputTokens:0,outputTokens:0,usageReported:true,providerId:pid,providerRevision:1,model:'glm-5',contextRevision:1,workerRevision:1}
+ let answerStop
+ await moved.page.route(`**/api/v2/gaffer/conversations/${followed.conversation.id}/goal/control`,async route=>{
+  await new Promise(resolve=>{answerStop=resolve})
+  followed.goal={...followed.goal,state:'stopped',revision:2};await route.fulfill({json:{goal:followed.goal}})
+ })
+ await show(moved,`/sessions?agent=a1&session=${sessions[0].id}`)
+ await panel(moved.page).locator('.follow-bar').getByRole('button',{name:'Stop',exact:true}).click()
+ await expect.poll(()=>typeof answerStop).toBe('function')
+ await chooseConversation(moved,'general')
+ await expect(panel(moved.page).getByRole('heading',{name:'Ey up. I’m Gaffer.'})).toBeVisible()
+ await moved.page.evaluate(()=>window.addEventListener('reet:gaffer-goals-changed',()=>{window.__goalsTold=true},{once:true}))
+ answerStop()
+ await expect.poll(()=>moved.page.evaluate(()=>window.__goalsTold===true)).toBe(true)
+ await expect(panel(moved.page).getByText('Stopped following this session. The working agent keeps running.',{exact:true})).toHaveCount(0)
+ expect(moved.errors).toEqual([]);await moved.context.close()
+
  const history=await open({seed:true});history.create('archived-session-buddy');await show(history)
  await panel(history.page).getByRole('button',{name:'Conversation history',exact:true}).click()
  const saved=history.page.getByRole('dialog',{name:'Conversation history',exact:true})

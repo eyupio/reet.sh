@@ -293,8 +293,9 @@
  async function stopFollowing(){
  const goal=current?.goal
  if(!goal||updating)return
- updating=true;error='';notice=''
- try{const {providerId:p,providerRevision:pr,model:m,contextRevision:cr,workerRevision:wr}=goal;const next=await controlGafferGoal(goal.conversationId,goal.revision,'stop',{providerId:p,providerRevision:pr,model:m,contextRevision:cr,workerRevision:wr},true);if(view)view={...view,goal:next.goal??undefined};notice='Stopped following this session. The working agent keeps running.';await goalChanged()}catch(e){error=message(e)}finally{updating=false}
+ const mine=epoch;updating=true;error='';notice=''
+ // Moved to another chat before the answer: the goal is stopped all the same, so the lists that show it are still told.
+ try{const {providerId:p,providerRevision:pr,model:m,contextRevision:cr,workerRevision:wr}=goal;const next=await controlGafferGoal(goal.conversationId,goal.revision,'stop',{providerId:p,providerRevision:pr,model:m,contextRevision:cr,workerRevision:wr},true);if(mine!==epoch){window.dispatchEvent(new Event(GAFFER_GOALS_CHANGED));return}if(view)view={...view,goal:next.goal??undefined};notice='Stopped following this session. The working agent keeps running.';await goalChanged()}catch(e){if(mine===epoch)error=message(e)}finally{if(mine===epoch)updating=false}
  }
  async function goalChanged(){
  window.dispatchEvent(new Event(GAFFER_GOALS_CHANGED))

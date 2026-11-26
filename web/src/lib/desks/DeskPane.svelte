@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { tick } from 'svelte'
+  import { tick, type Snippet } from 'svelte'
   import TerminalPane, { type TerminalActions } from '../terminal/TerminalPane.svelte'
   import type { ConnectionState } from '../terminal/connection'
   import { hasHiddenChars, SESSIONS_PER_ACCOUNT, SESSIONS_PER_MACHINE, sessionHref, stripHiddenChars, type TerminalMachine, type TerminalSession } from '../terminal/api'
@@ -18,7 +18,7 @@
   // blank terminal. Reopening is the desk's to do (it owns the desk's version); the pane only asks.
   // The terminal draws no chrome of its own: the desk draws one toolbar for the focused pane from its `actions`.
   let { tab, pane, session, machine, ready, focused = true, failure, busy = false, error = '', canContinue = false, visible = true, hold = false, admitted = true, layout = true, zoomed = false, tabs = [], startup = '', receiving = false, template = false, phone = false,
-    onfocus, onrename, oncolour, onclose, onreopen, onactions, onsettled, onsplit, onzoom, onswap, onmovetab, onmovetonewtab, onstartcommand, onstartup, onreceivable, oninput }: {
+    onfocus, onrename, oncolour, onclose, onreopen, onactions, onsettled, onsplit, onzoom, onswap, onmovetab, onmovetonewtab, onstartcommand, onstartup, onreceivable, oninput, bar }: {
     tab: Tab
     pane: Pane
     session: TerminalSession | undefined
@@ -77,6 +77,8 @@
     onreceivable?: (ok: boolean) => void
     /** Typed keys, a paste or Compose's text, once this pane's terminal has sent them (TerminalPane's `oninput`). */
     oninput?: (data: string, paste: boolean, at: number) => void
+    /** The desk's command bar, drawn inside the pane's terminal area when this is the focused pane. */
+    bar?: Snippet
   } = $props()
 
   let terminal = $state<TerminalPane>()
@@ -105,6 +107,9 @@
     if (!at || at === document.body || section?.contains(at)) actions?.focus()
   })
   let section = $state<HTMLElement>()
+  // A press focuses the pane on click, after any button in it has acted, so the bar does not move under the release.
+  // A keyboard focus (or a programmatic one) focuses the pane at once; only a press's own focus change waits for the click.
+  let pressing = false
   // The folder the shell is in now, as its machine last reported it; the folder the pane was opened in until then.
   const folder = $derived(session?.liveDir || pane.dir)
   const host = $derived(machine?.host ?? '')
@@ -178,7 +183,9 @@
   }
 </script>
 
-<section class="desk-pane" class:focused class:phone data-pane={pane.id} data-state={shown} bind:this={section} aria-current={focused ? 'true' : undefined} style={`--pc:${colour ? projectColourHex(colour) : 'transparent'}`} aria-label={`${name} on ${host || 'a removed machine'}`} onpointerdown={() => onfocus?.()} onfocusin={() => onfocus?.()}>
+<svelte:window onpointerup={event => { if (event.pointerType === 'mouse') pressing = false }} onpointercancel={() => (pressing = false)} />
+<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions (a press anywhere in a pane focuses it, after any button in it has acted; a keyboard focus focuses it at once) -->
+<section class="desk-pane" class:focused class:phone data-pane={pane.id} data-state={shown} bind:this={section} aria-current={focused ? 'true' : undefined} style={`--pc:${colour ? projectColourHex(colour) : 'transparent'}`} aria-label={`${name} on ${host || 'a removed machine'}`} onpointerdown={() => (pressing = true)} onfocusin={() => { if (!pressing) onfocus?.() }} onclick={() => { pressing = false; onfocus?.() }}>
   <header class="ph" class:tinted={!!colour} draggable={layout && !editing && swappable.length > 0 ? 'true' : undefined} data-drag-pane={pane.id}>
     {#if editing}
       <input class="rename" aria-label="Pane name" maxlength="80" bind:this={input} bind:value={draft} oninput={() => { const clean = stripHiddenChars(draft); if (clean !== draft) draft = clean }} onkeydown={event => { if (event.key === 'Enter') { event.preventDefault(); finishRename(true) } else if (event.key === 'Escape') { event.preventDefault(); finishRename(false) } }} onblur={() => finishRename(true)} />
@@ -209,6 +216,7 @@
     {:else if card}
       <PaneStateCard {card} {dir} {busy} {error} onaction={act} />
     {/if}
+    {#if bar}{@render bar()}{/if}
   </div>
 </section>
 
@@ -295,7 +303,7 @@
   .more { width: 32px; height: 32px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); font-size: 16px; cursor: pointer; }
   .more:hover { color: var(--ink); background: color-mix(in srgb, var(--ink) 8%, transparent); }
   .rename { min-height: 28px; padding: 2px 8px; font-weight: 600; width: min(260px, 50%); }
-  .body { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .body { position: relative; container-type: inline-size; flex: 1; min-height: 0; display: flex; flex-direction: column; }
   .body > :global(.pane) { flex: 1; border: 0; border-radius: 0; }
   /* Below the last whole row the screen shows its own background, not xterm's default black viewport. */
   .body :global(.xterm .xterm-viewport) { background-color: transparent; }

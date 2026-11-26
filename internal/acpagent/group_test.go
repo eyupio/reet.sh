@@ -3,6 +3,7 @@
 package acpagent
 
 import (
+	"context"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -146,5 +147,31 @@ func TestRetireGroupKillsALiveGroup(t *testing.T) {
 	}
 	if len(calls) == 0 || calls[0] != pgid {
 		t.Fatalf("killGroup calls %v, want the live group", calls)
+	}
+}
+
+// A chat whose agent exited by itself is settled then. A Close that comes
+// later, when the old id may name an unrelated group, must not signal it.
+func TestCloseOnAnEndedChatDoesNotSignalItsOldGroupID(t *testing.T) {
+	session, err := Start(context.Background(), scriptAgent(t, "read -r line"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = session.sendCancel() // the line the script waits for before it exits
+	for deadline := time.Now().Add(10 * time.Second); !session.GroupRetired(); time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("an agent that exited by itself was never confirmed gone")
+		}
+	}
+	other := exec.Command("sleep", "30")
+	other.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := other.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = other.Process.Kill(); _ = other.Wait() }()
+	session.cmd.Process = other.Process // the old id, reused
+	session.Close()
+	if !groupAlive(other.Process.Pid) {
+		t.Fatal("Close signalled a group that only shares the ended chat's id")
 	}
 }

@@ -312,6 +312,12 @@ func Start(ctx context.Context, opts Options) (*Session, error) {
 		}
 		_ = stdout.Close()
 		s.ended()
+		// Settle this while the group id is still the agent's: Close never signals a group already seen gone.
+		if waitGroupGone(cmd.Process.Pid, 2*time.Second) {
+			s.mu.Lock()
+			s.retired = true
+			s.mu.Unlock()
+		}
 	}()
 	initCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
@@ -2017,8 +2023,9 @@ func waitGroupGone(pgid int, timeout time.Duration) bool {
 	}
 }
 
-// GroupRetired reports whether Close confirmed that every process the agent
-// started is gone. It is false before Close and when retirement timed out.
+// GroupRetired reports whether every process the agent started is confirmed
+// gone: after Close, or once an agent that exited by itself took its group with
+// it. It is false while the agent runs and when retirement timed out.
 func (s *Session) GroupRetired() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -2075,8 +2082,11 @@ func (s *Session) Close() {
 	closed := s.closed
 	s.mu.Unlock()
 	if closed {
-		retired := true
-		if s.cmd != nil && s.cmd.Process != nil {
+		s.mu.Lock()
+		retired := s.retired
+		s.mu.Unlock()
+		// A group seen gone is not signalled again: by now its id may name an unrelated group.
+		if !retired && s.cmd != nil && s.cmd.Process != nil {
 			retired = retireGroup(s.cmd.Process.Pid, 2*time.Second)
 		}
 		s.mu.Lock()

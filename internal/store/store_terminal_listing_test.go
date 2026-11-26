@@ -141,6 +141,23 @@ func TestTerminalSessionsForListingHidesArchivedAndDeletedFactorySessions(t *tes
 		t.Fatal("stage-referenced session hidden")
 	}
 
+	// The filter runs before LIMIT: 100 hidden rows newer than a live session
+	// must not crowd it out of the list. Inserted directly to stay under the
+	// conversation limit.
+	for i := 0; i < 100; i++ {
+		hidden, conversation := session(), next()
+		if _, err := st.db.Exec(`INSERT INTO gaffer_conversations(id,user_id,session_id,provider_id,created_at,updated_at) VALUES(?,?,?,?,?,?)`, conversation, uid, hidden, "p", 1, 1); err != nil {
+			t.Fatal(err)
+		}
+		raw := fmt.Sprintf(`{"id":%q,"conversationId":%q,"sessionId":%q,"text":"Outcome: Ship it","state":"active"}`, next(), conversation, hidden)
+		if _, err := st.db.Exec(`INSERT INTO gaffer_goals(conversation_id,user_id,data) VALUES(?,?,?)`, conversation, uid, raw); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !listed(live, "") {
+		t.Fatal("live session crowded out by hidden rows before the limit")
+	}
+
 	// Restoring the outcome brings its session back.
 	archive(archivedOutcome, 0)
 	if !listed(archived, "") {

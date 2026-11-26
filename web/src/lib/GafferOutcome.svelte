@@ -208,7 +208,7 @@
   const startSource = $derived(resolveStartSource({ explicit: explicitSource ? source : undefined, saved: savedSource, offered: sourceOffered }))
   const chosenSource = $derived(startSource.source)
   const sourceShown = $derived(tool === 'cline' && machine?.capabilities?.acpProvider === true)
-  // The agents the work runs on: the crew's, or with a pathway, the ones its stages resolve to (below).
+  // The agents the work runs on (runTools, below).
   const needsTrust = $derived.by(() => runTools.some(id => id === 'opencode' || id === 'antigravity'))
   const trustNames = $derived.by(() => [...new Set(runTools.filter(id => id === 'opencode' || id === 'antigravity'))].map(chatToolName).join(' and '))
   const limitsOk = $derived(wholeBetween(maxReviews, 1, 48) && wholeBetween(hours, 1, 168))
@@ -374,8 +374,9 @@
     const spares = [member.backup, ...(member.moreBackups ?? [])].flatMap(one => one?.tool ? [{ tool: one.tool, model: one.model ?? '', effort: one.effort ?? '' }] : [])
     return { stage, tier, saved: true, member: { tool: member.tool, model: member.model ?? '', effort: member.effort ?? '' }, spares }
   }))
-  // Every agent a stage can start on, backups included, as outcomeRunsOn counts them for folder trust and YOLO.
-  const runTools = $derived(pathway ? [...new Set(pathwayRuns.flatMap(run => [run.member.tool, ...run.spares.map(one => one.tool)]))] : crewTools)
+  // Every agent the outcome can start on, as the controller counts them for folder trust and YOLO: the outcome's own agent,
+  // and each stage's first choice and backups.
+  const runTools = $derived([...new Set([tool, ...(pathway ? pathwayRuns.flatMap(run => [run.member.tool, ...run.spares.map(one => one.tool)]) : [...crewTools, ...spareTools])])])
   const pathwayLaunch = $derived.by(() => {
     if (!pathway) return null
     const now = Date.now(), held = machine ? accounts[machine.agentId] : undefined

@@ -251,9 +251,11 @@ func (s *Service) preparePlan(p Principal, id string, in OutcomePlanInput) (plan
 		}
 		ask += "\n\nThe person replied:\n" + reply + "\n\nRevise the proposal as a direct response to that reply. Keep what is still right, change what the person asked, and address their reply in the summary. Call propose_sessions exactly once."
 	}
+	// The suggestion is an optional extra: pathways that cannot be read are
+	// left out, and the plan is asked for as it was before there were any.
 	all, err := s.store.GafferPathwaysFor(p.UserID)
 	if err != nil {
-		return planRequest{}, err
+		all = nil
 	}
 	var pathways []store.GafferPathway
 	for _, pathway := range all {

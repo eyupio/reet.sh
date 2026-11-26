@@ -553,6 +553,45 @@ try{
     expect(w.errors).toEqual([])
    } finally { await w.context.close() }
   }
+  // (b2) The outcome's own agent counts too, as the controller counts it: Google Antigravity as the outcome's agent with a
+  //      pathway whose stages all name another agent still shows the trust box and holds Approve until it is ticked.
+  {
+   const OWN=pathway('p8','Own agents',[st('custom',{name:'Tidy',prompt:'Tidy it.',agent:{tool:'claude'}}),st('pr',{agent:{tool:'claude'}})])
+   const {f,w,page}=await open(1280,'light',{pathways:[...PATHWAYS,OWN],tools:['claude','antigravity']})
+   try{
+    const outcome=await toPlan(page,()=>page.getByRole('dialog',{name:'New Factory outcome',exact:true}).getByRole('combobox',{name:'Agent',exact:true}).selectOption('antigravity'))
+    await choose(outcome,'Own agents')
+    const trust=outcome.getByRole('checkbox',{name:/^I trust this folder: Google Antigravity/})
+    await expect(trust).toBeVisible()
+    await expect(approve(outcome)).toBeDisabled()
+    await trust.check()
+    await approve(outcome).click()
+    await expect.poll(()=>f.box.starts.length).toBe(1)
+    expect(f.box.starts[0].pathway).toBe('p8')
+    expect(f.box.starts[0].trust).toBe(true)
+    expect(w.errors).toEqual([])
+   } finally { await w.context.close() }
+  }
+  // (b3) Standard stages count the crew's backups as well: a Standard crew backed up by Google Antigravity shows the
+  //      trust box, holds Approve until it is ticked, and the start carries the trust.
+  {
+   const {f,w,page}=await open(1280,'light',{tools:['claude','antigravity'],crew:{standard:{tool:'claude',backup:{tool:'antigravity'}}}})
+   try{
+    const outcome=await toPlan(page)
+    const trust=outcome.getByRole('checkbox',{name:/^I trust this folder: Google Antigravity/})
+    await expect(trust).toBeVisible()
+    await expect(outcome.locator('p.status')).toHaveText('Google Antigravity starts only in a folder you trust. Tick the folder trust box below, or choose another agent.')
+    await expect(approve(outcome)).toBeDisabled()
+    await bringUp(trust)
+    await shot(page,'p3-final-trust-standard',1280,'light')
+    await trust.check()
+    await approve(outcome).click()
+    await expect.poll(()=>f.box.starts.length).toBe(1)
+    expect(f.box.starts[0].pathway).toBeUndefined()
+    expect(f.box.starts[0].trust).toBe(true)
+    expect(w.errors).toEqual([])
+   } finally { await w.context.close() }
+  }
   // (c) Add pipelines: the same saved crew agent that is not on the machine holds the add, with the same sentence.
   {
    const {f,w,page}=await open(1280,'light',{crew:{standard:{tool:'codex'}}})
@@ -793,6 +832,27 @@ try{
     await expect(radio(outcome,STANDARD)).toBeChecked()
     await expect.poll(names).toContain('Line 20')
     expect((await names()).length).toBe(7)
+    expect(w.errors).toEqual([])
+   } finally { await w.context.close() }
+  }
+ }
+ // 16. A stage line that wraps in the choice never ends a row with a "›": each sits before its chip, on the chip's row.
+ {
+  const LONG=pathway('p9','Long release',[st('plan'),st('code'),st('custom',{name:'Security audit of every endpoint',prompt:'Audit.'}),st('review'),st('test'),st('custom',{name:'Write the release notes',prompt:'Notes.'}),st('pr'),st('babysit'),st('merge')])
+  for(const width of [1280,390]){
+   const {f,w,page}=await open(width,'light',{pathways:[LONG,...PATHWAYS]})
+   try{
+    const outcome=await toPlan(page)
+    const line=outcome.getByRole('radiogroup',{name:'Pathway',exact:true}).locator('label').filter({hasText:'Long release'}).locator('.line')
+    const got=await line.evaluate(el=>{
+     const mid=e=>{const r=e.getBoundingClientRect();return (r.top+r.bottom)/2}
+     const items=[...el.querySelectorAll('.sep,.chip')].filter(e=>getComputedStyle(e).display!=='none')
+     return {rows:new Set(items.filter(e=>e.classList.contains('chip')).map(e=>Math.round(mid(e)))).size,hanging:items.filter((e,i)=>e.classList.contains('sep')&&!(items[i+1]&&Math.abs(mid(items[i+1])-mid(e))<6)).length}
+    })
+    expect(got.rows,'the stage line wraps').toBeGreaterThan(1)
+    expect(got.hanging,'a row ends with a separator').toBe(0)
+    await bringUp(outcome.getByText('Long release',{exact:true}))
+    await shot(page,'p3-final-choice-wrap',width,'light')
     expect(w.errors).toEqual([])
    } finally { await w.context.close() }
   }

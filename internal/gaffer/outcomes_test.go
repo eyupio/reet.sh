@@ -2,6 +2,7 @@ package gaffer
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -401,6 +403,39 @@ func TestPlanWithNoPathwaysIsUnchanged(t *testing.T) {
 				t.Fatalf("disabled=%v: %s was accepted without any pathway offered", disabled, tail)
 			}
 		}
+	}
+}
+
+// TestPlanWhenPathwaysCannotBeReadPlansWithout: the suggestion is an extra,
+// so a pathway that cannot be read leaves the plan as it is with none.
+func TestPlanWhenPathwaysCannotBeReadPlansWithout(t *testing.T) {
+	golden, err := os.ReadFile("testdata/plan-request-without-pathways.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, st, p := settingsFixture(t)
+	savePathway(t, st, p, "pw-ship", "Ship small", "", true, store.GafferPathwayStage{Kind: "code"})
+	// Valid JSON that is not a pathway's data, so reading the pathways fails.
+	db, err := sql.Open("sqlite", filepath.Join(st.Dir(), "reet.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`UPDATE gaffer_pathways SET data='{"stages":"broken"}'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.GafferPathwaysFor(p.UserID); err == nil {
+		t.Fatal("the broken pathway was read")
+	}
+	args := `{"summary":"One job.","sessions":[{"title":"Export","prompt":"Add CSV export. Raise a pull request. Do not merge."}]}`
+	server, sent := planServer(t, func() string { return planCall("propose_sessions", args) })
+	row := planProvider(t, s, p, server.URL, true)
+	plan, err := s.PlanOutcome(context.Background(), p, row.ID, OutcomePlanInput{Revision: row.Revision, Objective: "Ship CSV export for billing.", Project: "billing", Sessions: 2})
+	if err != nil || plan.Pathway != nil {
+		t.Fatalf("plan: %+v %v", plan, err)
+	}
+	if got := sent()[0]; got != string(golden) {
+		t.Fatalf("request changed:\n%s", got)
 	}
 }
 

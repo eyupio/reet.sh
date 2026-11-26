@@ -627,12 +627,19 @@ func (s *server) mcpUsePathway(uid int64, named string, pipelines []gaffer.Outco
 	if err != nil {
 		return "", err
 	}
+	// An id is matched before any name, so a pathway named with another's id
+	// is not taken for it.
 	id, on := "", []string{}
+	for _, p := range rows {
+		if p.Enabled && p.ID == named {
+			id = p.ID
+		}
+	}
 	for _, p := range rows {
 		if !p.Enabled {
 			continue
 		}
-		if p.ID == named || strings.EqualFold(p.Name, named) {
+		if id == "" && strings.EqualFold(p.Name, named) {
 			id = p.ID
 		}
 		on = append(on, p.Name)

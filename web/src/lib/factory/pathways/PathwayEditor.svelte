@@ -364,18 +364,25 @@
     const below = floor && ghost ? floor + ghost.height + 16 : cards.length ? bottom + 18 : box.top + box.height / 2
     // The hint has three places, each inside the window, none over the pointer, the insertion bar or the card that takes the
     // drop: below the cards; above the line (or the pointer, when that is higher); pinned to the window's foot, or to its top
-    // when the pointer is there. With no place that is clear and inside, a clear one partly outside is used.
+    // when the pointer is there. With no place that is clear and inside, a clear one partly outside is used, and with none
+    // clear the hint is hidden rather than laid over the pointer or the drop.
     const spot = document.querySelector('[data-drag-hint]')?.getBoundingClientRect()
-    const tall = spot?.height || 80, wide = Math.min(spot?.width || 320, innerWidth - 16), foot = windowFoot()
+    const tall = spot?.height || 80, wide = Math.min(spot?.width || 320, innerWidth - 16)
     const cx = Math.min(Math.max(box.left + box.width / 2, 8 + wide / 2), innerWidth - 8 - wide / 2)
+    if (phone || !cards.length) { hintAt = { x: cx, y: below, place: 'below' }; return }
+    const foot = windowFoot()
     const keep = [bar, target?.type === 'card' ? cards[target.at] : null].flatMap(r => r ? [{ left: r.left, top: r.top, right: r.left + r.width, bottom: r.top + r.height }] : [])
     const clear = (top: number) => !(x > cx - wide / 2 - 8 && x < cx + wide / 2 + 8 && y > top - 8 && y < top + tall + 8)
       && keep.every(r => r.right <= cx - wide / 2 - 4 || r.left >= cx + wide / 2 + 4 || r.bottom <= top - 4 || r.top >= top + tall + 4)
     const places: [string, number][] = [['below', below], ['above', Math.min(box.top, y) - 12 - tall], ['foot', foot - 8 - tall], ['top', 8]]
     const fits = ([, top]: [string, number]) => top >= 8 && top + tall <= foot - 8 && clear(top)
-    const place = phone || !cards.length ? places[0] : places.find(fits) ?? places.find(([, top]) => clear(top)) ?? places[2]
+    const place = places.find(fits) ?? places.find(([, top]) => clear(top)) ?? ['hidden', hintAt.y]
     hintAt = { x: cx, y: place[1], place: place[0] }
   }
+  // A hint whose words change while the pointer is still (a re-read, say) is placed again once it has its new size.
+  $effect(() => {
+    if (hint) void tick().then(() => { const d = dragging; if (d) aim(d.item, d.x, d.y) })
+  })
   // The insertion bar, in the gap the slot is: between two cards, or just outside the first or last.
   function barAt(at: number, cards: DOMRect[]) {
     const a = cards[at - 1], b = cards[at], ref = b ?? a
@@ -747,6 +754,7 @@
     position: fixed; translate: -50% 0; max-width: min(560px, calc(100vw - 16px)); box-sizing: border-box; margin: 0; padding: 8px 12px; border-radius: 8px;
     background: var(--ink); color: var(--bg); font-size: 14px; line-height: 1.45; text-align: center; box-shadow: 0 12px 30px -12px var(--scrim);
   }
+  .drag-hint[data-hint-place='hidden'] { visibility: hidden; }
   .drag-hint.phone { left: 16px; right: 16px; bottom: calc(16px + var(--bottom-chrome, 0px)); translate: none; max-width: none; }
   :global(html[data-pathway-drag]), :global(html[data-pathway-drag] *) { cursor: grabbing !important; }
 

@@ -140,9 +140,6 @@ func (s *server) gafferTemplateDiff(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, d)
 }
 
-// recordStageSkills leaves the skill receipts a choice on the page would have
-// left for the pipelines' stages, so a stage's Skills panel shows them and its
-// launch marks them prepared. A receipt that is not saved changes nothing.
 // usePathway gives the sessions a named pathway's stages; with none named it
 // leaves them as they are. The browser and MCP starts both use it.
 func (s *server) usePathway(uid int64, pathway string, sessions []gaffer.OutcomeSession) error {
@@ -161,6 +158,9 @@ func (s *server) recordPathwaySkills(uid int64, pathway string, o store.GafferOu
 	}
 }
 
+// recordStageSkills leaves the skill receipts a choice on the page would have
+// left for the pipelines' stages, so a stage's Skills panel shows them and its
+// launch marks them prepared. A receipt that is not saved changes nothing.
 func (s *server) recordStageSkills(uid int64, outcome string, pipelines []store.GafferOutcomeSession) {
 	for _, p := range pipelines {
 		for i, st := range p.Stages {

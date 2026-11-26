@@ -121,6 +121,16 @@ func (s *server) gafferOutcomeCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// A request asked again is answered with the outcome it already made, as
+	// CreateOutcome would, before the pathway is read: it may be off since,
+	// and the receipts written then may have been changed by the person.
+	if in.RequestID != "" {
+		if existing, err := s.gafferProviders.Outcome(s.uid(r), in.RequestID); err == nil {
+			w.Header().Set("Cache-Control", "no-store")
+			writeJSON(w, 201, existing)
+			return
+		}
+	}
 	if err := s.usePathway(s.uid(r), in.Pathway, in.Sessions); err != nil {
 		gafferDeliveryError(w, err)
 		return

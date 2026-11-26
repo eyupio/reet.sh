@@ -12,7 +12,8 @@ pathway's name, description and stage names (at most 20, never prompts, models o
 suggestion can only select among the person's own enabled pathways, and anything else is dropped. The New Factory
 outcome dialog shows the suggestion already selected with its reason and never overrides a choice the person made. The
 two start dialogs work out a pathway's agents as the server does: a saved crew agent that is not on the machine holds the
-start with a sentence, and a tier's backups count for folder trust. Small fixes: the chosen pathway row is always in view,
+start with a sentence, and the outcome's own agent and each tier's backups count for folder trust and YOLO, with a
+pathway and with standard stages. Small fixes: the chosen pathway row is always in view,
 "Edit pathway" is no longer part of an option's name, and the drag hint has three fixed places inside the window, clear of
 the pointer and the drop target, with the palette leaving room for the bottom tab bar. The tool count is now 50. User
 docs: "With Gaffer and AI clients" in `docs/factory.md` and the Factory tools in `docs/mcp.md`.
@@ -26,8 +27,14 @@ tools, under the person's existing off, ask and allow settings.
 `mcp_tools.json`), the two pathways browser suites and the six existing dialog suites were run. The planning request for
 an account with no pathways was compared byte for byte with one captured before the change. A marker prompt planted in
 tests shows that no pathway prompt reaches a tool result, Gaffer's context or the planning request.
-Whole-branch review: to be added
+A whole-branch review was made and its findings fixed: the sharing page now says stage and pathway names are part of
+status; the new-outcome dialog counts the outcome's own agent and the crew's backups for folder trust, for pathways and
+for standard stages; a retried start no longer re-selects a dismissed skill or is refused because its pathway was
+switched off since; an MCP pathway id is matched before any name; and planning goes on without pathways when they
+cannot be read.
 
 **Not done:** skill recommendations for one of a person's own stages still treat it as coding unless its words say
 otherwise. `reet_recommend_skills` does not accept a pathway's own stage. Gaffer cannot create or edit pathways. Touch
-dragging is still tested with simulated touch in Chromium only, not on a real phone or tablet.
+dragging is still tested with simulated touch in Chromium only, not on a real phone or tablet. If the saved crew
+cannot be read, the dialogs fall back to the outcome's agent and the server has the last word. A report's proposed
+pipelines from a pathway outcome use built-in stages and no pathway.

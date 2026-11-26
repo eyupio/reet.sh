@@ -328,6 +328,66 @@ func TestMCPPathwayStartRefusals(t *testing.T) {
 	}
 }
 
+// A start asked again under its request_id is answered with the outcome it
+// already made, even once the pathway is switched off, and leaves the skills
+// the person dismissed since dismissed.
+func TestMCPRetriedPathwayStartAnswersTheFirstOutcome(t *testing.T) {
+	t.Parallel()
+	s, user, write, project, careful := factoryMCPPathways(t)
+	args := pathwayStartArgs(project, "Careful", nil)
+	args["request_id"] = strings.Repeat("cd", 16)
+	if _, err := s.executeMCPFactory(context.Background(), write, "reet_start_outcome", args); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := s.st.GafferOutcomesFor(user.ID)
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("outcomes: %d %v", len(rows), err)
+	}
+	first := rows[0]
+	dismissStageSkill(t, s.st, user.ID, first.ID, first.Sessions[0].Key, 1, "builtin:review")
+	if out, err := s.executeMCPFactory(context.Background(), write, "reet_start_outcome", args); err != nil || out["applied"] != false {
+		t.Fatalf("retry: %v %v", out, err)
+	}
+	if stageSkillShown(t, s.st, first.ID, first.Sessions[0].Key, 1, "builtin:review") {
+		t.Fatal("the retry selected a skill the person dismissed")
+	}
+	switchPathwayOff(t, s.st, user.ID, careful.ID)
+	out, err := s.executeMCPFactory(context.Background(), write, "reet_start_outcome", args)
+	if err != nil || out["applied"] != false {
+		t.Fatalf("retry once the pathway is off: %v %v", out, err)
+	}
+	if rows, _ := s.st.GafferOutcomesFor(user.ID); len(rows) != 1 {
+		t.Fatalf("outcomes after the retries: %d", len(rows))
+	}
+}
+
+// A pathway is found by its id before any is by its name, so one named with
+// another's id is not taken for it; with none switched on the refusal says so.
+func TestMCPPathwayIDWinsOverAName(t *testing.T) {
+	t.Parallel()
+	s, user, write, project, _ := factoryMCPPathways(t)
+	// Listed by name, "0 First" comes before the pathway named with its id.
+	first := savePathway(t, s, user.ID, "0 First", true, store.GafferPathwayStage{Kind: "code"})
+	savePathway(t, s, user.ID, first.ID, true, store.GafferPathwayStage{Kind: "code"})
+	if _, err := s.executeMCPFactory(context.Background(), write, "reet_start_outcome", pathwayStartArgs(project, first.ID, nil)); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := s.st.GafferOutcomesFor(user.ID)
+	if err != nil || len(rows) != 1 || rows[0].Sessions[0].PathwayID != first.ID {
+		t.Fatalf("outcomes: %+v %v", rows, err)
+	}
+}
+
+func TestMCPRefusesAPathwayWhenNoneIsOn(t *testing.T) {
+	t.Parallel()
+	s, user, write, project, careful := factoryMCPPathways(t)
+	switchPathwayOff(t, s.st, user.ID, careful.ID)
+	_, err := s.executeMCPFactory(context.Background(), write, "reet_start_outcome", pathwayStartArgs(project, "Careful", nil))
+	if want := "No pathway called “Careful” is switched on, and no other is either. Nothing was started."; err == nil || err.Error() != want {
+		t.Fatalf("refusal: %v", err)
+	}
+}
+
 // Pipelines added on a pathway get its stages and receipts too.
 func TestMCPAddsPipelinesOnAPathway(t *testing.T) {
 	t.Parallel()

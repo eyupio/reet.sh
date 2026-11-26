@@ -1162,7 +1162,29 @@ async function editorFocus(width,theme){
  }finally{await w.context.close()}
 }
 
+// A stage line that wraps (about 760 px wide) never ends a row with a "›": each sits before its chip, on the chip's row.
+const longLine=()=>pathway('p4','Long release',[st('plan'),st('code'),st('custom',{name:'Security audit of every endpoint',prompt:'Audit.'}),st('review'),st('test'),st('custom',{name:'Write the release notes',prompt:'Notes.'}),st('pr'),st('babysit'),st('merge')])
+const stageRows=line=>line.evaluate(el=>{
+ const mid=e=>{const r=e.getBoundingClientRect();return (r.top+r.bottom)/2}
+ const items=[...el.querySelectorAll('.sep,.chip')].filter(e=>getComputedStyle(e).display!=='none')
+ return {rows:new Set(items.filter(e=>e.classList.contains('chip')).map(e=>Math.round(mid(e)))).size,hanging:items.filter((e,i)=>e.classList.contains('sep')&&!(items[i+1]&&Math.abs(mid(items[i+1])-mid(e))<6)).length}
+})
+async function listWrap(theme){
+ const {w,page}=await open(760,theme,{list:[...three(),longLine()]})
+ try{
+  await goList(page)
+  const line=page.getByRole('list',{name:'Stages of Long release'})
+  const got=await stageRows(line)
+  expect(got.rows,'the stage line wraps').toBeGreaterThan(1)
+  expect(got.hanging,'a row ends with a separator').toBe(0)
+  await line.scrollIntoViewIfNeeded()
+  await shot(page,'p3-final-list-wrap',760,theme)
+  expect(w.errors).toEqual([])
+ }finally{await w.context.close()}
+}
+
 try{
+ for(const theme of ['light','dark'])await listWrap(theme)
  await tabletTargets()
  await editorShelf(1280,'light')
  await editorShelf(1024,'dark',true)

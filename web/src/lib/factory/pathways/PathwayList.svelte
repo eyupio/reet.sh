@@ -125,7 +125,7 @@
         <div class="body">
           <h2><a href={`/factory/pathways/${encodeURIComponent(p.id)}`} onclick={event => follow(event, p.id)}>{p.name}</a></h2>
           <ol class="line" aria-label={`Stages of ${p.name}`}>
-            {#each p.stages as stage, i (i)}<li><span class="chip" class:own={stage.kind === 'custom'}>{stageTitle(stage)}</span>{#if i < p.stages.length - 1}<span class="sep" aria-hidden="true">›</span>{/if}</li>{/each}
+            {#each p.stages as stage, i (i)}<li>{#if i}<span class="sep" aria-hidden="true">›</span>{/if}<span class="chip" class:own={stage.kind === 'custom'}>{stageTitle(stage)}</span></li>{/each}
           </ol>
           {#if p.description || !on}<p class="desc">{p.description}{#if !on}{p.description ? ' ' : ''}<span class="off-note">Off: not offered to you or Gaffer.</span>{/if}</p>{/if}
           {#each p.problems ?? [] as problem, i (i)}<p class="problem"><span class="mark" aria-hidden="true">!</span> {problem}</p>{/each}

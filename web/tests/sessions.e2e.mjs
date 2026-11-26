@@ -174,9 +174,10 @@ try {
   await page.getByRole('button',{name:'Add a project'}).click()
   await expect(page.getByRole('dialog',{name:/Add a project/})).toBeVisible()
   await page.keyboard.press('Escape')
-  // Nothing about the sessions or projects goes into browser storage: only the Group by choice.
+  // Nothing about the sessions or projects goes into browser storage: only the Group by choice, the theme and the
+  // Factory-finished read state (empty here, as no pipeline has finished).
   const stored = await page.evaluate(() => Object.keys(localStorage))
-  expect(stored.filter(k => !k.startsWith('reet.home.groupBy.') && k !== 'reet-theme')).toEqual([])
+  expect(stored.filter(k => !k.startsWith('reet.home.groupBy.') && !k.startsWith('reet.factory.finished.') && k !== 'reet-theme')).toEqual([])
   expect(errors).toEqual([])
   // Every read the page makes is answered (the Add project dialog's folder listing is its own test's).
   expect(state.unexpected.filter(p => !p.endsWith('/browse'))).toEqual([])

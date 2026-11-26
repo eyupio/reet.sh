@@ -513,14 +513,22 @@ func (s *Store) TerminalSessionsFor(uid int64) ([]TerminalSession, error) {
 	return s.terminalSessionsFor(uid, "")
 }
 
-// listingHideFactorySessions drops a Factory stage session once the outcome it
-// belongs to is archived or gone: its goal stays after the outcome is deleted,
-// so the session would otherwise reappear when the client no longer hides it.
+// listingOutcomeRefsSession is true when the outcome aliased o names the session
+// in one of its pipelines or stages.
+const listingOutcomeRefsSession = `(EXISTS(SELECT 1 FROM json_each(o.data,'$.sessions') s WHERE json_extract(s.value,'$.sessionId')=terminal_sessions.id)
+	OR EXISTS(SELECT 1 FROM json_each(o.data,'$.sessions') s, json_each(s.value,'$.stages') st WHERE json_extract(st.value,'$.sessionId')=terminal_sessions.id))`
+
+// listingHideFactorySessions drops a Factory stage session once no unarchived
+// outcome still works in it: either an archived outcome names it, or its goal
+// marks it as Factory work and its outcome is gone. Both the goal and outcome
+// can outlive the other, so neither alone is enough.
+// shortcut: a deleted outcome leaves only the goal, so if that goal is removed
+// (conversation deleted, or pruned past MaxGafferConversations) the session is
+// listed again; upgrade by archiving the sessions when an outcome is deleted.
 const listingHideFactorySessions = ` AND NOT (
-	EXISTS(SELECT 1 FROM gaffer_goals g WHERE g.user_id=terminal_sessions.user_id AND json_extract(g.data,'$.sessionId')=terminal_sessions.id AND substr(json_extract(g.data,'$.text'),1,9)='Outcome: ')
-	AND NOT EXISTS(SELECT 1 FROM gaffer_outcomes o WHERE o.user_id=terminal_sessions.user_id AND COALESCE(json_extract(o.data,'$.archivedAt'),0)=0
-		AND (EXISTS(SELECT 1 FROM json_each(o.data,'$.sessions') s WHERE json_extract(s.value,'$.sessionId')=terminal_sessions.id)
-			OR EXISTS(SELECT 1 FROM json_each(o.data,'$.sessions') s, json_each(s.value,'$.stages') st WHERE json_extract(st.value,'$.sessionId')=terminal_sessions.id))))`
+	(EXISTS(SELECT 1 FROM gaffer_goals g WHERE g.user_id=terminal_sessions.user_id AND json_extract(g.data,'$.sessionId')=terminal_sessions.id AND substr(json_extract(g.data,'$.text'),1,9)='Outcome: ')
+		OR EXISTS(SELECT 1 FROM gaffer_outcomes o WHERE o.user_id=terminal_sessions.user_id AND COALESCE(json_extract(o.data,'$.archivedAt'),0)<>0 AND ` + listingOutcomeRefsSession + `))
+	AND NOT EXISTS(SELECT 1 FROM gaffer_outcomes o WHERE o.user_id=terminal_sessions.user_id AND COALESCE(json_extract(o.data,'$.archivedAt'),0)=0 AND ` + listingOutcomeRefsSession + `))`
 
 // TerminalSessionsForListing is the list the Home and Sessions pages read. It
 // applies the Factory filter before LIMIT so stale rows cannot crowd out live ones.

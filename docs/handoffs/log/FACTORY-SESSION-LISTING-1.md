@@ -8,19 +8,27 @@ or the outcome record was pruned.
 What changed, in one place.
 
 - **A read-side filter.** `TerminalSessionsForListing` (`internal/store/store_terminal.go`) is the same list query as
-  `TerminalSessionsFor` with one predicate: hide a session when it has a Gaffer goal whose text begins `Outcome: ` and
-  no unarchived outcome references its id in `sessions[].sessionId` or `sessions[].stages[].sessionId`. The predicate
-  sits before `LIMIT 100`, so stale rows cannot crowd out live ones. No schema change, no migration, no write-path
-  change, no backfill: archived, deleted and already-stale rows are covered, and restoring an outcome lists its
-  sessions again.
-- **The endpoint both pages read.** `terminalSessions` (`internal/api/terminal.go`) now calls
-  `TerminalSessionsForListing`. `TerminalSessionsFor` is unchanged: the broker, cleanup and push paths need the
-  unfiltered list to reconcile. A direct session URL (`TerminalSessionFor`) is unchanged.
+  `TerminalSessionsFor` with one predicate: hide a session when no unarchived outcome still names its id in
+  `sessions[].sessionId` or `sessions[].stages[].sessionId` and either an archived outcome names it or it has a Gaffer
+  goal whose text begins `Outcome: `. The predicate sits before `LIMIT 100`, so stale rows cannot crowd out live ones.
+  No schema change, no migration, no write-path change, no backfill: archived, deleted and already-stale rows are
+  covered, and restoring an outcome lists its sessions again.
+- **The endpoint the app reads.** `terminalSessions` (`internal/api/terminal.go`) now calls
+  `TerminalSessionsForListing`. That endpoint is read by Home, Sessions and the rest of the app (project running
+  counts, the machine's live count, conversation history, activity), so a hidden session is left out of those too.
+  `TerminalSessionsFor` is unchanged: the broker, cleanup and push paths need the unfiltered list to reconcile. A
+  direct session URL (`TerminalSessionFor`) is unchanged.
 - **What is deliberately untouched.** `GafferGoalsFor` and Home's "Waiting for you" feed are unchanged, so a
   still-active goal of a deleted Factory session can still show there. Nothing is deleted; a desk that resolves a
-  hidden session treats it as gone. A stage session may be hidden for the moment before its outcome record references
-  it.
+  hidden session treats it as gone.
+- **The known limit.** A deleted outcome leaves only its sessions' goals behind. Those goals are removed when their
+  conversation is deleted, or pruned once the account passes `MaxGafferConversations`; the session is then listed
+  again. A durable fix would write `terminal_session_archives` rows when an outcome is archived or deleted, and undo
+  them on restore, which needs a decision.
 
-Checked with `go test -race ./internal/store ./internal/api`, `go test -race ./...` and `cd web && npm run check`.
-The store test pins the rule against archived, deleted, live, restored, ordinary, non-Factory and stage-referenced
-sessions; the API test asserts the ids on `GET /api/v2/terminal/sessions`. No browser test: no UI change.
+Checked with `go test ./internal/store ./internal/api` (the new tests also pass under `-race`), plus `go test ./...`,
+which passes except the pre-existing `internal/lifecycle` `TestDoctorIsReadOnlyAndRedactsCredentials` failure (it
+fails at the base commit too). A full `-race ./...` run was not completed: the store suite timed out past ten minutes
+at `TestSelectionRunLimits`, and the new tests were run under `-race` on their own. There is no web change, so no
+browser test. The store test pins the rule against archived, deleted, live, restored, ordinary, non-Factory,
+stage-referenced and goal-pruned sessions; the API test asserts the ids on `GET /api/v2/terminal/sessions`.

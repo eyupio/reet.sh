@@ -119,6 +119,13 @@ func TestTerminalSessionsForListingHidesArchivedAndDeletedFactorySessions(t *tes
 	if listed(archived) || !unfiltered(archived) {
 		t.Fatal("archived outcome session listed")
 	}
+	// The archived outcome still names the session after its goal is pruned.
+	if _, err := st.db.Exec(`DELETE FROM gaffer_goals WHERE user_id=? AND json_extract(data,'$.sessionId')=?`, uid, archived); err != nil {
+		t.Fatal(err)
+	}
+	if listed(archived) {
+		t.Fatal("archived session listed after its goal was pruned")
+	}
 	if listed(deleted) || !unfiltered(deleted) {
 		t.Fatal("deleted outcome session listed")
 	}

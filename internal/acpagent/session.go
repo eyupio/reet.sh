@@ -146,12 +146,10 @@ type pendingPermission struct {
 // Prompt runs one turn at a time and Cancel may be called from any goroutine.
 type Session struct {
 	opts   Options
-	binary string
 	native *nativeView
 	cmd    *exec.Cmd
 	stdin  io.WriteCloser
 	stdout io.ReadCloser
-	stderr *cappedBuffer
 
 	configMu     sync.Mutex
 	steerMu      sync.Mutex
@@ -280,8 +278,7 @@ func Start(ctx context.Context, opts Options) (*Session, error) {
 		return nil, err
 	}
 	cmd.Stdout = stdoutWriter
-	stderr := &cappedBuffer{limit: 4 << 10}
-	cmd.Stderr = stderr
+	cmd.Stderr = io.Discard
 	if err := cmd.Start(); err != nil {
 		_ = stdin.Close()
 		_ = stdout.Close()
@@ -289,7 +286,7 @@ func Start(ctx context.Context, opts Options) (*Session, error) {
 		return nil, ErrExited
 	}
 	_ = stdoutWriter.Close()
-	s := &Session{opts: opts, binary: binary, native: native, cmd: cmd, stdin: stdin, stdout: stdout, stderr: stderr,
+	s := &Session{opts: opts, native: native, cmd: cmd, stdin: stdin, stdout: stdout,
 		calls: map[int64]rpcCall{}, pending: map[string]*pendingPermission{}, tools: map[string]string{}, held: map[string]heldTool{},
 		toolStart: map[string]time.Time{}, done: make(chan struct{})}
 	readDone := make(chan struct{})

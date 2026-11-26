@@ -290,6 +290,10 @@ switch at any time.
 - It takes at most three decisions on a stage. After that the stage is yours and the detail says so.
 - A stop whose answer never came back, because the controller restarted while Gaffer was deciding, is asked again
   after two minutes. That does not spend another of the stage's three.
+- For two minutes after the controller starts, a pipeline that was starting or moving to its next stage waits for
+  its machine to reconnect before it gives the launch up.
+- Approving a plan allows the outcome's Gaffer provider session text and code. If you switch either off afterwards,
+  the next stage is started but not followed, and its note says to allow both in Gaffer settings and try again.
 - It never decides a merge, never answers an approval, never answers a question that needs your own words and never
   stops an outcome.
 - Each decision is one request to Gaffer's model. The detail's **What Gaffer decided** row lists each one with what it

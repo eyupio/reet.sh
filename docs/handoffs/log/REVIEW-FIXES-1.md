@@ -1,125 +1,61 @@
-## REVIEW-FIXES-1: twenty-one findings, and the leads the review left, from a review of the machines and skills features are fixed (25 November 2026)
+## REVIEW-FIXES-1: the findings of a review of agents, their models and Gaffer are fixed (26 November 2026)
 
-A review of the machines and skills code (store, API, fetch and install, web client) found twenty-one things to fix. Each
-was re-read against the source before it was accepted, and each fix has a test that failed before it and passes after.
-Findings are numbered as in the review.
+A review of how reet starts and talks to agents, relays their chats and approvals, talks to Gaffer's own provider and
+runs the Factory left 40 numbered findings. This entry is the fix for them, one commit per finding, each with a test
+that fails without it unless it only deletes code or changes words. Five areas were fixed side by side in separate
+worktrees and joined here.
 
-What changed.
+What changed, by area.
 
-Skills reaching machines.
+- **Approvals and YOLO.** A truncated card has no session key (`permissionKey` in `internal/terminalbroker/chat.go`), a
+  path cut to 1 KiB is marked truncated, and `PermissionChat` refuses an allow for one (`ErrPermissionTruncated`, 409
+  `permission_truncated`). A session approval is stored only after the machine answers OK, and is dropped when the chat
+  closes or is reconnected in place. A lost reply to a switch to YOLO stores YOLO and writes a `yolo-mode` event with
+  `reply: lost`. `LaunchBar.svelte` and `StartAgentDialog.svelte` drop the YOLO confirmation when the agent, the chat or
+  terminal choice, or the worktree choice changes. The approval timer in `internal/acpagent/session.go` lets an answer
+  that beat it stand, and Stop on a card that still waits no longer counts as a running tool.
+- **ACP sessions.** A write to an agent's stdin has a 15 second deadline (`writeTimeout`); an agent that does not take
+  a frame in that time is ended, which frees Stop, the turn deadlines and End. A model or mode switch marks the chat
+  configuring and releases the turn lock while it waits. An exited agent's process group is settled at exit, so a later
+  Close never signals a reused id. Antigravity's unreachable `StartMode` and the dead fields and duplicate descriptor
+  branches are gone.
+- **Chat relay.** `restoreChat` keys on "no live event in this process", so a tab that reconnects first after a
+  controller restart no longer wipes a finished state. The connector keeps the confirmed agent mode in its restart
+  record and puts a reopened chat back in it. A closed chat's ring is unloaded once stored and unread (`unload`,
+  `loadLocked`), triggered by the session list read. A queue delivery shows its bubble after the machine answers, and
+  a prompt the process refuses before the turn begins is refused up front or said in the chat.
+- **Gaffer chat and providers.** The context snapshot gives up events, then earlier handovers, then the reply's start
+  before failing. `ContextLatestReplyFor` joins the chunks of one message and reads back by size, not 60 events. A tool
+  that ran during a cancel is recorded and audited. Of several reet tools asked for at once the first runs. Tool
+  arguments count towards a conversation's size. A turn that offers reet's tools asks for 16,384 output tokens (the
+  owner chose this over 4,096 and 8,192, knowing a model that allows less may refuse the turn). The OpenAI adapter
+  sends `max_completion_tokens` to `api.openai.com` only. The Anthropic adapter counts cached input, sends earlier tool
+  calls as plain text when a request defines no tools, and also marks the last finished answer as a cache point. A
+  write tool on Allow asks first once a tool in the turn returned text other people wrote (the owner chose this over
+  "after any tool result", which the existing tests and docs rule out).
+- **Factory.** `StopGafferGoal` closes a pipeline's goal from any state. Approving a plan allows the provider session
+  text and code (`CreateGafferOutcomeFor`); a stage start no longer does, and stops following with a note when they are
+  off. For two minutes after a controller start (`outcomeResumeWait`) a launch whose machine is offline is asked for
+  again. Archive and Delete judge a stopped outcome as the page shows it. `gaffer_outcomes` has a `live` column with a
+  partial index, set on every write and refreshed at each start, and the supervisor's scans read `live=1` on the read
+  pool. An added pipeline never merges by itself. `planLeft` skips a window that has reset.
+- **Agent sign-ins.** Copilot tries only the `gh` token of the login its files name and never a token from the
+  environment. One comparison and one date reader serve the five agents.
 
-- 1. A skill added from someone else's published page never got files, so no machine received it. `SkillSourceFor` now
-  returns `hosted` sources for a skill that is not the account's own (`store_skill_content.go`), the new
-  `PublishedHostedFiles` (`store_hosted_source.go`) reads the page's files, and `copyHostedSkill` (`skill_copies.go`)
-  saves them. It is a copy as the page is when added; "Update from original" still answers 404 for it. An unpublished
-  skill ends as "no longer published".
-- 2. Deleting or renaming a written skill now puts the old name on `skill_removals` (`store_hosted.go`), as a delete from
-  the Skills page does, so machines remove the folder.
-- 4. A `__pycache__` folder in an installed skill no longer makes the copy read as edited (`osFile` in
-  `reconcile_copies.go`). `node_modules` is not skipped: `Scan` applies its file limit first. Left as a `shortcut:` note.
-- 10. Names are folded in Go (`strings.ToLower`) where reports are read back (`store_skill_reports.go`,
-  `store_sync_machines.go`, `skillNameTakenTx`), because SQL `lower()` only folds ASCII. Comparisons made entirely in SQL
-  were left: they agree with each other.
-- 12, 13, 14. A link inside a fetched skill folder now fails that skill with a clear message instead of saving a partial
-  copy. A transport error is shown as "could not reach the source" with no address in it. One YAML-based
-  `skillfetch.SkillName` replaces two parsers, and `pickFolder` parses a SKILL.md only when the cheap matches fail.
-- 7. "Update from original" takes a global download slot as well as its per-account one, and answers busy when none is free.
+What was checked: `go vet ./...`, `go test -race ./...` and `npm run check` on the joined branch, and the `launch`,
+`start-agent`, `gaffer-chat`, `launch-base`, `stage-follow` and `gaffer-goal` browser suites on the web changes.
 
-Machines and sync.
+What was not checked, and what is left.
 
-- 3. A storage error is no longer reported as "enrolment revoked". `AuthenticateSyncAgentBuild` and
-  `AuthenticateRemoteAgent` return `ErrUnknownMachine` only for no row, and a failed last-seen stamp no longer refuses a
-  machine. `agentIdentity` answers 403 only for a refusal and 500, with a fixed message, otherwise, so an agent keeps its
-  saved update result.
-- 5. A scan upload is read before `importMu` is taken.
-- 6. A machine adds to a private skill bundle, with its secret alone, only if one of its revisions was made by that enrolment
-  (`ErrMachineBundleNotOwned`, 409). An import a person reviews and approves in the browser (`CommitRemoteImportFor`) may still
-  add to any of their bundles: the check is a guard on `SaveMachineSkillImportFor` only. A first version put it in the shared
-  helper and refused that approved flow too; the automated review caught it. `docs/machine-skill-import.md` said a personal token was needed; it now says what is true.
-- 8. `EnrolWithCode` is one transaction, so a failure after the claim rolls it back.
-- 9. Merging two machines that each have an agent answers 409. The merge no longer waits for a running job or cancels queued
-  ones: update jobs hold the agent id, not the host.
-- 11. `QueueAgentUpdate` keeps the newest twenty finished updates of that machine.
-- 15. `DeleteUser` also clears `skill_activity`, and two more tables with a user id and no foreign key
-  (`terminal_chat_events`, `worktree_cleanups`), which a scan of the schema found.
-
-Web client.
-
-- 16. The Machines page clears an old error on a good read, and the setup panel polls with the background read. The
-  review also asked to keep the last skill health when only the skills read fails. That was tried and reverted:
-  `library-machine-flow.e2e.mjs` states the rule that a failed current read must show "Skill sync not confirmed" and
-  never fall back to older health as proof of sync, and the old health would have been shown as current.
-- 17. Skill Buddy checks the draft has room (`skillPromptFits`) before it saves a choice. A caller with no `fits` still
-  gets the old check afterwards.
-- 18, 19, 20. The setup panel reads `updateJobs` first, forgetting a machine goes through `updateState`, and a second
-  library row cannot be changed while one saves.
-- 21. Dead code removed: `captureMachineLibraryContent`, `installPrivateSkill` (its two tests now check
-  `privateSkillFiles` and `stageSkillFiles`), the never-set `direct` import mode, six unused helpers in `machines.ts`
-  and the `sessionId` prop of `SkillPicker`.
-
-The leads, fixed afterwards. The review listed these without confirming them. Each was re-read before it was changed.
-
-- Import limits. `POST /api/import` is refused with 413 when its items, text lines, environments and their skills come to more
-  than `importMaxEntries` (16,384, twice the most a machine reports), before `importMu` is taken. A name over 255 bytes
-  (`store.MaxLibrarySkillNameBytes`, the limit `ValidLibrarySkillName` had as a literal) is skipped with an entry in `errors`,
-  whatever it was read as, so a pasted line over 255 bytes is skipped too.
-- Shelf notes. A note is at most 20,000 characters (`shelfNoteMax`), refused with 400. The review said 4,000, the limit of the
-  note box; `TestMCPWriteResponseLimits` and the MCP tools take 20,000, so 4,000 would have broken them.
-- Repeated work. The Skills page checks the public page only of the rows it returns, not the other tab's. A copy run plans once
-  (`SkillCopyPlanFor`, `MarkSkillsUnsourcedFor`) instead of twice. The page still reads on the single write connection.
-- Skill Buddy. Asking again for a suggestion already held writes nothing, and the 90 day purge runs once per call, not once per
-  suggestion. The web client still asks after each pause in typing, and each ask still reads the catalogue and library.
-- Retry list. `pollSkillsAgent` takes the retries after the job is claimed, so a failed claim leaves them for the next poll. If
-  taking them fails after the claim, the job is still sent and they wait.
-- Polling. The Skills page numbers its reads per tab and its poll skips a tab that has a read on its way; the Sync page skips a tick
-  while its read runs. Only the poll skips: a read after something the person did always runs.
-- Touch targets and copy in the machine dialogs. The switches (a larger hit area, same look), icon buttons, tabs, step buttons and
-  links reach 44 px on a coarse pointer. Em dashes in those screens are gone and they say "enrolment". The command text is unchanged.
-- The set-server proof is bound to the controller's address (decided with the owner: bind it and require it). A machine sends the
-  address it dialled; the controller signs over its own configured public URL (`REET_PUBLIC_URL` or the admin setting) and answers
-  409 `wrong_address` for any other and `no_public_url` when it has none. The machine accepts only that bound proof, so
-  `set-server` and following a move need a controller of this release with its public URL set. A request that names no address, from
-  an older machine, still gets the unbound proof; machines older than this stay open to the relay until updated.
-- The proof route and a code enrolment with an unknown code are answered from the read pool, so guesses cannot queue on the write
-  connection. `refuseMachine` answers 500, not 403, when the machine check itself fails, in the private control, private hello,
-  terminal and software mirror routes too. A branch origin does not have is `no_remote` (by `git ls-remote --exit-code`), not
-  `fetch_failed`.
-
-Decisions made along the way.
-
-- Finding 6 was a choice, not a plain bug: the documented `--bundle` command worked with the machine's secret alone. The
-  owner chose to keep it for bundles the machine started and refuse the rest.
-- A link anywhere in a repository whose skill is the repository root now fails that skill, because every file is part of it.
-- Finding 15 went past the one table named, to the two others the scan found.
-
-Checked.
-
-- `go vet ./...` clean. `go test ./...` passes in every package, run twice: once for the twenty-one findings, once again after
-  the leads were added. In the first run `internal/gaffer`'s `TestAStopIsNotAskedAgainWhileClaimedOrOnceAnswered` failed once
-  while the whole suite ran in parallel; it passed 15 of 15 alone, the whole package passed alone, and it did not fail in the
-  second run. Nothing in `internal/gaffer` refers to code changed here. It is not in `flaky-tests.md`; it needs an owner to look
-  at it.
-- The web unit tests (128 files) and `svelte-check` (537 files, no errors or warnings) pass.
-- Browser suites against a built UI (twenty-seven in all, across the web changes and again on the merged tree), all passing, among them: `machine-import`, `add-machine`, `machines-fleet`, `library-machine-flow`,
-  `machines-search`, `first-machine`, `skill-buddy`, `library`, `chat` and `session-workspace`. `library-machine-flow` failed
-  first, which is how the part of finding 16 above was found to be wrong.
-- Under `-race`, `internal/store`, `internal/scan` and `internal/skillfetch` pass with no race reported. `internal/api`
-  under `-race` ran into Go's default ten minute timeout with no race reported; it needs the two shards and 40 minute
-  timeout of `scripts/ci-go-shard.sh api-1` and `api-2`, which CI runs. Those shards had not been run to the end locally
-  when this was written.
-
-Not checked.
-
-- No test drives the Library double change, the Skill Buddy over-limit message or the Machines page polling directly. The
-  suites above cover the behaviour around them, and these three were checked by reading only.
-- Not changed, on purpose: `installCopy` (an open API route with no caller in the web client, MCP or docs), the write-only
-  `keep_synced` field and the exported store functions only tests call. Removing them changes API fields and test seams; say if
-  they should go. `SkillsPageFor` still reads on the write connection, and Skill Buddy still reads on every ask.
-- `machineUser`, which returns a bool, still treats any error as "not a machine" and falls through to the normal sign-in checks.
-- No test asserts the 44 px sizes; they were measured with a throwaway script in Chromium with touch on, at 390 and 1280 px.
-- Still under 44 px on a coarse pointer, outside what the review named: `MachineSetup`'s `.advanced > summary`, `.modes` and
-  `.setup > summary` rows, the 16 px checkboxes in the skill import file table, and `MachineSettings`' `.confirm-actions .btn`
-  and typed-confirm input (read from the CSS, not measured).
-- Left alone: "enrollment" in the copy of `UpdateReview.svelte`, `sessions/SessionsPage.svelte` and `terminal/TerminalWorkspace.svelte`,
-  and em dashes in about two dozen other `.svelte` and `.ts` files (the count includes comments; copy and comments were not told
-  apart).
+- Nothing was run against a live provider. The OpenAI and Anthropic changes rest on those APIs' published rules and
+  body-level tests. Test connection sends a ceiling of one token; how an OpenAI reasoning model answers that is not
+  known.
+- The 15 second write deadline was not tried with a real agent given several large images on a slow machine.
+- Gaffer's history list (`ContextEventsFor`, 20 events from the last 40 records) is still read per chunk, so with an
+  agent that streams small chunks it holds little. Only the latest reply was fixed.
+- A finished outcome whose done pipeline once left a session behind stays `live` until archived.
+- `AppendTerminalChatEventFor` and `SetTerminalChatAttentionFor` are still used only by tests.
+- When an in-place reconnect adopts a process the machine still runs, the controller resets its stored mode to the
+  start mode while the process keeps the chosen one. Seen, not changed.
+- `TestARunKeepsItsInputsWhenItsTemplateChangesOrGoes` (`internal/gaffer`) failed once on a loaded machine and passed
+  alone and in full runs. Cause not found; not yet in the unstable list.

@@ -1,6 +1,7 @@
 <script lang="ts">
   // The plans of every agent across the account's machines, for a page that shows the whole fleet (Home, Sessions).
-  // Only machines that read sign-ins are asked, and the controller answers from each machine's last read.
+  // Only machines that read sign-ins are asked, and the controller answers from each machine's last read, asking the
+  // machine again once that is over five minutes old.
   import { planEntries, type MachineAccounts } from './agentAccounts'
   import { machinePlans, PLAN_REFRESH } from './planLimits'
   import PlanMeters from './PlanMeters.svelte'

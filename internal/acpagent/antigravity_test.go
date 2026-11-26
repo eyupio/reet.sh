@@ -90,6 +90,10 @@ func TestAntigravityDoesNotAnnounceUnconfirmedStarts(t *testing.T) {
 			if scenario == "stale-model" && !errors.Is(err, ErrModel) {
 				t.Fatalf("stale model: %v", err)
 			}
+			// Another mode is refused, never switched: a start mode would sit unreachable behind that refusal.
+			if scenario == "mode-refused" && (!errors.Is(err, ErrSafety) || Antigravity.StartMode != "") {
+				t.Fatalf("another mode: %v, start mode %q", err, Antigravity.StartMode)
+			}
 		})
 	}
 }

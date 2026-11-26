@@ -275,3 +275,22 @@ func TestCopilotLookAlikeHostsAreNotGitHub(t *testing.T) {
 		t.Fatalf("look-alike hosts alone: %+v after %d requests", a, g.copilot.count())
 	}
 }
+
+// A GitHub token in the connector's environment is not a sign-in: it is not
+// read through the CLI that lists it, nor through an older one that cannot.
+func TestCopilotLeavesAnEnvironmentTokenAlone(t *testing.T) {
+	token := "ghp_env" + secret
+	for name, table := range map[string]map[string]string{
+		"a CLI that lists accounts": {
+			"gh auth status --hostname github.com --json hosts": `{"hosts":{"github.com":[{"login":"ci-bot","state":"success","tokenSource":"GH_TOKEN"}]}}`,
+			"gh auth token --hostname github.com":               token,
+		},
+		"an older CLI": {"gh auth token --hostname github.com": token},
+	} {
+		f := newFixture(t, "GH_TOKEN="+token)
+		runFor(f, table)
+		if a := f.one("copilot", true, false); a.State != terminalproto.AccountNone || f.copilot.count() != 0 {
+			t.Fatalf("%s: %+v after %d requests", name, a, f.copilot.count())
+		}
+	}
+}

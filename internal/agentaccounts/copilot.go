@@ -115,7 +115,8 @@ func (r *Reader) copilot() signIn {
 
 // githubCLI reads the GitHub CLI's sign-ins for github.com: every account it
 // reports as signed in, and its token for each. An older CLI that cannot list
-// accounts still gives the active account's token.
+// accounts still gives the active account's token, unless that token comes
+// from the environment, which is not a stored sign-in.
 func (r *Reader) githubCLI() (login string, tokens []string) {
 	if out, ok := r.readTool("gh", "auth", "status", "--hostname", "github.com", "--json", "hosts"); ok {
 		var doc struct {
@@ -141,10 +142,14 @@ func (r *Reader) githubCLI() (login string, tokens []string) {
 				}
 				tokens = append(tokens, token)
 			}
-			if len(tokens) > 0 {
-				return login, tokens
-			}
+			// The plain lookup below is for a CLI that cannot list: here it
+			// would hand back the token this loop left out.
+			return login, tokens
 		}
+	}
+	// gh answers a token from its environment before any stored one.
+	if r.env("GH_TOKEN") != "" || r.env("GITHUB_TOKEN") != "" {
+		return "", nil
 	}
 	if token, ok := r.readTool("gh", "auth", "token", "--hostname", "github.com"); ok {
 		return "", []string{token}

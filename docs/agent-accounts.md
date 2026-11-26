@@ -37,8 +37,11 @@ whatever each machine reports. Every other agent has no plan figure: reet cannot
   [Usage](usage.md).
 - **Settings → Agents → Usage.** A sentence on what is read, and a link to the Usage page. There is no switch.
 
-These show the figures each machine last read, which the controller keeps; they look again every two minutes and
-never ask a machine to read. Only machines that read sign-ins are asked. An agent with no plan to read (an API key,
+These show the figures each machine last read, which the controller keeps; they look again every two minutes. A look
+that finds the kept figures more than five minutes old has the controller ask an online machine to read once, as any
+read of them does (see [Controller cache and API](#controller-cache-and-api)), so a page left open has each machine
+read about every six minutes. Only **Check sign-ins** asks for figures newer than the machine's own five-minute
+memory. Only machines that read sign-ins are asked. An agent with no plan to read (an API key,
 no sign-in, or an agent reet does not read) has no chip. The marks are reet's own, an initial on a tile, not the
 vendors' logos.
 

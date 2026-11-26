@@ -239,7 +239,7 @@ export async function steerFleetSetupBatch(batchId: string, step: 'abandon' | `m
 }
 export type TerminalControllerStatus={configured:boolean;available:boolean;reason:string}
 export async function terminalControllerStatus(signal?:AbortSignal):Promise<TerminalControllerStatus>{return (await terminalRequest('/api/v2/terminal/status',{signal})).json()}
-export async function terminalSessions(signal?: AbortSignal): Promise<TerminalSession[]> { return (await (await terminalRequest('/api/v2/terminal/sessions', { signal })).json()).sessions }
+export async function terminalSessions(signal?: AbortSignal, include?: string): Promise<TerminalSession[]> { return (await (await terminalRequest(`/api/v2/terminal/sessions${include ? `?session=${encodeURIComponent(include)}` : ''}`, { signal })).json()).sessions }
 export async function createTerminal(agentId: string, requestId: string, title: string, cols = 100, rows = 30, signal?: AbortSignal, launch?: LaunchRequest): Promise<TerminalSession> {
   // A plain create stays byte-identical to before: the launch keys are added only when they have a value.
   const body: Record<string, string | number | boolean> = { agentId, requestId, title, cols, rows }

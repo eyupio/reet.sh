@@ -63,9 +63,13 @@ func TestTerminalSessionsHidesArchivedAndDeletedFactorySessions(t *testing.T) {
 		}
 		return o
 	}
-	ids := func() map[string]bool {
+	ids := func(include ...string) map[string]bool {
 		t.Helper()
-		r := httptest.NewRequest(http.MethodGet, "/api/v2/terminal/sessions", nil)
+		target := "/api/v2/terminal/sessions"
+		if len(include) > 0 {
+			target += "?session=" + include[0]
+		}
+		r := httptest.NewRequest(http.MethodGet, target, nil)
 		r.AddCookie(&http.Cookie{Name: sessionCookie, Value: cookie})
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, r)
@@ -135,6 +139,11 @@ func TestTerminalSessionsHidesArchivedAndDeletedFactorySessions(t *testing.T) {
 	for _, id := range []string{archived, deleted} {
 		if seen[id] {
 			t.Fatalf("session %s listed after its outcome was archived or deleted", id)
+		}
+	}
+	for _, id := range []string{archived, deleted} {
+		if !ids(id)[id] {
+			t.Fatalf("session %s not kept for a direct link", id)
 		}
 	}
 

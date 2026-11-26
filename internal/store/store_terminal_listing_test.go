@@ -54,9 +54,9 @@ func TestTerminalSessionsForListingHidesArchivedAndDeletedFactorySessions(t *tes
 		}
 		return o
 	}
-	listed := func(id string) bool {
+	listed := func(id string, include string) bool {
 		t.Helper()
-		list, err := st.TerminalSessionsForListing(uid)
+		list, err := st.TerminalSessionsForListing(uid, include)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -113,35 +113,40 @@ func TestTerminalSessionsForListingHidesArchivedAndDeletedFactorySessions(t *tes
 	goal(stageReferenced, "Outcome: Ship it")
 	outcome("", stageReferenced)
 
-	if !listed(live) || !unfiltered(live) {
+	if !listed(live, "") || !unfiltered(live) {
 		t.Fatal("live outcome session hidden")
 	}
-	if listed(archived) || !unfiltered(archived) {
+	if listed(archived, "") || !unfiltered(archived) {
 		t.Fatal("archived outcome session listed")
 	}
 	// The archived outcome still names the session after its goal is pruned.
 	if _, err := st.db.Exec(`DELETE FROM gaffer_goals WHERE user_id=? AND json_extract(data,'$.sessionId')=?`, uid, archived); err != nil {
 		t.Fatal(err)
 	}
-	if listed(archived) {
+	if listed(archived, "") {
 		t.Fatal("archived session listed after its goal was pruned")
 	}
-	if listed(deleted) || !unfiltered(deleted) {
+	if listed(deleted, "") || !unfiltered(deleted) {
 		t.Fatal("deleted outcome session listed")
 	}
-	if !listed(ordinary) || !listed(plainGoal) {
+	// A direct link keeps the one session it names, so an archived outcome's
+	// "Read the ended session" still opens it.
+	if !listed(archived, archived) || !listed(deleted, deleted) {
+		t.Fatal("direct link to a hidden Factory session not kept")
+	}
+	if !listed(ordinary, "") || !listed(plainGoal, "") {
 		t.Fatal("ordinary or non-Factory session hidden")
 	}
-	if !listed(stageReferenced) {
+	if !listed(stageReferenced, "") {
 		t.Fatal("stage-referenced session hidden")
 	}
 
 	// Restoring the outcome brings its session back.
 	archive(archivedOutcome, 0)
-	if !listed(archived) {
+	if !listed(archived, "") {
 		t.Fatal("restored outcome session hidden")
 	}
-	if !listed(live) {
+	if !listed(live, "") {
 		t.Fatal("restoring one outcome hid another")
 	}
 }

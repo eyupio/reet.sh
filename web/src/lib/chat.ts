@@ -223,7 +223,7 @@ function reduceChatEvent(state: ChatState, event: ChatEvent): ChatState {
       const at = state.items.findIndex(item => item.kind === 'permission' && item.permissionId === event.permissionId)
       const prompt: Extract<ChatItem, { kind: 'permission' }> = {
         kind: 'permission', key: `p${event.permissionId}`, permissionId: event.permissionId, toolCallId: event.toolCallId || undefined,
-        title: event.title ?? 'OpenCode tool call', toolKind: event.toolKind ?? '',
+        title: event.title ?? 'A tool call', toolKind: event.toolKind ?? '',
         command: event.command ?? '', path: event.path ?? '', diff: event.diff ?? '',
         description: event.text ?? '',
         locations: event.locations ?? [], truncated: !!event.truncated,

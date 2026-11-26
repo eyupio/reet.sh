@@ -12,7 +12,7 @@ export type Picture = { id: number; file: File; preview: string }
 export type Preview = { url: string; name: string }
 
 export const QUEUE_NOTES = {
-  queued: 'Queued. It sends when OpenCode finishes this turn.',
+  queued: 'Queued. It sends when the agent finishes this turn.',
   halted: 'The queued message was not sent. Retry, edit or remove it.',
   retry: 'Trying that message again…',
   full: 'The queue is full. Send or remove one of the messages first.',

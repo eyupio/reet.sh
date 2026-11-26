@@ -1204,10 +1204,11 @@ func (b *Broker) PromptChat(ctx context.Context, uid int64, session, text string
 		ack = ErrACPImageUnavailable
 	}
 	if ack != nil {
-		text := "That message was not sent to OpenCode."
+		name := terminalproto.ToolName(s.Tool)
+		text := "That message was not sent to " + name + "."
 		var lost errReplyLost
 		if errors.As(err, &lost) {
-			text = "We didn't hear back. OpenCode may have the message; check the chat before sending it again."
+			text = "We didn't hear back. " + name + " may have the message; check the chat before sending it again."
 		}
 		b.chatLog(uid, session).publish(terminalproto.ACPEvent{Kind: "notice", Text: text, Bad: true})
 		return ack

@@ -702,3 +702,25 @@ func TestFinishedChatSurvivesATabReconnectingFirstAfterRestart(t *testing.T) {
 		t.Fatalf("after the replayed idle: %q at %d, want finished at %d, %v", after.ChatStatus, after.CompletedAt, before.CompletedAt, err)
 	}
 }
+
+// "Allow for this session" on a card the machine no longer holds (denied in
+// another tab, or timed out) is refused, and must not allow the next repeat.
+func TestRefusedSessionAllowIsNotRemembered(t *testing.T) {
+	b, p, uid, agent := chatFixtureScript(t, nil, nil, nil, func(m terminalproto.Message) (terminalproto.Body, bool) {
+		if _, ok := m.Body.(*terminalproto.ACPPermission); ok {
+			return terminalproto.Result{Code: terminalproto.Conflict}, true
+		}
+		return nil, true
+	})
+	s := chatSession(t, b, uid, agent)
+	card := terminalproto.ACPEvent{Kind: "permission", PermissionID: "permission-0123456789", ToolKind: "execute", Command: "git push --force"}
+	if err := p.Receive(terminalproto.Message{Version: 1, RequestID: ID(), SessionID: s.ID, Generation: p.Generation, Body: &card}); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.PermissionChat(t.Context(), uid, s.ID, card.PermissionID, true, true); !errors.Is(err, ErrACPBusy) {
+		t.Fatalf("answer to a closed card: %v", err)
+	}
+	if b.sessionAllowed(uid, s.ID, permissionKey(card)) {
+		t.Fatal("a refused answer was remembered for the session")
+	}
+}

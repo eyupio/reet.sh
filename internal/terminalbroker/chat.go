@@ -1231,11 +1231,6 @@ func (b *Broker) PermissionChat(ctx context.Context, uid int64, session, permiss
 	if allow && shown && event.Truncated {
 		return ErrPermissionTruncated
 	}
-	if allow && forSession && shown {
-		if key := permissionKey(event); key != "" {
-			b.allowForSession(uid, session, key)
-		}
-	}
 	reply, err := p.callWithin(ctx, terminalproto.Message{RequestID: ID(), SessionID: session,
 		Body: &terminalproto.ACPPermission{PermissionID: permissionID, Allow: allow}}, chatCallTimeout)
 	if err != nil {
@@ -1244,6 +1239,13 @@ func (b *Broker) PermissionChat(ctx context.Context, uid int64, session, permiss
 	if r, ok := reply.Body.(*terminalproto.Result); ok {
 		switch r.Code {
 		case terminalproto.OK:
+			// Remembered only once the machine took the answer: a card that was
+			// already denied or closed must not allow its repeats.
+			if allow && forSession && shown {
+				if key := permissionKey(event); key != "" {
+					b.allowForSession(uid, session, key)
+				}
+			}
 			return nil
 		case terminalproto.Conflict:
 			return ErrACPBusy

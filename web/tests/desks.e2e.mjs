@@ -411,6 +411,14 @@ async function commandBarPart() {
   await expect(page.locator('form.cbar')).toHaveCount(1)
   await expect(pane('pane-b').locator('form.cbar')).toHaveCount(1)
   await expect(pane('pane-a').locator('form.cbar')).toHaveCount(0)
+  // A narrow split wraps the bar inside its pane rather than clipping its Run button off the end.
+  await page.setViewportSize({ width: 800, height: 860 })
+  await openSplit('tab-four')
+  await quiet()
+  const box = await pane('pane-d1').boundingBox(), run = await pane('pane-d1').getByRole('button', { name: 'Run' }).boundingBox()
+  expect(run.x + run.width).toBeLessThanOrEqual(box.x + box.width + 1)
+  await page.setViewportSize({ width: 1360, height: 860 })
+  await quiet()
   expect(errors).toEqual([])
   console.log('ok - the command bar offers the next actions, completes a folder and runs only on Enter')
 }

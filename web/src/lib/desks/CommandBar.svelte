@@ -141,11 +141,12 @@
   .cbar:has(.note) { flex-wrap: wrap; }
   /* A touch screen: 44 px targets, 16 px in the field so the browser does not zoom to it, and no key to hint at. */
   @media (pointer: coarse) { .field, .opt, .run { min-height: 44px; } .field input { font-size: 16px; } .cbar:focus-within kbd { display: none; } }
-  /* A phone: the suggestions take a line of their own above the field. */
-  @media (max-width: 700px) {
+  /* A narrow pane (a phone, or a desktop split): the suggestions take a line of their own above the field. This asks
+     the pane's body, not the viewport, so a narrow split wraps instead of clipping its Run button. */
+  @container (max-width: 700px) {
     .cbar { flex-wrap: wrap; padding: 4px 8px; gap: 6px; }
     .opts { order: -1; flex: 1 0 100%; }
     .opts:empty { display: none; }
-    .field { flex: 1; }
+    .field { flex: 1; min-width: 0; }
   }
 </style>

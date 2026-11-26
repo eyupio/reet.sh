@@ -303,7 +303,7 @@
   .more { width: 32px; height: 32px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); font-size: 16px; cursor: pointer; }
   .more:hover { color: var(--ink); background: color-mix(in srgb, var(--ink) 8%, transparent); }
   .rename { min-height: 28px; padding: 2px 8px; font-weight: 600; width: min(260px, 50%); }
-  .body { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .body { position: relative; container-type: inline-size; flex: 1; min-height: 0; display: flex; flex-direction: column; }
   .body > :global(.pane) { flex: 1; border: 0; border-radius: 0; }
   /* Below the last whole row the screen shows its own background, not xterm's default black viewport. */
   .body :global(.xterm .xterm-viewport) { background-color: transparent; }

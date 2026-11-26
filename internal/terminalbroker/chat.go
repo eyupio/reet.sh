@@ -1153,6 +1153,13 @@ func (b *Broker) liveStructuredSession(uid int64, session string) (store.Termina
 }
 
 func (b *Broker) PromptChat(ctx context.Context, uid int64, session, text string, images []string) error {
+	return b.promptChat(ctx, uid, session, text, images, false)
+}
+
+// promptChat is PromptChat. queued is a delivery from the queue, whose message
+// is shown only once the machine has answered: a busy agent leaves it queued,
+// and it would otherwise be shown twice with a false "not sent" in between.
+func (b *Broker) promptChat(ctx context.Context, uid int64, session, text string, images []string, queued bool) error {
 	if !terminalproto.ValidACPPrompt(text, images) {
 		return terminalproto.ErrInvalid
 	}
@@ -1197,11 +1204,20 @@ func (b *Broker) PromptChat(ctx context.Context, uid int64, session, text string
 	if strings.TrimSpace(shown) == "" && len(images) > 0 {
 		shown = "Image attached."
 	}
-	b.chatLog(uid, session).publish(terminalproto.ACPEvent{Kind: "user", Text: shown})
+	echo := terminalproto.ACPEvent{Kind: "user", Text: shown}
+	if !queued {
+		b.chatLog(uid, session).publish(echo)
+	}
 	reply, err := p.callWithin(ctx, terminalproto.Message{RequestID: ID(), SessionID: session, Body: &terminalproto.ACPPrompt{Text: text, Images: images}}, chatCallTimeout)
 	ack := chatAck(reply, err)
 	if r, ok := reply.Body.(*terminalproto.Result); ok && r.Code == terminalproto.Failed {
 		ack = ErrACPImageUnavailable
+	}
+	if queued {
+		if errors.Is(ack, ErrACPBusy) {
+			return ack
+		}
+		b.chatLog(uid, session).publish(echo)
 	}
 	if ack != nil {
 		name := terminalproto.ToolName(s.Tool)

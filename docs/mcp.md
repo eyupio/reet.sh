@@ -169,7 +169,8 @@ background supervision or grant themselves that authority.
 
 ## Read and steer the Factory
 
-Two tools read the Factory for any connection on a writer account:
+Four tools read the Factory for any connection on a writer account. Two are described here, and
+`reet_list_factory_projects` and `reet_list_pathways` below the controls:
 
 - `reet_list_factory` lists the outcomes, newest first, as short rows: `id`,
   `state`, `objective` (clipped to 200 characters), `project` and, for each
@@ -209,23 +210,29 @@ Two tools read the Factory for any connection on a writer account:
   session text; a read-only connection receives states only. An outcome with
   many pipelines can be too long to read whole (replies are capped at 25,000
   characters): `pipeline`, a key from `reet_list_factory`, reads one of them.
+  Each stage has a `name`: the built-in stage's name, or the name of a stage of the person's own pathway. A pipeline that
+  was started on a pathway has `pathway`, its name.
 
 Six more are the person's own controls and need management scope:
 
 | Tool | What it does |
 | --- | --- |
-| `reet_move_pipeline_on` | Closes the stage in hand as it stands and starts the next, without waiting for Gaffer's review. Needs `confirm: true` and `stage`, the stage you read as in hand: a pipeline that has moved on since is not moved again. |
+| `reet_move_pipeline_on` | Closes the stage in hand as it stands and starts the next, without waiting for Gaffer's review. Needs `confirm: true` and `stage`, the name of the stage you read as in hand, as the outcome lists it (a built-in stage or one of the pathway's own): a pipeline that has moved on since is not moved again. |
 | `reet_retry_pipeline` | Tries a pipeline that did not start, or stopped, again. |
 | `reet_set_pipeline_merge` | Makes a pipeline wait for your approval before merging. It cannot switch one to merge by itself; that is set on the Factory page. |
 | `reet_approve_pipeline_merge` | Records approval for a pipeline that is Ready to merge; its agent merges once checks pass. Needs `confirm: true` and `seen_updated_at`, the pipeline's `updated_at` from the read the approval is made on: a pipeline that has changed since is not approved. The connection also needs **May approve Factory merges** switched on under Account → MCP access; without it the call is refused. |
 | `reet_stop_outcome` | Stops an outcome. Needs `confirm: true`. An outcome that had already finished answers `applied: false`. |
 | `reet_report_outcome` | One request to the Gaffer provider for a report; may use its credits. |
 | `reet_tell_pipeline_agent` | Queues your instruction for the working agent of a pipeline's stage in hand. Takes a stable `request_id`. `applied` is false when nothing was queued (the agent is waiting on an approval, say); trying again takes a new `request_id`. |
-| `reet_send_pipeline_back` | Has the stage in hand, or an earlier one, done again with your reason. Needs `confirm: true`. |
-| `reet_start_outcome` | Starts an outcome in a project: real agent sessions, with ordinary approvals. Needs `confirm: true`. A pipeline's `tiers` says how demanding a stage is (`light`, `standard` or `heavy`), which picks the agent and backup from the user's saved crew; `balance_below` sets when a backup takes over. A pipeline's `parts` splits a stage into two to four named parts, each with a brief and, if it differs, a tier. It cannot name an agent for a stage or give Gaffer the outcome's decisions. Pass a stable `request_id` to make a retry safe: asked again under the same one, it answers the outcome already started with `applied: false`. |
-| `reet_add_pipelines` | Adds up to five pipelines to an outcome. Needs `confirm: true`. |
+| `reet_send_pipeline_back` | Has the stage in hand, or an earlier one, done again with your reason. Needs `confirm: true`. `stage` is the stage's name as the outcome lists it; a name the pipeline does not have is refused with the names it does. |
+| `reet_start_outcome` | Starts an outcome in a project: real agent sessions, with ordinary approvals. Needs `confirm: true`. A pipeline's `tiers` says how demanding a stage is (`light`, `standard` or `heavy`), which picks the agent and backup from the user's saved crew; `balance_below` sets when a backup takes over. A pipeline's `parts` splits a stage into two to four named parts, each with a brief and, if it differs, a tier. `pathway` (a pathway's id or its exact name, in any letter case, from `reet_list_pathways`) starts every pipeline on that saved pathway's stages instead; it is refused, with nothing started, if a pipeline also gives `stages`, `tiers` or `parts`, or if no pathway of that name is switched on (the refusal lists the ones that are). It cannot name an agent for a stage or give Gaffer the outcome's decisions. Pass a stable `request_id` to make a retry safe: asked again under the same one, it answers the outcome already started with `applied: false`. |
+| `reet_add_pipelines` | Adds up to five pipelines to an outcome. Needs `confirm: true`. Takes `pathway` as `reet_start_outcome` does, with the same refusals. |
 
 `reet_list_factory_projects` (a read) lists the projects an outcome can run in.
+
+`reet_list_pathways` (a read) lists the person's saved pathways that are switched on: each one's `id`, `name`,
+`description`, `stages` (their names, in order) and `problems`, the sentences that would refuse a start on it, empty when
+none. A pathway that is switched off is not listed. A stage's own prompt, model and skills are not included.
 
 Each control answers with the outcome in short, as `reet_list_factory` gives it, with `applied` and a `note`. Call `reet_get_factory_outcome` for every stage.
 
@@ -262,11 +269,11 @@ already consented OAuth grant. Clients with other OAuth grant types, private
 client secrets or client-ID metadata documents must use the supported public
 dynamic-registration flow or manual bearer authentication.
 
-The 47 tool definitions are shared with the optional stdio package. For accounts
-with write access, read-only connections discover fifteen tools and management
-connections forty-seven, including the two separately granted context reads,
-three management-only worker messaging tools and the thirteen Factory tools
-(three reads and ten management-only controls).
+The 50 tool definitions are shared with the optional stdio package. For accounts
+with write access, read-only connections discover sixteen tools and management
+connections fifty, including the two separately granted context reads,
+three management-only worker messaging tools and the fourteen Factory tools
+(four reads and ten management-only controls).
 Viewer accounts retain ten read tools.
 Collections support bounded pages and filters. Responses are capped at 25,000
 characters; use smaller pages or more specific filters for large shelves.

@@ -492,19 +492,33 @@ pathway never changes work already running: an outcome keeps the stages it start
 Pick one and every pipeline follows it, or keep **Standard stages** to choose them yourself. A pathway that cannot
 start now, for example because a skill is gone from your shelf, is shown with the reason and cannot be picked.
 
+### With Gaffer and AI clients
+
+**Gaffer's suggestion.** When Gaffer plans an outcome, it may suggest one of your pathways that fits the objective. In
+**New Factory outcome** the suggestion is already selected, with Gaffer's reason beside it. A choice you have made is
+never changed by it, and you can pick another pathway or **Standard stages** at any time.
+
+**What planning reads.** For each pathway that is on, up to 20, Gaffer's planning is given its name, its description and
+the names of its stages. It is never given a stage's prompt, model or skills. It can only suggest one of your own pathways
+that is on, and a suggestion that does not match one is dropped.
+
+**AI clients.** A connected AI client can list your pathways that are on and start work on one by its name or id; see
+[MCP](mcp.md#read-and-steer-the-factory). A pathway that is off is offered to neither Gaffer nor an AI client.
+
 ## From an AI client
 
-A connected AI client can read and steer the Factory through [MCP](mcp.md#read-and-steer-the-factory). The three
+A connected AI client can read and steer the Factory through [MCP](mcp.md#read-and-steer-the-factory). The four
 reads need a writer account; the rest also need a management connection.
 
 - `reet_list_factory` lists the outcomes as short rows, with each pipeline's state and the stage in hand, a page at a time.
 - `reet_get_factory_outcome` reads one outcome in full, or one of its pipelines; a management connection also receives handovers and Gaffer's report.
 - `reet_list_factory_projects` lists the projects an outcome can run in.
-- `reet_start_outcome` starts an outcome in a project, with ordinary approvals.
-- `reet_add_pipelines` adds up to five pipelines to an outcome.
-- `reet_move_pipeline_on` closes the stage in hand, which you name, and starts the next.
+- `reet_list_pathways` lists your pathways that are on, by name, description and stage names, never their prompts.
+- `reet_start_outcome` starts an outcome in a project, with ordinary approvals; it can start every pipeline on a pathway you name.
+- `reet_add_pipelines` adds up to five pipelines to an outcome, on a pathway if you name one.
+- `reet_move_pipeline_on` closes the stage in hand, which you name as the outcome lists it, and starts the next.
 - `reet_tell_pipeline_agent` queues your instruction for the working agent of the stage in hand.
-- `reet_send_pipeline_back` has the stage in hand, or an earlier one, done again with your reason.
+- `reet_send_pipeline_back` has the stage in hand, or an earlier one, named as the outcome lists it, done again with your reason.
 - `reet_retry_pipeline` tries a pipeline that did not start, or stopped, again.
 - `reet_set_pipeline_merge` makes a pipeline wait for your approval before merging. It cannot do the opposite.
 - `reet_approve_pipeline_merge` records your approval for a pipeline that is Ready to merge. The connection needs your permission to approve merges; see below.

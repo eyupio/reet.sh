@@ -1,12 +1,33 @@
 ## PATHWAYS-3: Gaffer and AI clients can read, suggest and start pathways (26 November 2026)
 
-**What:** in progress. The plan is `docs/superpowers/plans/2026-11-26-factory-pathways-3-gaffer.md`: an MCP tool that
-lists the enabled pathways, a `pathway` option on the two start tools, stage names accepted wherever a tool names a
-stage, Gaffer's plan able to suggest a saved pathway, and the dialog showing that suggestion already selected.
+**What:** pathways are now part of Gaffer and of the MCP tools. A new read tool, `reet_list_pathways`, lists the pathways
+that are on, by id, name, description, stage names and any problems that would refuse a start. `reet_start_outcome` and
+`reet_add_pipelines` take an optional `pathway` (an id or an exact name in any letter case); it is refused with one
+sentence, and nothing started, beside stages, tiers or parts, and an unknown or switched-off name is refused with the
+names that are on. `stage` on `reet_move_pipeline_on` and `reet_send_pipeline_back` is the stage's name as the outcome
+lists it, and one the pipeline does not have is refused with the names it does. The outcome view gives each stage a
+`name` and each pipeline its `pathway`. Gaffer's context names a pathway stage and its pathway, and skill
+recommendations for one of a person's own stages use its name and prompt. Gaffer's planning is given each enabled
+pathway's name, description and stage names (at most 20, never prompts, models or skills) and may suggest one; the
+suggestion can only select among the person's own enabled pathways, and anything else is dropped. The New Factory
+outcome dialog shows the suggestion already selected with its reason and never overrides a choice the person made. The
+two start dialogs work out a pathway's agents as the server does: a saved crew agent that is not on the machine holds the
+start with a sentence, and a tier's backups count for folder trust. Small fixes: the chosen pathway row is always in view,
+"Edit pathway" is no longer part of an option's name, and the drag hint has three fixed places inside the window, clear of
+the pointer and the drop target, with the palette leaving room for the bottom tab bar. The tool count is now 50. User
+docs: "With Gaffer and AI clients" in `docs/factory.md` and the Factory tools in `docs/mcp.md`.
 
 **Why:** the owner asked for each pathway to be part of the Factory and of Gaffer. PATHWAYS-1 gave the engine and
-PATHWAYS-2 the pages.
+PATHWAYS-2 the pages and the choice in the dialogs. Gaffer still never starts work on a pathway except through the start
+tools, under the person's existing off, ask and allow settings.
 
-**Checked:** to be filled in when the work lands.
+**Checked:** each task was built test first and reviewed by a second reader. Go tests for `internal/api`,
+`internal/gaffer` and `internal/skillbuddy`, the MCP wrapper's tests (`npm test` in `mcp/`, which also fails on a stale
+`mcp_tools.json`), the two pathways browser suites and the six existing dialog suites were run. The planning request for
+an account with no pathways was compared byte for byte with one captured before the change. A marker prompt planted in
+tests shows that no pathway prompt reaches a tool result, Gaffer's context or the planning request.
+Whole-branch review: to be added
 
-**Not done:** to be filled in when the work lands.
+**Not done:** skill recommendations for one of a person's own stages still treat it as coding unless its words say
+otherwise. `reet_recommend_skills` does not accept a pathway's own stage. Gaffer cannot create or edit pathways. Touch
+dragging is still tested with simulated touch in Chromium only, not on a real phone or tablet.

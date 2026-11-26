@@ -522,3 +522,23 @@ func TestAToolRequestCutShortIsNotRunAndSaysSo(t *testing.T) {
 		t.Fatalf("turn: state=%s error=%q tools=%+v", turn.State, turn.Error, turn.Tools)
 	}
 }
+
+// A skill's text is written by its author, not the person. Once a tool has put
+// such text in front of the model, a change waits for the person even on
+// Allow, in that turn and in a later one that repeats the result.
+func TestAChangeAfterReadingOthersTextAsksEvenOnAllow(t *testing.T) {
+	skill := HostTool{Name: "reet_get_skill", Title: "Read a skill", Description: "Read it.", Parameters: json.RawMessage(`{"type":"object","properties":{"id":{"type":"string"}}}`), ReadOnly: true, Mode: "allow", OthersText: true}
+	s, _, p, v, host, _, _ := hostFixture(t, []HostTool{skill, writeTool},
+		`reet_get_skill {"id":"x"}`, `reet_stop_outcome {"outcome_id":"abc"}`, "I’ve asked to stop abc.", `reet_stop_outcome {"outcome_id":"def"}`, "I’ve asked to stop def.")
+	turn := ask(t, s, p, v, "a", "What does skill x do?")
+	if turn.State != "completed" || len(turn.Tools) != 2 || !turn.Tools[0].OthersText || turn.Tools[1].State != "pending" || turn.Tools[1].Mode != "ask" {
+		t.Fatalf("same turn: %+v", turn.Tools)
+	}
+	later := ask(t, s, p, v, "b", "Stop def.")
+	if later.State != "completed" || len(later.Tools) != 1 || later.Tools[0].State != "pending" {
+		t.Fatalf("later turn: %+v", later.Tools)
+	}
+	if got := host.made(); len(got) != 1 || !strings.HasPrefix(got[0], "reet_get_skill") {
+		t.Fatalf("a change ran after a skill was read: %v", got)
+	}
+}

@@ -337,9 +337,9 @@ ask for is added to the outcome's total. Where a provider reports no token count
 the page says so instead of showing a number. It attaches no price to any of it.
 
 Gaffer asks providers to cache the repeated part of a conversation by default:
-the Anthropic adapter marks the system prompt, the tool list and the newest turn
-as cache breakpoints, and the OpenAI adapter sends the conversation's stable
-prompt cache key. Nothing is turned on per account, and a provider below its
+the Anthropic adapter marks the system prompt, the tool list, the last finished
+answer and the newest turn as cache breakpoints, and the OpenAI adapter sends
+the conversation's stable prompt cache key. Nothing is turned on per account, and a provider below its
 minimum cacheable size simply answers without a cache hit.
 
 **Agent tokens** is what the working agents themselves report. When an agent
@@ -827,7 +827,8 @@ What to know before switching things on:
 - **Allow means no further click.** With *Approve a pipeline's merge* or
   *Start an outcome* on Allow, telling Gaffer to do it in a chat is all it
   takes. The settings page says so when a tool like that is on Allow. Choose
-  Ask me if you want to see each call first.
+  Ask me if you want to see each call first. The exceptions are below: a
+  change asks first once Gaffer has read text you did not write.
 - **Only your own chat turn has the tools.** Gaffer's goal reviews, which read
   what a working agent wrote and run without you, are never offered them.
 - **In a session's chat, changes always ask.** There Gaffer also reads the
@@ -840,12 +841,21 @@ What to know before switching things on:
   rest of that turn, and in later turns while that answer is still repeated
   to the model, a tool that changes something is treated as Ask me, in any
   chat. Listing the Factory carries states only and does not do this.
+- **After reading the shelf, machines, lists or the activity log, changes ask
+  too.** A skill's text is its author's, a machine reports its own names, a
+  shared list or tag is another account's, and the activity log repeats all
+  of them. Once any tool outside the Factory has answered, a tool that
+  changes something is treated as Ask me for the rest of that turn, and in
+  later turns while that answer is still repeated to the model. So "find the
+  duplicates and remove them" shows you the removal first, even on Allow;
+  "list the Factory, then stop that outcome" still runs at once.
 - **An approval is of what was read.** *Approve a pipeline's merge* names the
   pipeline as it stood when Gaffer read it. If the pipeline has changed by
   the time you approve the request (sent back and done again, say), nothing
   is approved and Gaffer has to look again.
-- Gaffer can use up to six tools in one turn, one at a time. A tool that
-  fails is reported as failed.
+- Gaffer can use up to six tools in one turn, one at a time. If its model
+  asks for several at once, the first runs and it may ask for the others
+  again. A tool that fails is reported as failed.
 - The tools that read or message a session through a per-connection grant
   (`reet_get_context`, `reet_send_worker_message` and their companions) are
   not on the list: Gaffer has its own per-session permissions for those.

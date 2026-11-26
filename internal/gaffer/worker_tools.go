@@ -153,9 +153,9 @@ func (s *Service) answerRounds(ctx context.Context, job *chatJob, c store.Gaffer
 		maxTokens = hostToolMaxTokens
 	}
 	hostRounds := 0
-	// readSessionText is set once a tool has put a working agent's words (a
-	// handover note, a report) in front of the model in this turn, or the
-	// history repeats such a result from an earlier turn.
+	// readSessionText is set once a tool has put words the person did not write
+	// (a working agent's handover note or report, a skill's text) in front of the
+	// model in this turn, or the history repeats such a result from an earlier turn.
 	readSessionText := job.replayedSessionText
 	allUsage := true
 	for round := 0; round < 2; round++ {
@@ -202,15 +202,15 @@ func (s *Service) answerRounds(ctx context.Context, job *chatJob, c store.Gaffer
 				return err
 			}
 			if readSessionText && !tool.ReadOnly {
-				// As in a session's chat: once the model has read what a working
-				// agent wrote, that text can propose a change but never make one.
+				// As in a session's chat: once the model has read what someone
+				// else wrote, that text can propose a change but never make one.
 				tool.Mode = "ask"
 			}
 			result, asked, err := s.runHostTool(ctx, job, c, turn, tool, calls[0])
 			if err != nil {
 				return err
 			}
-			readSessionText = readSessionText || tool.SessionText && !asked
+			readSessionText = readSessionText || (tool.SessionText || tool.OthersText) && !asked
 			messages = append(messages, elicore.Message{Role: elicore.RoleAssistant, ToolCalls: calls}, elicore.Message{Role: elicore.RoleTool, ToolCallID: calls[0].ID, Content: result})
 			if asked || hostRounds >= maxHostToolRounds {
 				// A call waiting for the person ends the tool use: the model only reports.

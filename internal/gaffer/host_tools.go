@@ -25,6 +25,9 @@ type HostTool struct {
 	// SessionText says the tool's result can carry words a working agent
 	// wrote: a stage's handover note, or Gaffer's report built from them.
 	SessionText bool
+	// OthersText says the tool's result can carry words written by someone
+	// other than the person: a skill's author, a machine, another account.
+	OthersText bool
 }
 
 // ToolHost runs reet's own tools for Gaffer. The controller installs it; the
@@ -174,7 +177,7 @@ func (s *Service) runHostTool(ctx context.Context, job *chatJob, c store.GafferC
 	if err != nil {
 		return "", false, err
 	}
-	record := store.GafferTurnTool{ID: id, Name: tool.Name, Args: args, Mode: tool.Mode, At: time.Now().UnixMilli(), SessionText: tool.SessionText}
+	record := store.GafferTurnTool{ID: id, Name: tool.Name, Args: args, Mode: tool.Mode, At: time.Now().UnixMilli(), SessionText: tool.SessionText, OthersText: tool.OthersText}
 	if tool.Mode == "ask" {
 		record.State = "pending"
 		turn.Tools = append(turn.Tools, record)

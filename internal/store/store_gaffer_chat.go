@@ -80,6 +80,9 @@ type GafferTurnTool struct {
 	// wrote. Such a result is not repeated to a provider that may not read
 	// session text.
 	SessionText bool `json:"sessionText,omitempty"`
+	// OthersText marks a tool whose result can carry words someone other than
+	// the person wrote, such as a skill's text.
+	OthersText bool `json:"othersText,omitempty"`
 }
 
 func validGafferID(id string) bool {

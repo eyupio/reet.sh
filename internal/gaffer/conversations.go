@@ -80,7 +80,8 @@ type chatJob struct {
 	workerRevision int64
 	grantRevision  int64
 	// replayedSessionText marks a turn whose history repeats an earlier tool
-	// result that carried a working agent's words.
+	// result that carried words the person did not write: a working agent's,
+	// a skill author's, a machine's or another account's.
 	replayedSessionText bool
 }
 
@@ -661,7 +662,7 @@ func (s *Service) answer(ctx context.Context, job *chatJob, c store.GafferConver
 		}
 		bytes += n
 		for _, tool := range old.Tools {
-			job.replayedSessionText = job.replayedSessionText || sessionText && tool.SessionText && tool.State == "ran"
+			job.replayedSessionText = job.replayedSessionText || (sessionText && tool.SessionText || tool.OthersText) && tool.State == "ran"
 		}
 		messages = append([]elicore.Message{{Role: elicore.RoleUser, Content: old.Prompt}, {Role: elicore.RoleAssistant, Content: said}}, messages...)
 	}

@@ -190,9 +190,6 @@ func (s *Service) answerRounds(ctx context.Context, job *chatJob, c store.Gaffer
 			return nil
 		}
 		if tool, ok := host[calls[0].Name]; ok {
-			if turn.Cut || len(calls) != 1 {
-				return errors.New("Gaffer's tool request was cut short. Nothing was run.")
-			}
 			if hostRounds >= maxHostToolRounds {
 				return errors.New("Gaffer reached the limit of six tools in one turn. Ask again to carry on.")
 			}
@@ -222,7 +219,7 @@ func (s *Service) answerRounds(ctx context.Context, job *chatJob, c store.Gaffer
 			round--
 			continue
 		}
-		if round != 0 || turn.Cut || len(calls) != 1 {
+		if round != 0 {
 			return errors.New("Gaffer allows one complete worker tool call per enabled request. No further instruction was queued.")
 		}
 		if job.goalID != "" && (calls[0].Name == goalQuestionTool.Name || job.stage && calls[0].Name == handOverTool.Name) {
@@ -299,6 +296,10 @@ func (s *Service) answerRounds(ctx context.Context, job *chatJob, c store.Gaffer
 	}
 	return errors.New("Gaffer reached the worker-message round limit.")
 }
+
+// errToolRequestCut ends a round whose answer stopped part-way through a tool request, whichever tool it was for.
+var errToolRequestCut = errors.New("The provider's answer was cut short before its tool request was complete. Nothing was run or queued.")
+
 func (s *Service) answerRound(ctx context.Context, backend elicore.Provider, request elicore.Request, uid int64, turn *store.GafferTurn) ([]elicore.ToolCall, elicore.Usage, error) {
 	stream, err := backend.Chat(ctx, request)
 	if err != nil {
@@ -342,7 +343,7 @@ func (s *Service) answerRound(ctx context.Context, backend elicore.Provider, req
 				}
 				turn.Cut = true
 				if len(calls) > 0 {
-					return nil, usage, errors.New("The provider response was cut short; its worker instruction was not queued.")
+					return nil, usage, errToolRequestCut
 				}
 				return nil, usage, nil
 			}
@@ -357,7 +358,7 @@ func (s *Service) answerRound(ctx context.Context, backend elicore.Provider, req
 		if event.Done {
 			turn.Cut = event.Cut
 			if len(calls) > 0 && event.Cut {
-				return nil, usage, errors.New("The provider response was cut short; its worker instruction was not queued.")
+				return nil, usage, errToolRequestCut
 			}
 			return calls, usage, nil
 		}

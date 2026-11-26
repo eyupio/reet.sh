@@ -489,3 +489,21 @@ func TestOfSeveralToolsAskedForAtOnceOnlyTheFirstRuns(t *testing.T) {
 		t.Fatalf("calls made: %v", got)
 	}
 }
+
+// A tool request the provider's output limit cut off is not run, and the
+// turn says what happened in words that fit any tool.
+func TestAToolRequestCutShortIsNotRunAndSaysSo(t *testing.T) {
+	s, _, p := settingsFixture(t)
+	host := &fakeToolHost{tools: []HostTool{writeTool}, fail: map[string]string{}}
+	s.SetToolHost(host)
+	fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		call := map[string]any{"index": 0, "id": "c0", "type": "function", "function": map[string]any{"name": "reet_stop_outcome", "arguments": `{"outcome_id":"ab`}}
+		raw, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"tool_calls": []any{call}}, "finish_reason": "length"}}})
+		fmt.Fprintf(w, "data: %s\n\ndata: [DONE]\n\n", raw)
+	}))
+	t.Cleanup(fake.Close)
+	turn := ask(t, s, p, conversationFixture(t, s, p, fake.URL), "a", "Stop abc.")
+	if turn.State != "failed" || turn.Error != errToolRequestCut.Error() || len(turn.Tools) != 0 || len(host.made()) != 0 {
+		t.Fatalf("turn: state=%s error=%q tools=%+v", turn.State, turn.Error, turn.Tools)
+	}
+}

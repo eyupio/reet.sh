@@ -1651,6 +1651,42 @@ func TestAFinishedOutcomeCanBeArchivedRestoredAndDeletedButARunningOneCannot(t *
 	}
 }
 
+// "Stop starting sessions" leaves a pipeline that was never started stored as
+// waiting, which the page shows as not started. An outcome that reads as
+// finished there can be archived and deleted.
+func TestAStoppedOutcomeThatReadsFinishedCanBeArchivedAndDeleted(t *testing.T) {
+	for _, put := range []string{"archive", "delete"} {
+		t.Run(put, func(t *testing.T) {
+			r := outcomeFixture(t)
+			r.starter.hold, r.starter.entered = make(chan struct{}), make(chan struct{})
+			r.starter.refuse["Export API"] = "No agent of that name on this machine."
+			r.s.StartGoalSupervisor()
+			created, err := r.s.CreateOutcome(r.p.UserID, r.in)
+			if err != nil {
+				t.Fatal(err)
+			}
+			<-r.starter.entered
+			if _, err = r.s.StopOutcome(r.p.UserID, created.ID, mustOutcome(t, r, created.ID).Revision); err != nil {
+				t.Fatal(err)
+			}
+			close(r.starter.hold)
+			r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "failed" })
+			view, err := r.s.Outcome(r.p.UserID, created.ID)
+			if err != nil || !view.Finished() || view.Sessions[1].State != "cancelled" {
+				t.Fatalf("the stopped outcome as the page reads it: %+v %v", view, err)
+			}
+			if put == "delete" {
+				err = r.s.DeleteOutcome(r.p.UserID, created.ID, view.Revision)
+			} else {
+				_, err = r.s.ArchiveOutcome(r.p.UserID, created.ID, view.Revision, true)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
 func TestALongHandoverAndBriefKeepTheStagesBoundary(t *testing.T) {
 	handover := strings.Repeat("Step: change web/src/lib/ClineSourceSelect.svelte. ", maxHandoverBytes/52)
 	brief := strings.Repeat("The whole brief, for context. ", 7000/30)

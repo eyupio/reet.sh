@@ -809,9 +809,9 @@ func outcomeView(o store.GafferOutcome) store.GafferOutcome {
 // pipeline, an approved merge), so that only what the person asked for
 // starts: a pipeline that was waiting when they stopped the outcome stays
 // not started until they try that one again.
-func settleStoppedOutcome(o *store.GafferOutcome) {
+func settleStoppedOutcome(o *store.GafferOutcome) (changed bool) {
 	if o.State == "starting" {
-		return
+		return false
 	}
 	for i := range o.Sessions {
 		item := &o.Sessions[i]
@@ -822,8 +822,12 @@ func settleStoppedOutcome(o *store.GafferOutcome) {
 			item.State, item.Note = "cancelled", "Not started: this outcome was stopped first."
 		case item.State == "starting":
 			item.State, item.Note = "unfollowed", "Started, but not followed: this outcome was stopped first. Look after it from the floor."
+		default:
+			continue
 		}
+		changed = true
 	}
+	return changed
 }
 
 func (s *Service) Outcomes(uid int64) ([]store.GafferOutcome, error) {
@@ -872,6 +876,8 @@ func (s *Service) ArchiveOutcome(uid int64, id string, revision int64, archive b
 	}
 	var active bool
 	o, err := s.store.UpdateGafferOutcomeFor(uid, id, revision, func(o *store.GafferOutcome) bool {
+		// Judged as the page shows it: what a stopped outcome never started is not still moving.
+		settleStoppedOutcome(o)
 		if archive && !o.Finished() {
 			active = true
 			return false
@@ -897,7 +903,14 @@ func (s *Service) DeleteOutcome(uid int64, id string, revision int64) error {
 	if _, err := s.chatPrincipal(uid); err != nil {
 		return err
 	}
-	return s.store.DeleteGafferOutcomeFor(uid, id, revision)
+	// Judged as the page shows it, as an archive is.
+	o, err := s.store.UpdateGafferOutcomeFor(uid, id, revision, func(o *store.GafferOutcome) bool {
+		return settleStoppedOutcome(o) && o.Finished()
+	})
+	if err != nil {
+		return err
+	}
+	return s.store.DeleteGafferOutcomeFor(uid, id, o.Revision)
 }
 
 func (s *Service) wakeOutcomes() {

@@ -231,6 +231,10 @@ func (s *Service) addPipelinesOnce(uid int64, id string, in AddPipelinesInput) (
 	if err = s.goalRoom(uid, len(pieces)); err != nil {
 		return current, err
 	}
+	for i := range pieces {
+		// An added pipeline stops at Ready to merge whatever the request says; its Merge line can change that afterwards.
+		pieces[i].AutoMerge = false
+	}
 	for _, piece := range pieces {
 		if len(piece.Stages) == 0 && len(OutcomePromptImages(piece.Prompt, current.Images)) > MaxOutcomePromptBytes {
 			return current, invalid("images", "The brief and this outcome's attached images must fit in "+strconv.Itoa(MaxOutcomePromptBytes)+" bytes together. Shorten the brief or attach fewer images.")

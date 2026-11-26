@@ -948,6 +948,26 @@ func TestPipelinesAreAddedToAnOutcomeOnlyWithApproval(t *testing.T) {
 	}
 }
 
+// An added pipeline stops at Ready to merge even when the request asks for it
+// to merge by itself.
+func TestAnAddedPipelineNeverMergesByItself(t *testing.T) {
+	r := outcomeFixture(t)
+	r.s.StartGoalSupervisor()
+	created, err := r.s.CreateOutcome(r.p.UserID, pipelineInput(r, false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
+	yes := true
+	o, err := r.s.AddPipelines(r.p.UserID, created.ID, AddPipelinesInput{Confirmed: true, Sessions: []OutcomeSession{{Title: "Extra", Prompt: "Do the extra thing.", AutoMerge: &yes, Stages: []OutcomeStageInput{{Kind: "code", Tool: "opencode"}, {Kind: "merge", Tool: "opencode"}}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if added := o.Sessions[len(o.Sessions)-1]; added.Title != "Extra" || added.AutoMerge || MergesByItself(o, added) {
+		t.Fatalf("the added pipeline: %+v", added)
+	}
+}
+
 // One report across an outcome goes to the outcome's own provider, carries
 // only what Gaffer already recorded, and proposes pipelines without starting any.
 func TestOutcomeReviewReportsAcrossPipelinesAndOnlyProposes(t *testing.T) {

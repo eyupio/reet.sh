@@ -16,7 +16,7 @@ start with a sentence. With a pathway, both dialogs count each stage's agent and
 under standard stages the new-outcome dialog counts every agent the start will send, backups included, and the
 outcome's own agent, for folder trust and YOLO. Small fixes: the chosen pathway row is always in view,
 "Edit pathway" is no longer part of an option's name, and the drag hint has three fixed places inside the window, clear of
-the pointer and the drop target, with the palette leaving room for the bottom tab bar. The tool count is now 50. User
+the pointer and the drop target, with the palette leaving room for the bottom tab bar. The tool count is now 50, and `reet_list_pathways` is paged (`limit`, `offset`, rows in `items`) so fifty pathways of long names still fit an answer. User
 docs: "With Gaffer and AI clients" in `docs/factory.md` and the Factory tools in `docs/mcp.md`.
 
 **Why:** the owner asked for each pathway to be part of the Factory and of Gaffer. PATHWAYS-1 gave the engine and

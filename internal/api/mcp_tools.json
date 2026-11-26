@@ -846,10 +846,24 @@
   {
     "name": "reet_list_pathways",
     "title": "List the user’s pathways",
-    "description": "List the user’s saved pathways that are switched on: each one’s id, name, description, its stages in order by name (built-in stages and stages of the user’s own) and any problems that would refuse a start on it. Pass a pathway’s id or name as pathway to reet_start_outcome or reet_add_pipelines to run its stages. A stage’s own instructions are not included. Not available to a read-only account. Does not change anything. Returns {data: object} as structured content and text.",
+    "description": "List the user’s saved pathways that are switched on: each one’s id, name, description, its stages in order by name (built-in stages and stages of the user’s own) and any problems that would refuse a start on it. Pass a pathway’s id or name as pathway to reet_start_outcome or reet_add_pipelines to run its stages. A stage’s own instructions are not included. Not available to a read-only account. Does not change anything. Returns {data: object} as structured content and text. Pages contain items, count, total_count, has_more and next_offset.",
     "inputSchema": {
       "type": "object",
       "properties": {
+        "limit": {
+          "default": 20,
+          "description": "Maximum items per page (1–100).",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "offset": {
+          "default": 0,
+          "description": "Page offset; follow next_offset until has_more is false.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
         "response_format": {
           "default": "json",
           "description": "JSON or a Markdown JSON code block.",

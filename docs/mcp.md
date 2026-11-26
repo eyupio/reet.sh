@@ -232,7 +232,8 @@ Ten more are the person's own controls and need management scope:
 
 `reet_list_pathways` (a read) lists the person's saved pathways that are switched on: each one's `id`, `name`,
 `description`, `stages` (their names, in order) and `problems`, the sentences that would refuse a start on it, empty when
-none. A pathway that is switched off is not listed. A stage's own prompt, model and skills are not included.
+none. A pathway that is switched off is not listed. A stage's own prompt, model and skills are not included. The
+answer is paged like the other lists: `limit` and `offset`, with the rows in `items`.
 
 Each control answers with the outcome in short, as `reet_list_factory` gives it, with `applied` and a `note`. Call `reet_get_factory_outcome` for every stage.
 

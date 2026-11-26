@@ -392,7 +392,7 @@ func (s *server) runMCPFactory(ctx context.Context, access mcpAccess, name strin
 		if err != nil {
 			return nil, err
 		}
-		out := []map[string]any{}
+		out := []any{}
 		for _, p := range rows {
 			if !p.Enabled {
 				continue
@@ -407,7 +407,8 @@ func (s *server) runMCPFactory(ctx context.Context, access mcpAccess, name strin
 			}
 			out = append(out, map[string]any{"id": p.ID, "name": p.Name, "description": p.Description, "stages": stages, "problems": problems})
 		}
-		return map[string]any{"pathways": out}, nil
+		// Fifty pathways of twelve named stages do not fit one answer, so they are paged.
+		return mcpPage(out, args, nil)
 	}
 	id, key := str("outcome_id"), str("pipeline")
 	if name == "reet_get_factory_outcome" {

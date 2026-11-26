@@ -249,7 +249,7 @@ func TestMCPListsEnabledPathways(t *testing.T) {
 			ID, Name, Description string
 			Stages                []string
 			Problems              []string
-		}
+		} `json:"items"`
 	}
 	if err := json.Unmarshal(raw, &got); err != nil {
 		t.Fatal(err)
@@ -262,6 +262,11 @@ func TestMCPListsEnabledPathways(t *testing.T) {
 	}
 	if strings.Contains(string(raw), "SECRET_AUDIT_PROMPT") {
 		t.Fatalf("a stage's prompt was listed: %s", raw)
+	}
+	// Paged, so an account with many pathways of long names can still read them.
+	page, err := s.executeMCPFactory(context.Background(), write, "reet_list_pathways", map[string]any{"limit": float64(1)})
+	if err != nil || page["count"] != 1 || page["has_more"] != true || page["total_count"] != 2 {
+		t.Fatalf("one a page: %v %v", page, err)
 	}
 	if !mcpFactoryReads["reet_list_pathways"] || gafferToolReturnsSessionText("reet_list_pathways") {
 		t.Fatal("reet_list_pathways is a Factory read that returns no session text")

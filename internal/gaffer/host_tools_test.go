@@ -391,6 +391,21 @@ func TestAToolCallMayCarryAFullOutcome(t *testing.T) {
 	if _, err := hostToolArgs(elicore.ToolCall{ID: "c1", Arguments: huge}); err == nil {
 		t.Fatal("an oversized call was accepted")
 	}
+	// The provider is given the room to write such a call, only where reet's tools are on offer.
+	for _, tools := range [][]HostTool{{writeTool}, nil} {
+		s, _, p, v, _, provider, _ := hostFixture(t, tools, "Nothing to do.")
+		ask(t, s, p, v, "a", "Hello.")
+		want := `"max_tokens":4096`
+		if len(tools) > 0 {
+			want = `"max_tokens":16384`
+		}
+		provider.mu.Lock()
+		body := provider.bodies[0]
+		provider.mu.Unlock()
+		if !strings.Contains(body, want) {
+			t.Fatalf("with %d tools the request lacks %s", len(tools), want)
+		}
+	}
 }
 
 // Session text read in an earlier turn is replayed to the model in the next

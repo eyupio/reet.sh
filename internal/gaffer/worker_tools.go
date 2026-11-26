@@ -148,6 +148,10 @@ func (s *Service) answerRounds(ctx context.Context, job *chatJob, c store.Gaffer
 		tools = append(tools, hostToolDefs(host)...)
 		system += hostToolsGuidance
 	}
+	maxTokens := 4096
+	if len(host) > 0 {
+		maxTokens = hostToolMaxTokens
+	}
 	hostRounds := 0
 	// readSessionText is set once a tool has put a working agent's words (a
 	// handover note, a report) in front of the model in this turn, or the
@@ -164,7 +168,7 @@ func (s *Service) answerRounds(ctx context.Context, job *chatJob, c store.Gaffer
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		calls, usage, err := s.answerRound(ctx, backend, elicore.Request{Model: turn.Model, System: system, Messages: messages, Tools: tools, MaxTokens: 4096}, job.uid, turn)
+		calls, usage, err := s.answerRound(ctx, backend, elicore.Request{Model: turn.Model, System: system, Messages: messages, Tools: tools, MaxTokens: maxTokens}, job.uid, turn)
 		turn.InputTokens += usage.InputTokens
 		turn.OutputTokens += usage.OutputTokens
 		allUsage = allUsage && usage.Reported

@@ -141,6 +141,11 @@ func hostToolDefs(tools map[string]HostTool) []elicore.Tool {
 // an outcome: an objective and five briefs of 8,000 bytes each.
 const maxHostToolArgs = 64 << 10
 
+// hostToolMaxTokens is the output ceiling of a turn that offers reet's tools.
+// The usual 4,096 tokens cut off a call of more than about 14 KiB, so the
+// largest valid call above could never arrive.
+const hostToolMaxTokens = 16384
+
 // hostToolArgs checks a model's call and returns its arguments as canonical JSON.
 func hostToolArgs(call elicore.ToolCall) (string, error) {
 	if !validCallID(call.ID) || len(call.Arguments) > maxHostToolArgs {

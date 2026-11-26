@@ -10,6 +10,8 @@
   import StageParts from './StageParts.svelte'
   import CriteriaEditor from './CriteriaEditor.svelte'
   import PathwayChoice, { stageLine } from './pathways/PathwayChoice.svelte'
+  import { stageTitle } from './pathways'
+  import { inWords } from './launchReadiness'
   import type { MachineModels, ModelFavourite } from '../models'
   import { START_EFFORTS, reportedEfforts } from '../terminal/launchOptions'
 
@@ -80,7 +82,11 @@
   // The acceptance criteria the person agrees for each added pipeline, as for a new outcome's.
   let criteria = $state<Record<number, string[]>>({})
   const blocked = $derived(pathway ? proposals.map((item, at) => criteriaBlocker(criteria[at], `“${item.title}”`)).find(Boolean) || '' : partsBlocker(proposals.map(item => ({ title: item.title, stages: kinds(item), parts: splits[item.title] }))) || proposals.map((item, at) => criteriaBlocker(criteria[at], `“${item.title}”`)).find(Boolean) || '')
-  const usedTools = (title: string) => CREW_TIERS.map(item => crewOf(title)[item.tier].tool)
+  // With a pathway, each stage runs on its own agent, else its tier in the saved crew where this machine can run that,
+  // else the outcome's own agent. Nothing chosen in this dialog is sent.
+  const pathwayRuns = $derived(!pathway ? [] : pathway.stages.map(stage => ({ stage, tool: stage.agent?.tool ?? (savedHere(stage.tier ?? defaultTier(stage.kind)) ? savedCrew![stage.tier ?? defaultTier(stage.kind)]!.tool! : record.tool) })))
+  const runsOn = (id: string) => pathwayRuns.filter(run => run.tool === id).map(run => stageTitle(run.stage))
+  const usedTools = (title: string) => pathway ? pathwayRuns.map(run => run.tool) : CREW_TIERS.map(item => crewOf(title)[item.tier].tool)
   // What this machine offers is known once it has been read with its capabilities. Until then (or when the read failed,
   // or the outcome's machine is gone) the start levels are offered and every effort is sent as chosen: the controller
   // starts a stage on the agent's default effort by itself when its effort is not offered.
@@ -95,10 +101,10 @@
     ...(cleanCriteria(criteria[at]).length ? { criteria: cleanCriteria(criteria[at]) } : {}),
     ...(pathway ? {} : { stages: withReportedEfforts(stagePlan(kinds(item), crewSent(item.title), true, ratingsOf(item.title)), known ? efforts : null) }),
   })))
-  const unoffered = $derived(known ? [...new Set(plans.flatMap(({ stages }) => (stages ?? []).flatMap(stage => [stage.tool, stage.backup?.tool, ...(stage.moreBackups ?? []).map(one => one.tool)])))].filter((id): id is string => !!id && !tools.includes(id)) : [])
-  const needsTrust = $derived(!pathway && !record.trust && proposals.some(item => usedTools(item.title).some(id => id === 'opencode')))
+  const unoffered = $derived(known ? [...new Set(pathway ? pathwayRuns.map(run => run.tool) : plans.flatMap(({ stages }) => (stages ?? []).flatMap(stage => [stage.tool, stage.backup?.tool, ...(stage.moreBackups ?? []).map(one => one.tool)])))].filter((id): id is string => !!id && !tools.includes(id)) : [])
+  const needsTrust = $derived(!record.trust && proposals.some(item => usedTools(item.title).some(id => id === 'opencode')))
   // Antigravity never starts in a folder that was not trusted, and trust is given when an outcome is approved.
-  const refused = $derived(!pathway && !record.trust && proposals.some(item => usedTools(item.title).includes('antigravity')))
+  const refused = $derived(!record.trust && proposals.some(item => usedTools(item.title).includes('antigravity')))
   // Setting the pipeline's own agent, model or effort gives it to every role; a role then keeps what it is given.
   function setMain(title: string, next: Who) {
     main[title] = next
@@ -210,11 +216,11 @@
       </li>{/each}
     </ul>
     {#if !pathway}<p class="hint">Stages use your saved crew where available. Unset tiers use this outcome’s agent and model.</p>{/if}
-    {#if refused}<p class="warning" role="alert">Google Antigravity starts only in a folder you have trusted, and this outcome was approved without folder trust. Choose another agent here, or give Gaffer a new outcome with folder trust ticked.</p>
+    {#if refused}<p class="warning" role="alert">Google Antigravity starts only in a folder you have trusted, and this outcome was approved without folder trust. {pathway ? `This pathway’s ${inWords(runsOn('antigravity'))} ${runsOn('antigravity').length === 1 ? 'stage runs' : 'stages run'} on it: change ${runsOn('antigravity').length === 1 ? 'that stage' : 'them'} in the pathway, or choose standard stages.` : 'Choose another agent here, or give Gaffer a new outcome with folder trust ticked.'}</p>
     {:else if needsTrust}<p class="warning" role="status">This outcome was approved without folder trust. OpenCode is refused in a folder that has plugins of its own.</p>{/if}
     {#if !pathway && proposals.some(item => usedTools(item.title).includes('cline'))}<p class="hint">{record.tool === 'cline' && record.provider ? 'Cline stages keep this outcome’s billing source.' : 'Cline stages run on the billing source Cline has saved on that machine. To choose another, give Gaffer a new outcome.'}</p>{/if}
     {#if known && !tools.length}<p class="warning" role="alert">This machine reports no agent that can run a Gaffer chat. Update reet on the machine, or choose another project for a new outcome.</p>
-    {:else if unoffered.length}<p class="warning" role="alert">{unoffered.map(chatToolName).join(' and ')} {unoffered.length === 1 ? 'is' : 'are'} not on this machine now. Choose another agent for the pipeline.</p>{/if}
+    {:else if unoffered.length}<p class="warning" role="alert">{#if pathway}{#each unoffered as id (id)}This pathway’s {inWords(runsOn(id))} {runsOn(id).length === 1 ? 'stage runs' : 'stages run'} on {chatToolName(id)}, which is not on {machine?.host || 'this machine'} now. Install it there, or change the stage in the pathway. {/each}{:else}{unoffered.map(chatToolName).join(' and ')} {unoffered.length === 1 ? 'is' : 'are'} not on this machine now. Choose another agent for the pipeline.{/if}</p>{/if}
     {#if blocked}<p class="warning" role="status">{blocked}</p>{/if}
     {#if error}<p class="warning" role="alert">{error}</p>{/if}
     <div class="actions"><button class="btn primary" type="button" disabled={busy || crewLoading || !capabilitiesRead || refused || !!blocked || unoffered.length > 0} onclick={approve}>{proposals.length === 1 ? 'Add pipeline' : 'Add pipelines'}</button><button class="btn quiet" type="button" disabled={busy} onclick={oncancel}>Cancel</button></div>

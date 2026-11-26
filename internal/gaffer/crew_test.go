@@ -41,7 +41,7 @@ func TestPlanOutcomeRatesEachStageAndSaysWhy(t *testing.T) {
 		"a model":          `"ratings":[{"stage":"code","tier":"heavy","model":"opus"}]`,
 	} {
 		raw := `{"summary":"x","sessions":[{"title":"A","prompt":"Do it. Do not merge.","stages":["code"],` + bad + `}]}`
-		if _, _, err := outcomeSessions([]byte(raw), 3); err == nil {
+		if _, _, _, err := outcomeSessions([]byte(raw), 3, nil); err == nil {
 			t.Errorf("a plan rating %s was accepted", name)
 		}
 	}

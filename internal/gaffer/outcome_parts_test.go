@@ -122,7 +122,7 @@ func TestGaffersPlanCanSplitAStageIntoParts(t *testing.T) {
 	plan := `{"summary":"One pipeline.","sessions":[{"title":"Export API","prompt":"Add the export. Do not merge.","stages":["code","review","pr"],
  "ratings":[{"stage":"code","tier":"heavy","why":"Touches the ledger."}],
  "parts":[{"stage":"code","title":"Ledger query","brief":"Write the query."},{"stage":"code","title":"Download button","brief":"Add the button.","tier":"light","why":"Wiring only."}]}]}`
-	_, sessions, err := outcomeSessions(json.RawMessage(plan), 3)
+	_, sessions, _, err := outcomeSessions(json.RawMessage(plan), 3, nil)
 	if err != nil || len(sessions) != 1 || len(sessions[0].Stages) != 4 {
 		t.Fatalf("%+v %v", sessions, err)
 	}
@@ -139,7 +139,7 @@ func TestGaffersPlanCanSplitAStageIntoParts(t *testing.T) {
 		"an agent named":       `[{"stage":"code","title":"A","brief":"a","agent":"claude"},{"stage":"code","title":"B","brief":"b"}]`,
 	} {
 		raw := `{"summary":"s","sessions":[{"title":"Export API","prompt":"Add the export. Do not merge.","stages":["code","pr"],"parts":` + parts + `}]}`
-		if _, _, err := outcomeSessions(json.RawMessage(raw), 3); err == nil {
+		if _, _, _, err := outcomeSessions(json.RawMessage(raw), 3, nil); err == nil {
 			t.Fatalf("accepted: %s", name)
 		}
 	}

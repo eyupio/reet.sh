@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -294,5 +295,121 @@ func TestAPlanJobReportsItsStepAndStoppingItEndsTheProviderRequest(t *testing.T)
 	}
 	if _, _, err := s.PlanResult(p, row.ID, job); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("a stopped job can still be read: %v", err)
+	}
+}
+
+// savePathway keeps a pathway for the fixture's account.
+func savePathway(t *testing.T, st *store.Store, p Principal, id, name, description string, enabled bool, stages ...store.GafferPathwayStage) {
+	t.Helper()
+	if _, err := st.SaveGafferPathwayFor(p.UserID, store.GafferPathway{ID: id, Name: name, Description: description, Enabled: enabled, Stages: stages}, 0); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPlanSuggestsAPathway(t *testing.T) {
+	s, st, p := settingsFixture(t)
+	savePathway(t, st, p, "pw-ship", "Ship small", "For a quick fix.", true,
+		store.GafferPathwayStage{Kind: "code", Prompt: "SECRET-CODE-PROMPT"},
+		store.GafferPathwayStage{Kind: "custom", Name: "Smoke check", Prompt: "SECRET-CUSTOM-PROMPT"},
+		store.GafferPathwayStage{Kind: "pr"})
+	savePathway(t, st, p, "pw-deep", "Deep work", "", true, store.GafferPathwayStage{Kind: "plan"}, store.GafferPathwayStage{Kind: "code"})
+	savePathway(t, st, p, "pw-off", "Switched off", "Never offered.", false, store.GafferPathwayStage{Kind: "code"})
+	args := `{"summary":"One job.","sessions":[{"title":"Export","prompt":"Add CSV export. Raise a pull request. Do not merge.","stages":["code","pr"]}],"pathway":"SHIP SMALL","pathway_why":"  A small, obvious change.  "}`
+	server, sent := planServer(t, func() string { return planCall("propose_sessions", args) })
+	row := planProvider(t, s, p, server.URL, true)
+	plan, err := s.PlanOutcome(context.Background(), p, row.ID, OutcomePlanInput{Revision: row.Revision, Objective: "Ship CSV export.", Project: "billing", Sessions: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Pathway == nil || *plan.Pathway != (PlanPathway{ID: "pw-ship", Name: "Ship small", Why: "A small, obvious change."}) || len(plan.Sessions) != 1 {
+		t.Fatalf("plan: %+v %+v", plan, plan.Pathway)
+	}
+	var body struct {
+		Messages []struct{ Role, Content string }
+		Tools    []json.RawMessage
+	}
+	if err := json.Unmarshal([]byte(sent()[0]), &body); err != nil {
+		t.Fatal(err)
+	}
+	user := body.Messages[len(body.Messages)-1].Content
+	want := "Pathways the person has saved (optional):\n- Deep work: [plan › code]\n- Ship small: For a quick fix. [code › Smoke check › pr]"
+	if !strings.HasSuffix(user, want) {
+		t.Fatalf("user text lacks the pathways:\n%s", user)
+	}
+	if strings.Contains(sent()[0], "SECRET") || strings.Contains(sent()[0], "Switched off") {
+		t.Fatalf("a prompt or a disabled pathway was sent: %s", sent()[0])
+	}
+	if !strings.Contains(body.Messages[0].Content, "name it in `pathway`") || !strings.Contains(string(body.Tools[0]), `"pathway_why"`) {
+		t.Fatalf("the model was not told how to suggest a pathway: %s", sent()[0])
+	}
+}
+
+func TestPlanDropsAnUnknownPathway(t *testing.T) {
+	s, st, p := settingsFixture(t)
+	savePathway(t, st, p, "pw-ship", "Ship small", "", true, store.GafferPathwayStage{Kind: "code"})
+	savePathway(t, st, p, "pw-off", "Switched off", "", false, store.GafferPathwayStage{Kind: "code"})
+	var args string
+	server, _ := planServer(t, func() string { return planCall("propose_sessions", args) })
+	row := planProvider(t, s, p, server.URL, true)
+	plan := func(tail string) (OutcomePlan, error) {
+		args = `{"summary":"One job.","sessions":[{"title":"Export","prompt":"Add CSV export. Raise a pull request. Do not merge."}],` + tail + `}`
+		return s.PlanOutcome(context.Background(), p, row.ID, OutcomePlanInput{Revision: row.Revision, Objective: "Ship CSV export.", Sessions: 1})
+	}
+	for _, tail := range []string{`"pathway":"Nowhere","pathway_why":"Fits."`, `"pathway":"Switched off","pathway_why":"Fits."`, `"pathway":" ","pathway_why":"Fits."`} {
+		if got, err := plan(tail); err != nil || got.Pathway != nil || len(got.Sessions) != 1 {
+			t.Fatalf("%s: %+v %v", tail, got, err)
+		}
+	}
+	// A reason that is not one line of plain text is dropped; the suggestion stays.
+	for why, want := range map[string]string{`"bad\u0007why"`: "", `"two\nlines"`: "", `"` + strings.Repeat("é", 150) + `"`: strings.Repeat("é", 100)} {
+		got, err := plan(`"pathway":"ship small","pathway_why":` + why)
+		if err != nil || got.Pathway == nil || *got.Pathway != (PlanPathway{ID: "pw-ship", Name: "Ship small", Why: want}) {
+			t.Fatalf("%s: %+v %v", why, got.Pathway, err)
+		}
+	}
+}
+
+// TestPlanWithNoPathwaysIsUnchanged holds the request an account without
+// enabled pathways sends to what it was before pathways existed.
+func TestPlanWithNoPathwaysIsUnchanged(t *testing.T) {
+	golden, err := os.ReadFile("testdata/plan-request-without-pathways.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, disabled := range []bool{false, true} {
+		s, st, p := settingsFixture(t)
+		if disabled {
+			savePathway(t, st, p, "pw-off", "Switched off", "Never offered.", false, store.GafferPathwayStage{Kind: "code"})
+		}
+		args := `{"summary":"One job.","sessions":[{"title":"Export","prompt":"Add CSV export. Raise a pull request. Do not merge."}]}`
+		server, sent := planServer(t, func() string { return planCall("propose_sessions", args) })
+		row := planProvider(t, s, p, server.URL, true)
+		plan, err := s.PlanOutcome(context.Background(), p, row.ID, OutcomePlanInput{Revision: row.Revision, Objective: "Ship CSV export for billing.", Project: "billing", Sessions: 2})
+		if err != nil || plan.Pathway != nil {
+			t.Fatalf("plan: %+v %v", plan, err)
+		}
+		if got := sent()[0]; got != string(golden) {
+			t.Fatalf("disabled=%v: request changed:\n%s", disabled, got)
+		}
+		// Without pathways a plan that names one is refused, as it was before.
+		args = `{"summary":"One job.","sessions":[{"title":"Export","prompt":"Add CSV export. Raise a pull request. Do not merge."}],"pathway":"Switched off"}`
+		if _, err := s.PlanOutcome(context.Background(), p, row.ID, OutcomePlanInput{Revision: row.Revision, Objective: "Ship CSV export.", Sessions: 1}); err == nil {
+			t.Fatalf("disabled=%v: a pathway was accepted without any offered", disabled)
+		}
+	}
+}
+
+func TestAPlanReplyListsPathwaysAndReadsTheSuggestion(t *testing.T) {
+	s, st, p := settingsFixture(t)
+	savePathway(t, st, p, "pw-ship", "Ship small", "", true, store.GafferPathwayStage{Kind: "code"})
+	args := `{"summary":"Revised.","sessions":[{"title":"Export","prompt":"Add CSV export. Raise a pull request. Do not merge."}],"pathway":"ship small"}`
+	server, sent := planServer(t, func() string { return planCall("propose_sessions", args) })
+	row := planProvider(t, s, p, server.URL, true)
+	plan, err := s.PlanOutcome(context.Background(), p, row.ID, OutcomePlanInput{Revision: row.Revision, Objective: "Ship CSV export.", Sessions: 1, Reply: "Make it smaller.", Previous: &OutcomePlanPrevious{Summary: "Two jobs.", Sessions: []OutcomePlanPreviousSession{{Title: "Export"}}}})
+	if err != nil || plan.Pathway == nil || plan.Pathway.ID != "pw-ship" || plan.Pathway.Why != "" {
+		t.Fatalf("plan: %+v %v", plan, err)
+	}
+	if body := sent()[0]; !strings.Contains(body, "The person replied") || !strings.Contains(body, `- Ship small: [code]`) {
+		t.Fatalf("reply request: %s", body)
 	}
 }

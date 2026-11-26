@@ -976,6 +976,122 @@ async function editorShelf(width,theme,touch=false){
  }finally{await w.context.close()}
 }
 
+// Mid-drag on a tablet: the hint is in one of `places`, inside the window (above the tab bar when it shows), and clear of the
+// pointer, the insertion bar and any `cards` (the card that takes the drop).
+async function hintClear(page,to,places,cards=[]){
+ await expect(hint(page)).toBeVisible()
+ const h=await hint(page).boundingBox(),foot=await page.evaluate(()=>{const t=document.querySelector('nav.bottom-tabs');return t&&getComputedStyle(t).display!=='none'?t.getBoundingClientRect().top:innerHeight}),vw=await page.evaluate(()=>innerWidth)
+ expect(places,`the hint is placed ${await hint(page).getAttribute('data-hint-place')}`).toContain(await hint(page).getAttribute('data-hint-place'))
+ expect(h.x>=0&&h.x+h.width<=vw&&h.y>=0&&h.y+h.height<=foot,`the hint is inside the window: ${JSON.stringify(h)} above ${foot}`).toBe(true)
+ expect(to.x<h.x||to.x>h.x+h.width||to.y<h.y||to.y>h.y+h.height,'the hint covers the pointer').toBe(true)
+ const apart=(a,b)=>a.x>=b.x+b.width||a.x+a.width<=b.x||a.y>=b.y+b.height||a.y+a.height<=b.y
+ for(const b of await bar(page).all())expect(apart(h,await b.boundingBox()),'the hint covers the insertion bar').toBe(true)
+ for(const c of cards)expect(apart(h,await card(page,c).boundingBox()),`the hint covers ${c}`).toBe(true)
+}
+// The hint's three places: below the cards (a tall window), above the line (500 px) and pinned to the foot or the top (380
+// px, the line near the top), whichever the pointer is over, for a stage on to a gap and a skill on to a card.
+async function editorHintPlaces(theme){
+ for(const [height,places,scroll] of [[900,['below'],0],[500,['above'],0],[380,['foot','top'],1]]){
+  const {w,page}=await open(900,theme,{list:[...three(),planFirst()]},{touch:true,height})
+  try{
+   await goEditor(page,'p6')
+   const cdp=await page.context().newCDPSession(page)
+   const touchAt=(type,p)=>cdp.send('Input.dispatchTouchEvent',{type,touchPoints:p?[{x:Math.round(p.x),y:Math.round(p.y)}]:[]})
+   for(const kind of ['stage','skill']){
+    if(kind==='skill')await tab(page,'Skills').click()
+    const name=kind==='stage'?'stage:design':'skill:threat-model'
+    await item(page,name).scrollIntoViewIfNeeded()
+    if(scroll)await page.evaluate(()=>scrollTo(0,document.querySelector('[data-pathway-line]').getBoundingClientRect().top+scrollY-30))
+    await settled(page)
+    const from=centre(await item(page,name).boundingBox()),to=kind==='stage'?await between(page,'Plan','Code'):await over(page,'Code')
+    await touchAt('touchStart',from)
+    await page.waitForTimeout(400)
+    for(let n=1;n<=10;n++)await touchAt('touchMove',{x:from.x+(to.x-from.x)*n/10,y:from.y+(to.y-from.y)*n/10})
+    await hintClear(page,to,places,kind==='skill'?['Code']:[])
+    if(kind==='stage')await held(page,`p3-drag-hint-${height}`,900,theme)
+    await touchAt('touchEnd')
+    await expect(hint(page)).toHaveCount(0)
+   }
+   expect(w.errors).toEqual([])
+  }finally{await w.context.close()}
+ }
+}
+// A short window on a touch screen (a landscape tablet). The drag hint stays in view and never covers the pointer or the
+// card it would land on, and with the phone's bottom tab bar showing (500 px tall or less) the palette's last item is
+// above the bar.
+const insideWindow=async(page,box)=>expect(box.y>=0&&box.y+box.height<=await page.evaluate(()=>innerHeight),'in the window').toBe(true)
+async function editorHintShort(theme){
+ const touchAt=(cdp,type,p)=>cdp.send('Input.dispatchTouchEvent',{type,touchPoints:p?[{x:Math.round(p.x),y:Math.round(p.y)}]:[]})
+ {
+  const {w,page}=await open(900,theme,{list:[...three(),planFirst()]},{touch:true,height:560})
+  try{
+   await goEditor(page,'p6')
+   const cdp=await page.context().newCDPSession(page)
+   await item(page,'stage:design').scrollIntoViewIfNeeded()
+   const from=centre(await item(page,'stage:design').boundingBox()),to=await between(page,'Plan','Code')
+   await touchAt(cdp,'touchStart',from)
+   await page.waitForTimeout(400)
+   for(let n=1;n<=10;n++)await touchAt(cdp,'touchMove',{x:from.x+(to.x-from.x)*n/10,y:from.y+(to.y-from.y)*n/10})
+   await expect(hint(page)).toHaveText('Drop to add Design at place 2.')
+   const h=await hint(page).boundingBox(),line=await page.locator('[data-pathway-line]').boundingBox()
+   await insideWindow(page,h)
+   expect(h.y+h.height<=line.y,'the hint sits above the line').toBe(true)
+   expect(to.y<h.y||to.y>h.y+h.height||to.x<h.x||to.x>h.x+h.width,'the hint is under the pointer').toBe(true)
+   await held(page,'p3-drag-hint-short',900,theme)
+   await touchAt(cdp,'touchEnd')
+   expect(w.errors).toEqual([])
+  }finally{await w.context.close()}
+ }
+}
+// The pointer above the line on a short window: the hint is above the pointer or beside it, inside the window, never over it.
+async function editorHintAbovePointer(theme){
+ const {w,page}=await open(900,theme,{list:[...three(),planFirst()]},{touch:true,height:500})
+ try{
+  await goEditor(page,'p6')
+  const cdp=await page.context().newCDPSession(page)
+  const touchAt=(type,p)=>cdp.send('Input.dispatchTouchEvent',{type,touchPoints:p?[{x:Math.round(p.x),y:Math.round(p.y)}]:[]})
+  await item(page,'stage:design').scrollIntoViewIfNeeded()
+  const line=await page.locator('[data-pathway-line]').boundingBox()
+  for(const [lift,name] of [[20,'design'],[line.y-50,'review']]){
+   await item(page,`stage:${name}`).scrollIntoViewIfNeeded()
+   const from=centre(await item(page,`stage:${name}`).boundingBox())
+   const to={x:line.x+line.width/2,y:line.y-lift}
+   await touchAt('touchStart',from)
+   await page.waitForTimeout(400)
+   for(let n=1;n<=10;n++)await touchAt('touchMove',{x:from.x+(to.x-from.x)*n/10,y:from.y+(to.y-from.y)*n/10})
+   await expect(hint(page)).toBeVisible()
+   const h=await hint(page).boundingBox()
+   await insideWindow(page,h)
+   expect(to.x<h.x||to.x>h.x+h.width||to.y<h.y||to.y>h.y+h.height,`the hint covers the pointer at ${to.y}`).toBe(true)
+   if(lift===20)await held(page,'p3-drag-hint-pointer-above',900,theme)
+   await touchAt('touchEnd')
+  }
+  expect(w.errors).toEqual([])
+ }finally{await w.context.close()}
+}
+async function editorDockTabs(theme){
+ {
+  const {w,page}=await open(900,theme,{list:[...three(),planFirst()],shelf:many},{touch:true,height:480})
+  try{
+   await goEditor(page,'p6')
+   await tab(page,'Skills').click()
+   const last=item(page,'skill:skill-200'),bartop=await page.locator('nav.bottom-tabs').evaluate(n=>n.getBoundingClientRect().top)
+   // Scrolled down, the dock sticks at the top of the window and is as tall as the window above the bar.
+   await page.evaluate(()=>scrollTo(0,document.querySelector('.side').getBoundingClientRect().top+scrollY+40))
+   // The dock fits on the next frame; its list, scrolled to the end, then ends above the bar.
+   const dock=page.locator('.dock')
+   await expect.poll(()=>dock.evaluate(d=>d.getBoundingClientRect().bottom),{message:'the dock reaches under the tab bar'}).toBeLessThanOrEqual(bartop)
+   await last.evaluate(el=>{for(let e=el.parentElement;e&&e!==document.body;e=e.parentElement)if(e.scrollHeight>e.clientHeight&&/auto|scroll/.test(getComputedStyle(e).overflowY))e.scrollTop=e.scrollHeight})
+   const b=await last.boundingBox()
+   expect(b.y+b.height,'the last item is under the tab bar').toBeLessThanOrEqual(bartop)
+   expect(b.y,'the last item is above the dock').toBeGreaterThan(0)
+   expect(await last.evaluate(el=>{const r=el.getBoundingClientRect();return el.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2))})).toBe(true)
+   await held(page,'p3-dock-tabs',900,theme)
+   expect(w.errors).toEqual([])
+  }finally{await w.context.close()}
+ }
+}
+
 // Deleted in another tab: Save says so and offers a new pathway from the edits, or the list. "Load the saved one" after
 // someone else's save says the same when that one has gone too.
 async function editorGone(width,theme){
@@ -1046,10 +1162,33 @@ async function editorFocus(width,theme){
  }finally{await w.context.close()}
 }
 
+// A stage line that wraps (about 760 px wide) never ends a row with a "›": each sits before its chip, on the chip's row.
+const longLine=()=>pathway('p4','Long release',[st('plan'),st('code'),st('custom',{name:'Security audit of every endpoint',prompt:'Audit.'}),st('review'),st('test'),st('custom',{name:'Write the release notes',prompt:'Notes.'}),st('pr'),st('babysit'),st('merge')])
+const stageRows=line=>line.evaluate(el=>{
+ const mid=e=>{const r=e.getBoundingClientRect();return (r.top+r.bottom)/2}
+ const items=[...el.querySelectorAll('.sep,.chip')].filter(e=>getComputedStyle(e).display!=='none')
+ return {rows:new Set(items.filter(e=>e.classList.contains('chip')).map(e=>Math.round(mid(e)))).size,hanging:items.filter((e,i)=>e.classList.contains('sep')&&!(items[i+1]&&Math.abs(mid(items[i+1])-mid(e))<6)).length}
+})
+async function listWrap(theme){
+ const {w,page}=await open(760,theme,{list:[...three(),longLine()]})
+ try{
+  await goList(page)
+  const line=page.getByRole('list',{name:'Stages of Long release'})
+  const got=await stageRows(line)
+  expect(got.rows,'the stage line wraps').toBeGreaterThan(1)
+  expect(got.hanging,'a row ends with a separator').toBe(0)
+  await line.scrollIntoViewIfNeeded()
+  await shot(page,'p3-final-list-wrap',760,theme)
+  expect(w.errors).toEqual([])
+ }finally{await w.context.close()}
+}
+
 try{
+ for(const theme of ['light','dark'])await listWrap(theme)
  await tabletTargets()
  await editorShelf(1280,'light')
  await editorShelf(1024,'dark',true)
+ for(const theme of ['light','dark']){await editorHintShort(theme);await editorHintAbovePointer(theme);await editorHintPlaces(theme);await editorDockTabs(theme)}
  for(const [width,theme] of [[1280,'light'],[390,'dark']]){
   await editorGone(width,theme)
   await editorNotAPathway(width,theme)

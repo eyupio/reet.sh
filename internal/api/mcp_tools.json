@@ -499,17 +499,9 @@
         },
         "stage": {
           "type": "string",
-          "enum": [
-            "plan",
-            "design",
-            "code",
-            "review",
-            "test",
-            "pr",
-            "babysit",
-            "merge"
-          ],
-          "description": "The stage in hand that the user asked to move on from. Refused if the pipeline is at another stage."
+          "minLength": 1,
+          "maxLength": 40,
+          "description": "The stage’s name as the outcome lists it: a built-in stage (plan, design, code, review, test, pr, babysit, merge) or one of the pathway’s own. The stage in hand that the user asked to move on from. Refused if the pipeline is at another stage."
         },
         "confirm": {
           "type": "boolean",
@@ -852,6 +844,62 @@
     }
   },
   {
+    "name": "reet_list_pathways",
+    "title": "List the user’s pathways",
+    "description": "List the user’s saved pathways that are switched on: each one’s id, name, description, its stages in order by name (built-in stages and stages of the user’s own) and any problems that would refuse a start on it. Pass a pathway’s id or name as pathway to reet_start_outcome or reet_add_pipelines to run its stages. A stage’s own instructions are not included. Not available to a read-only account. Does not change anything. Returns {data: object} as structured content and text. Pages contain items, count, total_count, has_more and next_offset.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "limit": {
+          "default": 20,
+          "description": "Maximum items per page (1–100).",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "offset": {
+          "default": 0,
+          "description": "Page offset; follow next_offset until has_more is false.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "response_format": {
+          "default": "json",
+          "description": "JSON or a Markdown JSON code block.",
+          "type": "string",
+          "enum": [
+            "json",
+            "markdown"
+          ]
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "data": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": {}
+        }
+      },
+      "required": [
+        "data"
+      ],
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true
+    }
+  },
+  {
     "name": "reet_list_factory_projects",
     "title": "List projects an outcome can run in",
     "description": "List the user’s projects with their id, name, machine and whether they are git repositories, to choose project_id for reet_start_outcome. Not available to a read-only account. Does not change anything. Returns {data: object} as structured content and text.",
@@ -896,7 +944,7 @@
   {
     "name": "reet_start_outcome",
     "title": "Start a Factory outcome",
-    "description": "Requires management scope and a writer account. Approve an outcome on the user’s behalf: the controller starts each pipeline’s first stage as an agent session on the project’s machine and Gaffer follows it stage by stage. This starts real agents that run commands and may use the user’s agent and Gaffer credits. Sessions always start with ordinary approvals, never YOLO, with no folder trust, and every pipeline stops at Ready to merge and waits for the user. Use only when the user asked you to start exactly this work, with confirm=true. Returns {data: object} as structured content and text.",
+    "description": "Requires management scope and a writer account. Approve an outcome on the user’s behalf: the controller starts each pipeline’s first stage as an agent session on the project’s machine and Gaffer follows it stage by stage. This starts real agents that run commands and may use the user’s agent and Gaffer credits. Sessions always start with ordinary approvals, never YOLO, with no folder trust, and every pipeline stops at Ready to merge and waits for the user. With pathway, each stage runs on the agent the pathway gives it or on its tier’s saved crew, and a pathway that can run on an agent needing folder trust is refused here. Use only when the user asked you to start exactly this work, with confirm=true. Returns {data: object} as structured content and text.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1046,6 +1094,12 @@
             "additionalProperties": false
           }
         },
+        "pathway": {
+          "description": "Start every pipeline on this saved pathway: its id or its exact name, in any case, from reet_list_pathways. The pipelines then run the pathway’s stages, so give none of their own: no stages, tiers or parts. Omit for the stages each pipeline gives, or the usual ones.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 60
+        },
         "request_id": {
           "description": "Optional stable request ID, 32 lowercase hex characters. Keep it when retrying a call that was not answered: the same ID answers the outcome it already started instead of starting another.",
           "type": "string",
@@ -1111,7 +1165,7 @@
   {
     "name": "reet_add_pipelines",
     "title": "Add pipelines to an outcome",
-    "description": "Requires management scope and a writer account. Add up to five pipelines to an existing outcome; the controller starts them with the outcome’s agent. An outcome holds at most ten pipelines. Added pipelines never merge by themselves. Refused for an outcome that runs on YOLO: pipelines join one on the Factory page only. This starts real agents. Use only when the user asked for exactly these, with confirm=true. Returns {data: object} as structured content and text.",
+    "description": "Requires management scope and a writer account. Add up to five pipelines to an existing outcome; the controller starts them with the outcome’s agent. With pathway, each stage runs on the agent the pathway gives it or on its tier’s saved crew, and on an outcome approved without folder trust a pathway that can run on an agent needing it is refused. An outcome holds at most ten pipelines. Added pipelines never merge by themselves. Refused for an outcome that runs on YOLO: pipelines join one on the Factory page only. This starts real agents. Use only when the user asked for exactly these, with confirm=true. Returns {data: object} as structured content and text.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1237,6 +1291,12 @@
             ],
             "additionalProperties": false
           }
+        },
+        "pathway": {
+          "description": "Start every pipeline on this saved pathway: its id or its exact name, in any case, from reet_list_pathways. The pipelines then run the pathway’s stages, so give none of their own: no stages, tiers or parts. Omit for the stages each pipeline gives, or the usual ones.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 60
         },
         "confirm": {
           "type": "boolean",
@@ -1377,17 +1437,9 @@
         },
         "stage": {
           "type": "string",
-          "enum": [
-            "plan",
-            "design",
-            "code",
-            "review",
-            "test",
-            "pr",
-            "babysit",
-            "merge"
-          ],
-          "description": "The stage to do again: the one in hand or one before it."
+          "minLength": 1,
+          "maxLength": 40,
+          "description": "The stage’s name as the outcome lists it: a built-in stage (plan, design, code, review, test, pr, babysit, merge) or one of the pathway’s own. The stage to do again: the one in hand or one before it."
         },
         "reason": {
           "type": "string",

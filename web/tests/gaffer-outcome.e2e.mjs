@@ -391,7 +391,7 @@ try {
       await expect(approvals.getByRole('radio',{name:'Ask me',exact:true})).toBeChecked()
       await approvals.getByRole('radio',{name:'YOLO',exact:true}).click()
       const confirm=w.page.getByRole('alertdialog',{name:'Turn on YOLO for this launch?',exact:true})
-      await expect(confirm).toContainText('Your account allows YOLO');await expect(confirm).toContainText('workshop accepts YOLO sessions');await expect(confirm).toContainText('Every agent in the crew has a YOLO option')
+      await expect(confirm).toContainText('Your account allows YOLO');await expect(confirm).toContainText('workshop accepts YOLO sessions');await expect(confirm).toContainText('Every agent this start can use has a YOLO option')
       await confirm.getByRole('button',{name:'Turn on YOLO',exact:true}).click()
       await expect(approvals.getByRole('radio',{name:'YOLO',exact:true})).toBeChecked()
       await expect(outcome.getByText('On YOLO the agents do not wait for you',{exact:false})).toBeVisible()

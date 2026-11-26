@@ -63,6 +63,7 @@ try{
    const dialog=w.page.getByRole('dialog',{name:'What Gaffer can read',exact:true})
    await expect(dialog.getByText('Workshop Gaffer',{exact:true})).toBeVisible()
    await expect(dialog.getByLabel('Share status',{exact:true})).not.toBeChecked()
+   await expect(dialog.getByText('This session’s state, worker type and update time. For a session in a Factory pipeline, this includes the names of its stages and of its pathway.',{exact:true})).toBeVisible()
    await expect(dialog.getByLabel('Share message text and code',{exact:true})).toBeDisabled()
    await dialog.getByLabel('Share status',{exact:true}).check();await dialog.getByLabel('Share event summaries',{exact:true}).check()
    await expect(dialog.getByRole('button',{name:'Enable selected sharing',exact:true})).toBeDisabled()

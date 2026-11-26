@@ -4,7 +4,7 @@
   // controller start each session through the ordinary launch and put it in Gaffer's care. This dialog only watches:
   // the work carries on if it is closed. Nothing starts on the model's say-so: a proposed session is text until Approve.
   import { onMount, tick, untrack } from 'svelte'
-  import { ApiError, createGafferOutcome, diffGafferTemplate, getGafferCrew, getGafferTemplate, launchGafferTemplate, type Template, type TemplateDiff, type TemplateLaunchInput, type GafferOutcomeInput, saveGafferCrew, type GafferCrew, getGafferOutcome, getGafferSettings, getProfile, getYoloSetting, listGafferPathways, listModelFavourites, planGafferOutcome, type Pathway, type GafferPlanPhase, stopGafferOutcome, type GafferOutcome, type GafferProvider, type YoloSetting } from './api'
+  import { ApiError, createGafferOutcome, diffGafferTemplate, getGafferCrew, getGafferTemplate, launchGafferTemplate, type Template, type TemplateDiff, type TemplateLaunchInput, type GafferOutcomeInput, saveGafferCrew, type GafferCrew, getGafferOutcome, getGafferSettings, getProfile, getYoloSetting, listGafferPathways, listModelFavourites, planGafferOutcome, type GafferOutcomePlan, type Pathway, type GafferPlanPhase, stopGafferOutcome, type GafferOutcome, type GafferProvider, type YoloSetting } from './api'
   import { chatToolName, launchUpload, listFolderProjects, machineAccounts, machineModels, structuredAgent, terminalMachines, type FolderProject, type TerminalMachine } from './terminal/api'
   import { imageFiles } from './terminal/upload'
   import ImageAttachment from './ImageAttachment.svelte'
@@ -34,7 +34,7 @@
   import { attemptIds, mayHaveArrived } from './factory/delivery'
   import { changesSince, changesWords, conflictWords, mergeLine, refusedGaps, skippedKeys, tierCrew } from './factory/templates'
   import { reveal } from './dialogShell'
-  import { inWords, launchReadiness, launchSummary, type ModelsRead } from './factory/launchReadiness'
+  import { inWords, launchReadiness, missingCrewLine, launchSummary, type ModelsRead } from './factory/launchReadiness'
   import type { MachineAccounts } from './agentAccounts'
   import CriteriaEditor from './factory/CriteriaEditor.svelte'
   import { gafferAutoMerge } from './gafferMotion'
@@ -103,6 +103,18 @@
   // The pathway every pipeline follows, or '' for the stages chosen here. A failed read offers none, and the dialog is as it was.
   let pathways = $state<Pathway[]>([]), pathwayId = $state('')
   const pathway = $derived(pathways.find(p => p.id === pathwayId) ?? null)
+  // The pathway Gaffer's latest plan suggests, said on its row while it is offered. A plan chooses it only while the person
+  // has not chosen a pathway (or Standard stages) themselves in this dialog.
+  let suggestion = $state<GafferOutcomePlan['pathway']>(), pathwayTouched = $state(false)
+  const suggested = $derived.by(() => {
+    const p = pathways.find(p => p.id === suggestion?.id && p.enabled && !p.problems?.length)
+    return p && { id: p.id, why: suggestion?.why ?? '' }
+  })
+  function followPlan(plan?: GafferOutcomePlan) {
+    suggestion = plan?.pathway
+    if (!pathwayTouched) pathwayId = suggested?.id ?? ''
+  }
+  const touchPathway = (e: Event) => { if (e.target instanceof HTMLInputElement && e.target.type === 'radio') pathwayTouched = true }
   let trust = $state(false)
   // The model every stage uses unless a crew role is given its own. Empty is the agent's default.
   let model = $state(''), effort = $state('')
@@ -196,7 +208,7 @@
   const startSource = $derived(resolveStartSource({ explicit: explicitSource ? source : undefined, saved: savedSource, offered: sourceOffered }))
   const chosenSource = $derived(startSource.source)
   const sourceShown = $derived(tool === 'cline' && machine?.capabilities?.acpProvider === true)
-  // The agents the work runs on: the crew's, or with a pathway, the ones its stages resolve to (below).
+  // The agents the work runs on (runTools, below).
   const needsTrust = $derived.by(() => runTools.some(id => id === 'opencode' || id === 'antigravity'))
   const trustNames = $derived.by(() => [...new Set(runTools.filter(id => id === 'opencode' || id === 'antigravity'))].map(chatToolName).join(' and '))
   const limitsOk = $derived(wholeBetween(maxReviews, 1, 48) && wholeBetween(hours, 1, 168))
@@ -352,23 +364,36 @@
       return [tier, launchReadiness({ machine, tools, efforts, models: modelsFor, accounts: machine ? accounts[machine.agentId] : undefined, now, member: { tool: one.tool, model: one.model, effort: asked }, spares, saved: savedFor(tier), edited: !!chosenRoles[tier] })]
     })) as Record<'heavy' | 'standard' | 'light', ReturnType<typeof launchReadiness>>
   })
-  // With a pathway, what each of its stages runs on, as the controller resolves it: the stage's own agent, else its tier
-  // in the saved crew where this machine can run that, else the outcome's own agent. The crew edited here is not sent.
-  const savedSpares = (tier: keyof Crew) => { const member = savedCrew?.[tier]; return [member?.backup, ...(member?.moreBackups ?? [])].flatMap(one => one?.tool && tools.includes(one.tool) ? [{ tool: one.tool, model: one.model ?? '', effort: one.effort ?? '' }] : []) }
+  // With a pathway, what each of its stages runs on, as the controller resolves it (outcomePieces): the stage's own agent
+  // with no backups, else its tier's saved crew member with that member's backups, whether or not this machine has them,
+  // else (a tier not saved) the outcome's own agent. The crew edited here is not sent.
   const pathwayRuns = $derived(!pathway ? [] : pathway.stages.map(stage => {
-    if (stage.agent) return { stage, tier: null, member: { tool: stage.agent.tool, model: stage.agent.model ?? '', effort: stage.agent.effort ?? '' } }
+    if (stage.agent) return { stage, tier: null, saved: false, member: { tool: stage.agent.tool, model: stage.agent.model ?? '', effort: stage.agent.effort ?? '' }, spares: [] }
     const tier = (stage.tier ?? defaultTier(stage.kind)) as keyof Crew, member = savedCrew?.[tier]
-    return { stage, tier, member: savedHere(tier) ? { tool: member!.tool!, model: member!.model ?? '', effort: member!.effort ?? '' } : { tool, model, effort } }
+    if (!member?.tool) return { stage, tier, saved: false, member: { tool, model, effort }, spares: [] }
+    const spares = [member.backup, ...(member.moreBackups ?? [])].flatMap(one => one?.tool ? [{ tool: one.tool, model: one.model ?? '', effort: one.effort ?? '' }] : [])
+    return { stage, tier, saved: true, member: { tool: member.tool, model: member.model ?? '', effort: member.effort ?? '' }, spares }
   }))
-  const runTools = $derived(pathway ? [...new Set(pathwayRuns.map(run => run.member.tool))] : crewTools)
+  // The stages each pipeline sends under standard stages; the start's body is built from these.
+  const sentStages = $derived(sessions.map(item => withReportedEfforts(stagePlan(item.stages ?? DEFAULT_STAGES, crewSent, machine?.capabilities?.acpProvider === true, item), machine?.capabilities ? efforts : null)))
+  const agentsOf = (plan: { tool: string; backup?: { tool: string }; moreBackups?: { tool: string }[] }[]) => plan.flatMap(one => [one.tool, one.backup?.tool ?? '', ...(one.moreBackups ?? []).map(spare => spare.tool)]).filter(Boolean)
+  // Every agent the start can use, as the controller counts them for folder trust and YOLO: the outcome's own agent, and the
+  // first choice and backups of each stage it sends, so a tier no stage uses counts for nothing. A template's stages run on
+  // the crew sent for their tiers.
+  const runTools = $derived([...new Set([tool, ...(pathway ? pathwayRuns.flatMap(run => [run.member.tool, ...run.spares.map(one => one.tool)])
+    : template && tpl ? [...new Set(tpl.content.pipelines.flatMap(item => item.stages.map(stage => stage.tier)))].flatMap(tier => CREW_TIERS.some(one => one.tier === tier) ? agentsOf([sentFor(tier as 'heavy' | 'standard' | 'light')]) : [])
+    : sentStages.flatMap(agentsOf))])])
   const pathwayLaunch = $derived.by(() => {
     if (!pathway) return null
     const now = Date.now(), held = machine ? accounts[machine.agentId] : undefined
     const summary = launchSummary(pathwayRuns.map(run => ({ stage: stageTitle(run.stage), crew: run.tier ? tierLabel(run.tier) : chatToolName(run.member.tool),
-      readiness: launchReadiness({ machine, tools, efforts, models: modelsFor, accounts: held, now, member: run.member, spares: run.tier ? savedSpares(run.tier) : [], saved: run.tier ? savedFor(run.tier) : undefined, edited: run.tier ? savedHere(run.tier) : true }) })))
-    // There is no crew to change here: what holds a stage is fixed where the stage is, in the pathway or on the machine.
+      readiness: launchReadiness({ machine, tools, efforts, models: modelsFor, accounts: held, now, member: run.member, spares: run.spares, saved: run.tier ? savedFor(run.tier) : undefined, edited: run.saved || !run.tier }) })))
+    // There is no crew to change here: what holds a stage is fixed where the stage is, in the pathway, the saved crew or on the machine.
     const first = summary.causes.find(cause => cause.level === 'blocked')
-    return { ...summary, blocker: !first ? '' : first.machine ? first.text : `${first.text} This pathway’s ${inWords(first.stages)} ${first.stages.length === 1 ? 'stage runs' : 'stages run'} on it. Install it there, or change the stage in the pathway.` }
+    const away = first && !first.machine ? pathwayRuns.find(run => run.saved && first.stages.includes(stageTitle(run.stage)) && !tools.includes(run.member.tool)) : undefined
+    const blocker = !first ? '' : first.machine ? first.text : away ? missingCrewLine(tierLabel(away.tier!), chatToolName(away.member.tool), pathwayRuns.filter(run => run.tier === away.tier && run.saved).map(run => stageTitle(run.stage)), machine?.host || 'this machine')
+      : `${first.text} This pathway’s ${inWords(first.stages)} ${first.stages.length === 1 ? 'stage runs' : 'stages run'} on it. Install it there, or change the stage in the pathway.`
+    return { ...summary, blocker }
   })
   // Every stage, and every part of a split stage, with the readiness of the tier it is on.
   const launch = $derived(pathwayLaunch ?? launchSummary(sessions.flatMap(item => (item.stages ?? []).flatMap(kind => {
@@ -400,7 +425,7 @@
     return [
       { label: 'Your account allows YOLO', ok: account, detail: account ? (yoloSetting?.changedBy ? `set by ${yoloSetting.changedBy}` : 'set by an owner') : yoloSetting ? 'An owner or admin can allow YOLO for this account in Settings.' : 'Reading the account setting…' },
       { label: `${host} accepts YOLO sessions`, ok: !!machine?.capabilities?.yolo, detail: machine?.capabilities?.yolo ? 'reported by the machine' : `${host} doesn’t accept YOLO sessions.` },
-      { label: pathway ? 'Every agent this pathway uses has a YOLO option' : 'Every agent in the crew has a YOLO option', ok: !without.length, detail: without.length ? `${without.join(' and ')} has no option reet can use for that.` : runTools.filter(Boolean).length ? [...new Set(runTools.filter(Boolean))].map(chatToolName).join(', ') : 'No agent chosen' },
+      { label: pathway ? 'Every agent this pathway uses has a YOLO option' : 'Every agent this start can use has a YOLO option', ok: !without.length, detail: without.length ? `${without.join(' and ')} has no option reet can use for that.` : runTools.filter(Boolean).length ? [...new Set(runTools.filter(Boolean))].map(chatToolName).join(', ') : 'No agent chosen' },
     ]
   })
   const launchesInWorktree = $derived(!!project?.isRepo && !!machine?.capabilities?.worktree)
@@ -418,7 +443,8 @@
     void getYoloSetting().then(found => { yoloSetting = found }).catch(() => { yoloSetting = { allowed: false } })
     void getProfile().then(answer => { if (!life.signal.aborted) { savedSource = answer.profile.defaultClineSource ?? ''; accountLatest = answer.profile.pullLatestByDefault === true } }).catch(() => { /* Cline’s own choice */ })
     void listModelFavourites(life.signal).then(found => { favourites = found.favourites }).catch(() => { /* a helper only */ })
-    void listGafferPathways(life.signal).then(found => { pathways = found }).catch(() => { /* no pathways to offer */ })
+    // A plan that came back before the list is followed once the list is here, unless the person has chosen since.
+    void listGafferPathways(life.signal).then(found => { pathways = found; if (!pathwayTouched && !pathwayId) pathwayId = suggested?.id ?? '' }).catch(() => { /* no pathways to offer */ })
     void Promise.all([getGafferSettings(life.signal), listFolderProjects(life.signal), terminalMachines(life.signal)]).then(([settings, folders, found]) => {
       provider = settings.available ? settings.providers.find(item => item.isDefault && item.enabled) ?? null : null
       projects = folders; machines = found
@@ -454,6 +480,7 @@
       const plan = await planGafferOutcome(provider, { objective: objective.trim(), project: project.name, sessions: wanted }, signal, phase => { planPhase = phase })
       summary = plan.summary
       sessions = plan.sessions.map(item => ({ key: key(), title: item.title, prompt: item.prompt, stages: item.stages?.length ? orderStages([...new Set(item.stages.map(stage => stage.kind))]) : [...DEFAULT_STAGES], ...planRatings(item.stages) }))
+      followPlan(plan)
       step = 'plan'; planPhase = ''
     } catch (e) { if (!signal.aborted) planError = e instanceof Error ? e.message : 'Gaffer could not plan this outcome.' }
     finally { planning = false; planDone() }
@@ -462,7 +489,7 @@
   async function writeOwn() {
     if (cloning || blocker) return
     if (!(await ensureProject())) return
-    summary = ''; sessions = [{ key: key(), title: '', prompt: '', stages: [...DEFAULT_STAGES] }]; planError = ''; reply = ''; planThread = []; declined = false; step = 'plan'
+    summary = ''; sessions = [{ key: key(), title: '', prompt: '', stages: [...DEFAULT_STAGES] }]; planError = ''; reply = ''; planThread = []; declined = false; followPlan(); step = 'plan'
   }
   // A reply is sent back to Gaffer with the proposal it answers, and the revised plan replaces the rows. The person's
   // words stay in the review as part of the exchange; nothing is saved or started until the existing approve action.
@@ -480,6 +507,8 @@
       const typed = sessions.map(old => ({ title: old.title.trim(), criteria: old.criteria }))
       sessions = plan.sessions.map((item, at) => ({ key: key(), title: item.title, prompt: item.prompt, stages: item.stages?.length ? orderStages([...new Set(item.stages.map(stage => stage.kind))]) : [...DEFAULT_STAGES], ...planRatings(item.stages), ...carryCriteria(typed, item.title, at) }))
       planThread = [...planThread, { from: 'gaffer', text: plan.summary }]
+      // A reply's plan rarely repeats the pathway (the model is not told which it suggested): naming none changes nothing.
+      if (plan.pathway) followPlan(plan)
       declined = false; planPhase = ''
     } catch (e) {
       planThread = planThread.slice(0, -1)
@@ -543,7 +572,7 @@
     writeFloorDefaults(userId, { ...readFloorDefaults(userId, BUILT_IN_GOAL_PROMPTS[0].text), maxReviews, hours })
     const body: Omit<GafferOutcomeInput, 'requestId'> = {
       objective: objective.trim(), ...(pathway ? { pathway: pathway.id } : {}), projectId: project.id, tool, model: model.trim(), provider: sourceShown ? chosenSource : '', trust: trust && needsTrust, yolo: yolo && !yoloWhy, autoReport, automation, balanceBelow: balancePercent(balanceBelow), autoMerge: autoMerge && hasMerge, maxReviews, hours, confirmed: true, ...(upload.paths.length ? { images: upload.paths } : {}),
-      sessions: sessions.map(item => ({ title: item.title.trim(), prompt: cleanPrompt(item.prompt), ...(cleanCriteria(item.criteria).length ? { criteria: cleanCriteria(item.criteria) } : {}), ...(pathway ? {} : { stages: withReportedEfforts(stagePlan(item.stages ?? DEFAULT_STAGES, crewSent, machine?.capabilities?.acpProvider === true, item), machine?.capabilities ? efforts : null) }) })),
+      sessions: sessions.map((item, at) => ({ title: item.title.trim(), prompt: cleanPrompt(item.prompt), ...(cleanCriteria(item.criteria).length ? { criteria: cleanCriteria(item.criteria) } : {}), ...(pathway ? {} : { stages: sentStages[at] }) })),
       ...(latestOverride === null ? {} : { pullLatest: latestOverride ? 'yes' as const : 'no' as const }),
     }
     try {
@@ -656,7 +685,8 @@
       {/if}
     {:else if step === 'plan'}
       <p class="objective"><span class="eyebrow">Outcome</span>{objective.trim()}</p>
-      {#if !declined}<PathwayChoice bind:pathways bind:value={pathwayId}/>{/if}
+      <!-- A change of radio, or a click on one (the checked suggestion included), is the person's own choice; Tab past is not. -->
+      {#if !declined}<div class="pathway-choice" onclick={touchPathway} onchange={touchPathway} role="presentation"><PathwayChoice bind:pathways bind:value={pathwayId} {suggested}/></div>{/if}
       {#if planThread.length}
         <section class="talk" aria-label="Conversation with Gaffer">
           {#each planThread as turn, index (index)}
@@ -899,6 +929,7 @@
   .outcome{display:grid;gap:14px;min-width:0;font-size:14px;line-height:1.5}p{margin:0;overflow-wrap:anywhere}.hint{color:var(--muted)}.warning{color:var(--bad)}
   form{display:grid;gap:12px;min-width:0}label{font-weight:600;display:grid;gap:6px;min-width:0}
   textarea,input,select{font:inherit;font-weight:400;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px 12px;min-width:0;width:100%;max-width:100%;min-height:44px;box-sizing:border-box}textarea{resize:vertical}
+  .pathway-choice{display:contents}
   .repo-field{display:grid;gap:6px;min-width:0}
   .pair{display:grid;grid-template-columns:1fr 1fr;gap:12px}.pair.two{grid-template-columns:1fr 1fr;padding-top:8px}.source-field{min-width:0}.crew-source{grid-column:1/-1;min-width:0}
   .eyebrow{display:block;font-size:0.875rem;color:var(--muted);margin-bottom:2px}.objective{white-space:pre-wrap}

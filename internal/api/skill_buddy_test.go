@@ -239,3 +239,23 @@ func TestImpeccableDistillInSessionAndFactory(t *testing.T) {
 		t.Fatalf("guidance was not pinned: %+v", pinned)
 	}
 }
+
+func TestSkillBuddyRanksACustomStageByItsPrompt(t *testing.T) {
+	f := launchAPIFixture(t, chatCaps())
+	o, err := f.st.CreateGafferOutcomeFor(f.uid, store.GafferOutcome{ID: strings.Repeat("d", 32), Objective: "Ship", Sessions: []store.GafferOutcomeSession{{Key: "a", Title: "Work", Prompt: "Do the work", PathwayID: "pw1", PathwayName: "Careful", Stages: []store.GafferOutcomeStage{{Kind: "code", State: "running"}, {Kind: "custom", Name: "Audit", Prompt: "Check security and authentication for holes."}}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, out, raw := f.do(t, f.cookie, "POST", "/api/v2/skill-buddy/recommendations", map[string]any{"outcomeId": o.ID, "pipeline": "a", "stage": 1})
+	skills, _ := out["skills"].([]any)
+	if code != 200 || len(skills) == 0 || out["stage"] != "" {
+		t.Fatalf("recommend %d %s", code, raw)
+	}
+	at := map[string]int{}
+	for i, v := range skills {
+		at[v.(map[string]any)["id"].(string)] = i + 1
+	}
+	if at["builtin:upstream-security-diff"] == 0 || at["builtin:upstream-ponytail"] != 0 && at["builtin:upstream-security-diff"] > at["builtin:upstream-ponytail"] {
+		t.Fatalf("a security stage did not rank the security skill above an unrelated one: %s", raw)
+	}
+}

@@ -383,3 +383,55 @@ func TestPathwaySkillsLeavesOutOnlyWhatCannotLoad(t *testing.T) {
 		t.Fatalf("a failed read: %d %s", code, got)
 	}
 }
+
+// switchPathwayOff saves the pathway as it is with Enabled false.
+func switchPathwayOff(t *testing.T, st *store.Store, uid int64, id string) {
+	t.Helper()
+	p, err := st.GafferPathwayFor(uid, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.Enabled = false
+	if _, err := st.SaveGafferPathwayFor(uid, p, p.UpdatedAt); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// dismissStageSkill records that the person dismissed a skill from a stage's
+// Skills panel.
+func dismissStageSkill(t *testing.T, st *store.Store, uid int64, outcome, key string, stage int, skill string) {
+	t.Helper()
+	if err := st.RecordSkillBuddyFor(uid, "factory:"+outcome+":"+key+":"+strconv.Itoa(stage), "", "custom", skillbuddy.Skill{ID: skill, Name: "Review", State: "dismissed"}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A start asked again under its request ID is answered with the outcome it
+// already made, even once the pathway is switched off, and leaves the skills
+// the person dismissed since dismissed.
+func TestARetriedPathwayStartAnswersTheFirstOutcome(t *testing.T) {
+	st, srv, owner, project, pathway := pathwayStart(t)
+	body := `{"objective":"Tidy the logs.","projectId":"` + project + `","tool":"opencode","maxReviews":8,"hours":24,"confirmed":true,"requestId":"` + strings.Repeat("ab", 16) + `","pathway":"` + pathway + `","sessions":[{"title":"Logs","prompt":"Tidy the logs. Do not merge."}]}`
+	code, got := gafferClient(t, owner, srv, "POST", "/api/v2/gaffer/outcomes", body)
+	if code != 201 {
+		t.Fatalf("start: %d %s", code, got)
+	}
+	var first struct {
+		ID       string
+		Sessions []struct{ Key string }
+	}
+	if err := json.Unmarshal([]byte(got), &first); err != nil {
+		t.Fatal(err)
+	}
+	dismissStageSkill(t, st, 1, first.ID, first.Sessions[0].Key, 1, "builtin:review")
+	if code, got = gafferClient(t, owner, srv, "POST", "/api/v2/gaffer/outcomes", body); code != 201 || !strings.Contains(got, first.ID) {
+		t.Fatalf("retry: %d %s", code, got)
+	}
+	if stageSkillShown(t, st, first.ID, first.Sessions[0].Key, 1, "builtin:review") {
+		t.Fatal("the retry selected a skill the person dismissed")
+	}
+	switchPathwayOff(t, st, 1, pathway)
+	if code, got = gafferClient(t, owner, srv, "POST", "/api/v2/gaffer/outcomes", body); code != 201 || !strings.Contains(got, first.ID) {
+		t.Fatalf("retry once the pathway is off: %d %s", code, got)
+	}
+}

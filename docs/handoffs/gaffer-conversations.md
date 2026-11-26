@@ -92,7 +92,7 @@ checked before scope lookup and ungranted session IDs reveal no session existenc
 
 | Category | Projection | Gaffer provider maximum |
 | --- | --- | --- |
-| `status` | Account machine/unarchived-session counts and last report time, or selected-session canonical state, worker type and update time; no names/paths/text | `allowStatus` |
+| `status` | Account machine/unarchived-session counts and last report time, or selected-session canonical state, worker type and update time, plus the stage and pathway names of a Factory pipeline session; no other names, paths or text | `allowStatus` |
 | `history` | Recent event sequence/time/role, canonical tool kind/state and status; no prose | `allowSessions` |
 | `text` | User/agent text, selected-session title and opening-goal excerpt; requires `history` | `allowSessions` and `allowCode` |
 

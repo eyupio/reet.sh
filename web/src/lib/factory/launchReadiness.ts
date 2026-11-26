@@ -243,6 +243,10 @@ export type LaunchCause = Omit<ReadinessItem, 'machine'> & { machine: boolean; /
 const CREW_ORDER = ['Heavy', 'Standard', 'Light'], LEVEL_ORDER = ['blocked', 'look', 'note']
 /** "Heavy and Standard", "Code, Review and Test". */
 export const inWords = (items: readonly string[]) => new Intl.ListFormat('en-GB', { type: 'conjunction' }).format(items)
+/** A pathway's tier stages run on the saved crew's agent for that tier whether or not the machine has it, as the
+ *  controller resolves them (outcomePieces): what holds them, with the tier ("Standard"), the stages and what to do. */
+export const missingCrewLine = (crew: string, agent: string, stages: readonly string[], host: string): string =>
+  `Your ${crew} crew is ${agent}, which is not on ${host}. This pathway’s ${inWords(stages)} ${stages.length === 1 ? 'stage runs' : 'stages run'} on it. Install or sign in to ${agent} there, change your saved crew in Gaffer settings, or change the stage in the pathway.`
 
 /** The summary at the head of the pipelines: how many stages are ready, and each cause said once with who it affects. */
 export function launchSummary(stages: readonly { /** "Code"; a part of a split stage uses the stage’s label. */ stage: string; /** The tier’s label: "Standard". */ crew: string; readiness: StageReadiness }[]): { ready: number; look: number; blocked: number; /** Of `blocked`, the stages on a locked machine. */ waiting: number; reading: number; text: string; blocker: string; causes: LaunchCause[] } {

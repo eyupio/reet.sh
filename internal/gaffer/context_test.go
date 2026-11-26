@@ -436,3 +436,19 @@ func TestGafferContextCarriesTheWorkersLatestReplyAtLength(t *testing.T) {
 		t.Fatalf("long reply: omitted=%v len=%d snapshot=%d", r != nil && r.StartOmitted, len(r.Text), len(out))
 	}
 }
+
+func TestContextNamesACustomStage(t *testing.T) {
+	s, st, p := settingsFixture(t)
+	row := contextSessionFixture(t, st, p)
+	_, err := st.CreateGafferOutcomeFor(p.UserID, store.GafferOutcome{ID: strings.Repeat("c", 32), Objective: "Tidy logs", Sessions: []store.GafferOutcomeSession{{Key: "a", Title: "Logs", Prompt: "Tidy the logs.", PathwayID: "pw1", PathwayName: "Careful", Stages: []store.GafferOutcomeStage{{Kind: "code"}, {Kind: "custom", Name: "Audit", Prompt: "SECRET_PROMPT", SessionID: row.ID}}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := s.contextPipeline(p.UserID, row.ID, store.ContextFlags{Status: true, Text: true})
+	if got == nil || got.Pathway != "Careful" || got.StageInHand != "code" || got.Stages[0].Name != "" || got.Stages[1].Name != "Audit" {
+		t.Fatalf("pipeline = %+v", got)
+	}
+	if raw, _ := json.Marshal(got); strings.Contains(string(raw), "SECRET_PROMPT") {
+		t.Fatalf("a stage prompt reached the context: %s", raw)
+	}
+}

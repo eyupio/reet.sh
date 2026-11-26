@@ -927,7 +927,9 @@ previewing sends no model request. A later read may contain newer permitted even
 
 - **Last-reported status:** general chat gets counts of your machines and
   unarchived sessions. A session companion gets only that session's stored state,
-  worker type and update time. Requires the provider's status permission.
+  worker type and update time; for a session in a Factory pipeline this includes
+  the names of its stages and of its pathway. Requires the provider's status
+  permission.
 - **Conversation event summaries:** recent roles, timestamps and tool kinds/states
   for that selected session, without message text. Requires session permission.
 - **Message text and code:** bounded user/agent text, session title and opening-goal

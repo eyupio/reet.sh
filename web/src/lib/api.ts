@@ -292,7 +292,9 @@ export async function actOnGafferProvider(p: GafferProvider, action: 'test' | 'd
   return (await req(path, { method: action === 'delete' ? 'DELETE' : 'POST', body: json({ revision: p.revision, ...(enabled === undefined ? {} : { enabled }) }), signal })).json()
 }
 
-export type GafferOutcomePlan = { summary: string; sessions: { title: string; prompt: string; stages?: { kind: string; tier?: string; tierWhy?: string; /** One part of a split stage: its name and what it does. */ part?: string; brief?: string }[] }[]; model: string; usageReported: boolean; inputTokens: number; outputTokens: number }
+export type GafferOutcomePlan = { summary: string; sessions: { title: string; prompt: string; stages?: { kind: string; tier?: string; tierWhy?: string; /** One part of a split stage: its name and what it does. */ part?: string; brief?: string }[] }[]; model: string; usageReported: boolean; inputTokens: number; outputTokens: number
+  /** The pathway Gaffer suggests for the work, with why (plain text, at most 200 bytes) when it gave a reason. */
+  pathway?: { id: string; name: string; why?: string } }
 export type GafferOutcomePlanInput = {
   objective: string; project: string; sessions: number
   /** The person's answer to the proposal in `previous`; omitted for the first plan. */

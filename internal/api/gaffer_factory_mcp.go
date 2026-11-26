@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strings"
 
 	"github.com/eyupio/reet.sh/internal/gaffer"
 	"github.com/eyupio/reet.sh/internal/store"
@@ -16,7 +17,7 @@ import (
 // page makes, so the same rules hold: nothing here starts an outcome, answers
 // an approval, runs a command or merges anything itself.
 
-var mcpFactoryReads = map[string]bool{"reet_list_factory": true, "reet_get_factory_outcome": true, "reet_list_factory_projects": true}
+var mcpFactoryReads = map[string]bool{"reet_list_factory": true, "reet_get_factory_outcome": true, "reet_list_factory_projects": true, "reet_list_pathways": true}
 var mcpFactoryWrites = map[string]bool{
 	"reet_move_pipeline_on": true, "reet_retry_pipeline": true, "reet_set_pipeline_merge": true,
 	"reet_approve_pipeline_merge": true, "reet_stop_outcome": true, "reet_report_outcome": true,
@@ -28,8 +29,9 @@ var mcpFactoryWrites = map[string]bool{
 // demanding it is. A client names no agent for a stage: its tier's agent and
 // backup come from the person's saved crew. It never chooses YOLO, folder
 // trust, a merge that happens by itself or who takes the decisions; those
-// stay the person's.
-func mcpPipelines(raw any) ([]gaffer.OutcomeSession, error) {
+// stay the person's. A pipeline started on a pathway takes the pathway's
+// stages, so it gives none of its own and is not given the usual ones.
+func mcpPipelines(raw any, onPathway bool) ([]gaffer.OutcomeSession, error) {
 	list, ok := raw.([]any)
 	if !ok || len(list) == 0 {
 		return nil, errors.New("Give at least one pipeline, each with a title and a prompt.")
@@ -40,6 +42,13 @@ func mcpPipelines(raw any) ([]gaffer.OutcomeSession, error) {
 		title, _ := item["title"].(string)
 		prompt, _ := item["prompt"].(string)
 		piece := gaffer.OutcomeSession{Title: title, Prompt: prompt}
+		if onPathway {
+			if item["stages"] != nil || item["tiers"] != nil || item["parts"] != nil {
+				return nil, errors.New("A pipeline takes a pathway or its own stages, not both. Nothing was started.")
+			}
+			out = append(out, piece)
+			continue
+		}
 		tiers, _ := item["tiers"].(map[string]any)
 		for kind, tier := range tiers {
 			name, _ := tier.(string)
@@ -149,6 +158,9 @@ func (s *server) mcpOutcome(uid int64, o store.GafferOutcome, full bool) map[str
 	pipelines := []map[string]any{}
 	for _, piece := range o.Sessions {
 		row := map[string]any{"key": piece.Key, "title": piece.Title, "state": piece.State, "note": piece.Note, "updated_at": piece.UpdatedAt}
+		if piece.PathwayName != "" {
+			row["pathway"] = piece.PathwayName
+		}
 		if piece.SessionID != "" {
 			row["session_id"] = piece.SessionID
 		}
@@ -167,7 +179,7 @@ func (s *server) mcpOutcome(uid int64, o store.GafferOutcome, full bool) map[str
 		}
 		stages := []map[string]any{}
 		for i, stage := range piece.Stages {
-			item := map[string]any{"kind": stage.Kind, "state": stage.State, "agent": stage.Tool}
+			item := map[string]any{"kind": stage.Kind, "name": stage.Label(), "state": stage.State, "agent": stage.Tool}
 			if stage.Model != "" {
 				item["model"] = stage.Model
 			}
@@ -374,6 +386,30 @@ func (s *server) runMCPFactory(ctx context.Context, access mcpAccess, name strin
 		}
 		return map[string]any{"projects": out}, nil
 	}
+	// A pathway's stages are listed by name; their prompts are not.
+	if name == "reet_list_pathways" {
+		rows, err := s.gafferProviders.Pathways(uid)
+		if err != nil {
+			return nil, err
+		}
+		out := []any{}
+		for _, p := range rows {
+			if !p.Enabled {
+				continue
+			}
+			stages := []string{}
+			for _, st := range p.Stages {
+				stages = append(stages, store.GafferOutcomeStage{Kind: st.Kind, Name: st.Name}.Label())
+			}
+			problems := s.gafferProviders.PathwayProblems(p, s.templateSkills(uid))
+			if problems == nil {
+				problems = []string{}
+			}
+			out = append(out, map[string]any{"id": p.ID, "name": p.Name, "description": p.Description, "stages": stages, "problems": problems})
+		}
+		// Fifty pathways of twelve named stages do not fit one answer, so they are paged.
+		return mcpPage(out, args, nil)
+	}
 	id, key := str("outcome_id"), str("pipeline")
 	if name == "reet_get_factory_outcome" {
 		o, err := s.gafferProviders.Outcome(uid, id)
@@ -408,6 +444,11 @@ func (s *server) runMCPFactory(ctx context.Context, access mcpAccess, name strin
 		}
 		if cur.Yolo {
 			return nil, errors.New("This outcome runs on YOLO, so its agents act without approvals. Telling them, adding pipelines, sending work back, trying a pipeline again, moving it on and approving its merge are done on the Factory page. Nothing was changed.")
+		}
+		if name == "reet_send_pipeline_back" || name == "reet_move_pipeline_on" {
+			if err := mcpStageNamed(cur, key, str("stage")); err != nil {
+				return nil, err
+			}
 		}
 	}
 	if !s.terminalEnabled() && name != "reet_stop_outcome" && name != "reet_set_pipeline_merge" {
@@ -456,7 +497,7 @@ func (s *server) runMCPFactory(ctx context.Context, access mcpAccess, name strin
 	applied := true
 	switch name {
 	case "reet_start_outcome":
-		pipelines, perr := mcpPipelines(args["pipelines"])
+		pipelines, perr := mcpPipelines(args["pipelines"], str("pathway") != "")
 		if perr != nil {
 			return nil, perr
 		}
@@ -490,14 +531,28 @@ func (s *server) runMCPFactory(ctx context.Context, access mcpAccess, name strin
 				return nil, errors.New("balance_below is a whole number from 5 to 90.")
 			}
 		}
+		pathway, perr := s.mcpUsePathway(uid, str("pathway"), pipelines)
+		if perr != nil {
+			return nil, perr
+		}
 		o, err = s.gafferProviders.CreateOutcome(uid, gaffer.OutcomeInput{Objective: str("objective"), ProjectID: str("project_id"), Tool: str("agent"), Model: str("model"), Sessions: pipelines, BalanceBelow: balanceBelow, MaxReviews: 12, Hours: 24, Confirmed: true, AutoReport: args["reports_by_itself"] == true, RequestID: str("request_id")})
 		id = o.ID
+		if err == nil {
+			s.recordPathwaySkills(uid, pathway, o, len(pipelines))
+		}
 	case "reet_add_pipelines":
-		pipelines, perr := mcpPipelines(args["pipelines"])
+		pipelines, perr := mcpPipelines(args["pipelines"], str("pathway") != "")
+		if perr != nil {
+			return nil, perr
+		}
+		pathway, perr := s.mcpUsePathway(uid, str("pathway"), pipelines)
 		if perr != nil {
 			return nil, perr
 		}
 		o, err = s.gafferProviders.AddPipelines(uid, id, gaffer.AddPipelinesInput{Confirmed: true, Sessions: pipelines})
+		if err == nil {
+			s.recordPathwaySkills(uid, pathway, o, len(pipelines))
+		}
 	case "reet_send_pipeline_back":
 		o, err = s.gafferProviders.SendPipelineBack(uid, id, key, str("stage"), str("reason"))
 	case "reet_move_pipeline_on":
@@ -560,4 +615,69 @@ func (s *server) runMCPFactory(ctx context.Context, access mcpAccess, name strin
 	}
 	s.event(uid, "mcp", "mcp-factory-control", "", map[string]any{"connection": access.Connection.Name, "tool": name, "outcome": id, "pipeline": key})
 	return map[string]any{"outcome": mcpOutcomeRow(o), "applied": true, "note": mcpOutcomeMore}, nil
+}
+
+// mcpUsePathway gives the pipelines the stages of the enabled pathway a client
+// named by its id or its name in any case, and returns its id. No name, no
+// pathway: the pipelines are left as they are.
+func (s *server) mcpUsePathway(uid int64, named string, pipelines []gaffer.OutcomeSession) (string, error) {
+	if named == "" {
+		return "", nil
+	}
+	rows, err := s.gafferProviders.Pathways(uid)
+	if err != nil {
+		return "", err
+	}
+	// An id is matched before any name, so a pathway named with another's id
+	// is not taken for it.
+	id, on := "", []string{}
+	for _, p := range rows {
+		if p.Enabled && p.ID == named {
+			id = p.ID
+		}
+	}
+	for _, p := range rows {
+		if !p.Enabled {
+			continue
+		}
+		if id == "" && strings.EqualFold(p.Name, named) {
+			id = p.ID
+		}
+		on = append(on, p.Name)
+	}
+	if id == "" && len(on) == 0 {
+		return "", errors.New("No pathway called “" + named + "” is switched on, and no other is either. Nothing was started.")
+	}
+	if id == "" {
+		return "", errors.New("No pathway called “" + named + "” is switched on. The ones that are: " + strings.Join(on, ", ") + ". Nothing was started.")
+	}
+	if err := s.usePathway(uid, id, pipelines); err != nil {
+		var refused *gaffer.Invalid
+		if errors.As(err, &refused) {
+			return "", errors.New(err.Error() + " Nothing was started.")
+		}
+		return "", err
+	}
+	return id, nil
+}
+
+// mcpStageNamed refuses a stage the pipeline does not have, naming those it
+// has. A pipeline that is not there is left for the control to refuse.
+func mcpStageNamed(o store.GafferOutcome, key, stage string) error {
+	for _, piece := range o.Sessions {
+		if piece.Key != key || stage == "" {
+			continue
+		}
+		labels := []string{}
+		for _, st := range piece.Stages {
+			if st.Label() == stage {
+				return nil
+			}
+			if !slices.Contains(labels, st.Label()) {
+				labels = append(labels, st.Label())
+			}
+		}
+		return errors.New("That pipeline has no “" + stage + "” stage. Its stages are: " + strings.Join(labels, ", ") + ". Nothing was changed.")
+	}
+	return nil
 }

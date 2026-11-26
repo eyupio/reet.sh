@@ -121,20 +121,26 @@ func (s *server) gafferOutcomeCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if in.Pathway != "" {
-		if err := s.gafferProviders.UsePathway(s.uid(r), in.Pathway, in.Sessions, s.templateSkills(s.uid(r))); err != nil {
-			gafferDeliveryError(w, err)
+	// A request asked again is answered with the outcome it already made, as
+	// CreateOutcome would, before the pathway is read: it may be off since,
+	// and the receipts written then may have been changed by the person.
+	if in.RequestID != "" {
+		if existing, err := s.gafferProviders.Outcome(s.uid(r), in.RequestID); err == nil {
+			w.Header().Set("Cache-Control", "no-store")
+			writeJSON(w, 201, existing)
 			return
 		}
+	}
+	if err := s.usePathway(s.uid(r), in.Pathway, in.Sessions); err != nil {
+		gafferDeliveryError(w, err)
+		return
 	}
 	o, err := s.gafferProviders.CreateOutcome(s.uid(r), in.OutcomeInput)
 	if err != nil {
 		gafferOutcomeError(w, err)
 		return
 	}
-	if in.Pathway != "" {
-		s.recordStageSkills(s.uid(r), o.ID, o.Sessions)
-	}
+	s.recordPathwaySkills(s.uid(r), in.Pathway, o, len(in.Sessions))
 	s.eventRequest(r, "gaffer-outcome-approved", "", map[string]any{"outcome": o.ID, "sessions": len(o.Sessions), "machine": o.AgentID, "projectId": o.ProjectID, "tool": o.Tool, "yolo": o.Yolo})
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, 201, o)
@@ -495,21 +501,16 @@ func (s *server) gafferOutcomeAdd(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 403, "Remote sessions are disabled on this controller, so Gaffer cannot start any.")
 		return
 	}
-	if in.Pathway != "" {
-		if err := s.gafferProviders.UsePathway(s.uid(r), in.Pathway, in.Sessions, s.templateSkills(s.uid(r))); err != nil {
-			gafferDeliveryError(w, err)
-			return
-		}
+	if err := s.usePathway(s.uid(r), in.Pathway, in.Sessions); err != nil {
+		gafferDeliveryError(w, err)
+		return
 	}
 	o, err := s.gafferProviders.AddPipelines(s.uid(r), r.PathValue("id"), in.AddPipelinesInput)
 	if err != nil {
 		gafferOutcomeError(w, err)
 		return
 	}
-	if in.Pathway != "" && len(o.Sessions) >= len(in.Sessions) {
-		// What was added is appended, so it is the last of the outcome's pipelines.
-		s.recordStageSkills(s.uid(r), o.ID, o.Sessions[len(o.Sessions)-len(in.Sessions):])
-	}
+	s.recordPathwaySkills(s.uid(r), in.Pathway, o, len(in.Sessions))
 	s.eventRequest(r, "gaffer-pipelines-added", "", map[string]any{"outcome": o.ID, "sessions": len(in.Sessions)})
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, 200, o)

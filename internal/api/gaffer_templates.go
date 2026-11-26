@@ -140,6 +140,24 @@ func (s *server) gafferTemplateDiff(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, d)
 }
 
+// usePathway gives the sessions a named pathway's stages; with none named it
+// leaves them as they are. The browser and MCP starts both use it.
+func (s *server) usePathway(uid int64, pathway string, sessions []gaffer.OutcomeSession) error {
+	if pathway == "" {
+		return nil
+	}
+	return s.gafferProviders.UsePathway(uid, pathway, sessions, s.templateSkills(uid))
+}
+
+// recordPathwaySkills puts the skills of the last added pipelines, which
+// came from a pathway, in their stages' Skills panels. What was added is
+// appended, so it is the last of the outcome's pipelines.
+func (s *server) recordPathwaySkills(uid int64, pathway string, o store.GafferOutcome, added int) {
+	if pathway != "" && len(o.Sessions) >= added {
+		s.recordStageSkills(uid, o.ID, o.Sessions[len(o.Sessions)-added:])
+	}
+}
+
 // recordStageSkills leaves the skill receipts a choice on the page would have
 // left for the pipelines' stages, so a stage's Skills panel shows them and its
 // launch marks them prepared. A receipt that is not saved changes nothing.

@@ -64,6 +64,9 @@ function fixture({pathways=PATHWAYS,pathwayId,tools,crew,accounts,yolo=false}={}
   [`/api/v2/gaffer/outcomes/${'d'.repeat(32)}`]:()=>({...outcome,id:'d'.repeat(32),state:'running',report:undefined}),
   [`/api/v2/gaffer/outcomes/${oid}/sessions`]:r=>{const b=r.postDataJSON();box.adds.push(b);if(box.refuse)return refused();return{...outcome,revision:4,report:{...outcome.report,proposals:[]}}},
  }
+ // Gaffer's plan, asked for in the background as the server does: `box.plan` is the next answer (section 15).
+ routes[`/api/v2/gaffer/providers/${pid}/plan`]=r=>{box.asks=(box.asks??0)+1;return{status:202,json:{id:'j1',state:'running'}}}
+ routes[`/api/v2/gaffer/providers/${pid}/plan/j1`]=()=>box.plan
  if(crew)routes['/api/v2/gaffer/crew']=savedCrew(crew)
  if(accounts)routes['/api/v2/machines/a1/accounts']={state:'read',sentence:'',planLimits:false,checkedAt:now,accounts}
  if(pathways!==null)routes['/api/v2/gaffer/pathways']=Array.isArray(pathways)?()=>({pathways:box.pathways}):pathways
@@ -169,7 +172,7 @@ try{
     await expect(edit).toHaveAttribute('href','/factory/pathways/p2')
     await expect(edit).toHaveAttribute('target','_blank')
     // It sits in the chosen pathway's own row.
-    expect(await edit.evaluate(a=>a.closest('label')?.querySelector('input:checked')?.value)).toBe('p2')
+    expect(await edit.evaluate(a=>a.closest('.row')?.querySelector('input:checked')?.value)).toBe('p2')
     await expect(outcome.getByRole('textbox',{name:'Pipeline 1 prompt',exact:true})).toBeVisible()
     await dialogFits(page)
     await bringUp(group.locator('..'));await shot(page,'outcome-pathway',width,theme)
@@ -419,6 +422,45 @@ try{
    expect(w.errors).toEqual([])
   } finally { await w.context.close() }
  }
+ // 12. The folded list holds still: a chosen pathway lifted into it stays where it is when another row is chosen, until
+ //     Show all or the dialog is reopened. Edit pathway is not part of the chosen radio's name, is the next Tab stop, and
+ //     reaches 44 px on a touch screen while staying inside the chosen row.
+ for(const [width,theme] of [[1280,'light'],[390,'dark']]){
+  const {w,page}=await open(width,theme,{pathways:MANY})
+  try{
+   const outcome=await toPlan(page)
+   const group=outcome.getByRole('radiogroup',{name:'Pathway',exact:true})
+   const names=()=>group.getByRole('radio').evaluateAll(els=>els.map(el=>el.closest('label').querySelector('strong').textContent))
+   await outcome.getByRole('button',{name:'Show all 30 pathways',exact:true}).click()
+   await group.getByRole('radio',{name:/^Line 27/}).check()
+   await outcome.getByRole('button',{name:'Show fewer',exact:true}).click()
+   await expect.poll(names).toEqual(['Line 27','Line 1','Line 2','Line 3','Line 4','Line 5',STANDARD])
+   await group.getByRole('radio',{name:/^Line 3/}).check()
+   expect(await names()).toEqual(['Line 27','Line 1','Line 2','Line 3','Line 4','Line 5',STANDARD])
+   await group.getByRole('radio',{name:new RegExp(`^${STANDARD}`)}).check()
+   expect(await names()).toEqual(['Line 27','Line 1','Line 2','Line 3','Line 4','Line 5',STANDARD])
+   await outcome.getByRole('button',{name:'Show all 30 pathways',exact:true}).click()
+   await outcome.getByRole('button',{name:'Show fewer',exact:true}).click()
+   await expect.poll(names).toEqual(['Line 1','Line 2','Line 3','Line 4','Line 5','Line 6',STANDARD])
+   // Edit pathway.
+   const radio=group.getByRole('radio',{name:/^Line 4/})
+   await radio.check()
+   await expect(radio).toHaveAccessibleName(/^Line 4/)
+   expect(await radio.evaluate(el=>el.labels[0].textContent)).not.toContain('Edit pathway')
+   const edit=group.getByRole('link',{name:'Edit pathway',exact:true})
+   await expect(edit).toHaveCount(1)
+   expect(await edit.evaluate(a=>!a.closest('label'))).toBe(true)
+   await radio.focus()
+   await page.keyboard.press('Tab')
+   await expect(edit).toBeFocused()
+   const [r,e]=[await radio.evaluate(el=>el.closest('.row').getBoundingClientRect().toJSON()),await edit.boundingBox()]
+   expect(e.x>=r.x&&e.x+e.width<=r.x+r.width&&e.y>=r.y&&e.y+e.height<=r.y+r.height,'Edit pathway sits inside the chosen row').toBe(true)
+   if(width<1000)expect(e.height).toBeGreaterThanOrEqual(44)
+   await dialogFits(page)
+   await bringUp(group.locator('..'));await shot(page,'edit-link',width,theme)
+   expect(w.errors).toEqual([])
+  } finally { await w.context.close() }
+ }
  // 10. A pathway switched off or changed in another tab (Edit pathway opens one) is read again when the window comes back:
  //     a choice no longer offered goes back to Standard stages and says so, and the body is the one sent before pathways.
  {
@@ -468,6 +510,387 @@ try{
    await expect(trust).toBeChecked()
    expect(w.errors).toEqual([])
   } finally { await w.context.close() }
+ }
+ // 13. A pathway's tier stage runs on the saved crew's agent for that tier, as the controller resolves it, even when the
+ //     machine does not have it (the outcome's agent is used only for a tier that is not saved), and on that tier's
+ //     backups too: they count for folder trust.
+ {
+  const approve=outcome=>outcome.getByRole('button',{name:'Approve and start 2 pipelines',exact:true})
+  const choose=(scope,name)=>scope.getByRole('radiogroup',{name:'Pathway',exact:true}).getByRole('radio',{name:new RegExp(`^${name}`)}).check()
+  const MISSING='Your Standard crew is Codex, which is not on workshop. This pathway’s Code, PR and Merge stages run on it. Install or sign in to Codex there, change your saved crew in Gaffer settings, or change the stage in the pathway.'
+  // (a) A saved Standard crew on an agent the machine does not have holds the start, naming the stages and the tier.
+  {
+   const {f,w,page}=await open(1280,'light',{crew:{standard:{tool:'codex'}}})
+   try{
+    const outcome=await toPlan(page)
+    await choose(outcome,'Quick fix')
+    await expect(outcome.locator('p.status')).toHaveText(MISSING)
+    await expect(approve(outcome)).toBeDisabled()
+    await expect(outcome.getByRole('region',{name:'Launch readiness',exact:true}).getByRole('listitem').filter({hasText:'Codex is not on workshop now.'})).toContainText('Used by Code, PR and Merge.')
+    await expect(outcome.getByRole('link',{name:'Edit pathway',exact:true})).toHaveAttribute('href','/factory/pathways/p1')
+    // Standard stages keep the crew editor's fallback to the outcome's agent.
+    await choose(outcome,STANDARD)
+    await expect(approve(outcome)).toBeEnabled()
+    expect(w.errors).toEqual([])
+   } finally { await w.context.close() }
+  }
+  // (b) A saved tier whose backup is Google Antigravity, on a first choice that needs no trust: the trust box shows, Approve
+  //     waits for it, and the start carries the trust.
+  {
+   const {f,w,page}=await open(1280,'light',{tools:['claude','antigravity'],crew:{standard:{tool:'claude',backup:{tool:'antigravity'}}}})
+   try{
+    const outcome=await toPlan(page)
+    await choose(outcome,'Quick fix')
+    const trust=outcome.getByRole('checkbox',{name:/^I trust this folder: Google Antigravity/})
+    await expect(trust).toBeVisible()
+    await expect(outcome.locator('p.status')).toHaveText('Google Antigravity starts only in a folder you trust. Tick the folder trust box below, or change the stage in the pathway.')
+    await expect(approve(outcome)).toBeDisabled()
+    await trust.check()
+    await approve(outcome).click()
+    await expect.poll(()=>f.box.starts.length).toBe(1)
+    expect(f.box.starts[0].pathway).toBe('p1')
+    expect(f.box.starts[0].trust).toBe(true)
+    expect(w.errors).toEqual([])
+   } finally { await w.context.close() }
+  }
+  // (b2) The outcome's own agent counts too, as the controller counts it: Google Antigravity as the outcome's agent with a
+  //      pathway whose stages all name another agent still shows the trust box and holds Approve until it is ticked.
+  {
+   const OWN=pathway('p8','Own agents',[st('custom',{name:'Tidy',prompt:'Tidy it.',agent:{tool:'claude'}}),st('pr',{agent:{tool:'claude'}})])
+   const {f,w,page}=await open(1280,'light',{pathways:[...PATHWAYS,OWN],tools:['claude','antigravity']})
+   try{
+    const outcome=await toPlan(page,()=>page.getByRole('dialog',{name:'New Factory outcome',exact:true}).getByRole('combobox',{name:'Agent',exact:true}).selectOption('antigravity'))
+    await choose(outcome,'Own agents')
+    const trust=outcome.getByRole('checkbox',{name:/^I trust this folder: Google Antigravity/})
+    await expect(trust).toBeVisible()
+    await expect(approve(outcome)).toBeDisabled()
+    await trust.check()
+    await approve(outcome).click()
+    await expect.poll(()=>f.box.starts.length).toBe(1)
+    expect(f.box.starts[0].pathway).toBe('p8')
+    expect(f.box.starts[0].trust).toBe(true)
+    expect(w.errors).toEqual([])
+   } finally { await w.context.close() }
+  }
+  // (b3) Standard stages count the crew's backups as well: a Standard crew backed up by Google Antigravity shows the
+  //      trust box, holds Approve until it is ticked, and the start carries the trust.
+  {
+   const {f,w,page}=await open(1280,'light',{tools:['claude','antigravity'],crew:{standard:{tool:'claude',backup:{tool:'antigravity'}}}})
+   try{
+    const outcome=await toPlan(page)
+    const trust=outcome.getByRole('checkbox',{name:/^I trust this folder: Google Antigravity/})
+    await expect(trust).toBeVisible()
+    await expect(outcome.locator('p.status')).toHaveText('Google Antigravity starts only in a folder you trust. Tick the folder trust box below, or choose another agent.')
+    await expect(approve(outcome)).toBeDisabled()
+    await bringUp(trust)
+    await shot(page,'p3-final-trust-standard',1280,'light')
+    await trust.check()
+    await approve(outcome).click()
+    await expect.poll(()=>f.box.starts.length).toBe(1)
+    expect(f.box.starts[0].pathway).toBeUndefined()
+    expect(f.box.starts[0].trust).toBe(true)
+    expect(w.errors).toEqual([])
+   } finally { await w.context.close() }
+  }
+  // (b4) Standard stages count only the tiers the chosen stages use, as the controller does: Review is the only Heavy stage,
+  //      so with Review off in both pipelines a Heavy backup on Google Antigravity asks for no trust and the start sends none.
+  {
+   const reviewOff=async outcome=>{for(const n of [1,2])await outcome.getByRole('group',{name:`Pipeline ${n} stages`,exact:true}).getByRole('button',{name:'Review',exact:true}).click()}
+   const HEAVY_BACKUP={tools:['claude','antigravity'],crew:{heavy:{tool:'claude',backup:{tool:'antigravity'}}}}
+   const trustBox=outcome=>outcome.getByRole('checkbox',{name:/^I trust this folder/})
+   // (i) The tier no chosen stage uses: no trust box, the start is allowed and carries no trust.
+   {
+    const {f,w,page}=await open(1280,'light',HEAVY_BACKUP)
+    try{
+     const outcome=await toPlan(page)
+     await reviewOff(outcome)
+     await expect(trustBox(outcome)).toHaveCount(0)
+     await approve(outcome).click()
+     await expect.poll(()=>f.box.starts.length).toBe(1)
+     expect(f.box.starts[0].trust).toBe(false)
+     expect(w.errors).toEqual([])
+    } finally { await w.context.close() }
+   }
+   // (iii) Used, then not: the box shows and is ticked; once Review is off it goes, and the start carries no trust.
+   {
+    const {f,w,page}=await open(1280,'light',HEAVY_BACKUP)
+    try{
+     const outcome=await toPlan(page)
+     await expect(approve(outcome)).toBeDisabled()
+     await trustBox(outcome).check()
+     await reviewOff(outcome)
+     await expect(trustBox(outcome)).toHaveCount(0)
+     await approve(outcome).click()
+     await expect.poll(()=>f.box.starts.length).toBe(1)
+     expect(f.box.starts[0].trust).toBe(false)
+     expect(w.errors).toEqual([])
+    } finally { await w.context.close() }
+   }
+  }
+  // (c) Add pipelines: the same saved crew agent that is not on the machine holds the add, with the same sentence.
+  {
+   const {f,w,page}=await open(1280,'light',{crew:{standard:{tool:'codex'}}})
+   try{
+    const add=await toAdd(page)
+    await choose(add,'Quick fix')
+    await expect(add.getByRole('alert')).toHaveText(MISSING)
+    await expect(add.getByRole('button',{name:'Add pipeline',exact:true})).toBeDisabled()
+    expect(w.errors).toEqual([])
+   } finally { await w.context.close() }
+  }
+  // (d) Add pipelines on an outcome approved without trust: a tier backup on Google Antigravity is refused, as the controller would.
+  {
+   const {f,w,page}=await open(1280,'light',{tools:['claude','antigravity'],crew:{standard:{tool:'claude',backup:{tool:'antigravity'}}}})
+   try{
+    const add=await toAdd(page)
+    await choose(add,'Quick fix')
+    await expect(add.getByRole('alert')).toHaveText('Google Antigravity starts only in a folder you have trusted, and this outcome was approved without folder trust. This pathway’s Code, PR and Merge stages can run on it from your saved Standard crew: change that crew in Gaffer settings, change the stage in the pathway, or choose standard stages.')
+    await expect(add.getByRole('button',{name:'Add pipeline',exact:true})).toBeDisabled()
+    expect(w.errors).toEqual([])
+   } finally { await w.context.close() }
+  }
+ }
+ // 14. The chosen pathway's row is always in the folded list: after a lift and a choice in the first six, a re-read (the
+ //     window comes back) that moves it to the sixth place keeps it shown and checked.
+ {
+  const MANY=Array.from({length:30},(_,n)=>pathway(`m${n+1}`,`Line ${n+1}`,[st('code'),st('pr')]))
+  const {f,w,page}=await open(1280,'light',{pathways:MANY})
+  try{
+   const outcome=await toPlan(page)
+   const group=outcome.getByRole('radiogroup',{name:'Pathway',exact:true})
+   const names=()=>group.getByRole('radio').evaluateAll(els=>els.map(el=>el.closest('label').querySelector('strong').textContent))
+   await outcome.getByRole('button',{name:'Show all 30 pathways',exact:true}).click()
+   await group.getByRole('radio',{name:/^Line 27/}).check()
+   await outcome.getByRole('button',{name:'Show fewer',exact:true}).click()
+   await group.getByRole('radio',{name:/^Line 5/}).check()
+   f.box.pathways=[...MANY.slice(0,4),MANY[5],MANY[4],...MANY.slice(6)]
+   await page.evaluate(()=>window.dispatchEvent(new Event('focus')))
+   await expect.poll(names).toContain('Line 5')
+   await expect(group.getByRole('radio',{name:/^Line 5/})).toBeChecked()
+   expect(w.errors).toEqual([])
+  } finally { await w.context.close() }
+ }
+
+ // 15. Gaffer's plan can suggest a pathway. An offered one (on, no problem) is chosen for an untouched dialog and says so
+ //     on its row; a choice the person made themselves (a change or a click, not a Tab past) stays through later plans; one
+//     that is not offered is ignored. A reply's plan naming none changes nothing; a fresh plan naming none clears it.
+ //     A plan with no suggestion, or one not offered, sends the body sent before pathways existed.
+ {
+  const SESSIONS=[{title:'Whole export',prompt:'Build the CSV export end to end. Raise a pull request. Do not merge.'},{title:'Button',prompt:'Add the export button. Raise a pull request. Do not merge.'}]
+  const planWith=pathway=>({summary:'Two pipelines: the export, then its button.',sessions:SESSIONS,model:'gaffer-model',usageReported:true,inputTokens:1,outputTokens:1,...(pathway?{pathway}:{})})
+  const radio=(outcome,name)=>outcome.getByRole('radiogroup',{name:'Pathway',exact:true}).getByRole('radio',{name:new RegExp(`^${name}\\b`)})
+  const hint=outcome=>outcome.getByRole('radiogroup',{name:'Pathway',exact:true}).getByText(/^Gaffer suggests this/)
+  const approve=outcome=>outcome.getByRole('button',{name:'Approve and start 2 pipelines',exact:true})
+  async function toAsk(page,f,plan){
+   f.box.plan=plan
+   await page.goto(base+'/factory')
+   await page.getByRole('button',{name:'New Factory outcome',exact:true}).click()
+   const outcome=page.getByRole('dialog',{name:'New Factory outcome',exact:true})
+   await outcome.getByRole('textbox',{name:'Outcome',exact:true}).fill('Ship CSV export for billing.')
+   await outcome.getByRole('combobox',{name:'Project',exact:true}).selectOption('p1')
+   await outcome.getByRole('button',{name:'Ask Gaffer for a plan',exact:true}).click()
+   await expect(outcome.getByRole('textbox',{name:'Pipeline 1 title',exact:true})).toHaveValue('Whole export')
+   return outcome
+  }
+  const reply=async(outcome,f,plan)=>{
+   f.box.plan=plan;const asks=f.box.asks
+   await outcome.getByRole('textbox',{name:'Reply to Gaffer',exact:true}).fill('Keep it as two.')
+   await outcome.getByRole('button',{name:'Send reply',exact:true}).click()
+   await expect.poll(()=>f.box.asks).toBe(asks+1)
+   await expect(outcome.getByRole('button',{name:'Send reply',exact:true})).toHaveText('Send reply')
+  }
+  // (a) With a reason, and without one; seen in light and dark, wide and narrow.
+  for(const [width,theme] of [[1280,'light'],[390,'dark']]){
+   for(const why of ['It needs a security pass before it ships.','']){
+    const {f,w,page}=await open(width,theme)
+    try{
+     const outcome=await toAsk(page,f,planWith({id:'p2',name:'Careful release',...(why?{why}:{})}))
+     await expect(radio(outcome,'Careful release')).toBeChecked()
+     await expect(hint(outcome)).toHaveText(why?`Gaffer suggests this: ${why}`:'Gaffer suggests this.')
+     await expect(hint(outcome)).toHaveCount(1)
+     // Everything a chosen pathway does: its stage line in place of the ticks, and the start names it with no stages.
+     await expect(outcome.getByRole('group',{name:'Pipeline 1 stages',exact:true})).toHaveCount(0)
+     await expect(outcome.getByText('Each pipeline follows this pathway. Its stages, models, skills and prompts come from it.',{exact:true})).toHaveCount(2)
+     await dialogFits(page)
+     const group=outcome.getByRole('radiogroup',{name:'Pathway',exact:true})
+     await bringUp(group.locator('..'))
+     await page.mouse.move(0,0);await page.waitForTimeout(300)
+     await page.screenshot({path:`${process.env.REET_SUGGEST_SHOTS||shots}/p3-suggest-${why?'why':'plain'}-${width}-${theme}.png`})
+     await approve(outcome).click()
+     await expect.poll(()=>f.box.starts.length).toBe(1)
+     const sent=noRequestId(f.box.starts[0])
+     expect(sent.pathway).toBe('p2')
+     expect(sent.sessions).toEqual(SESSIONS)
+     expect(w.errors).toEqual([])
+    } finally { await w.context.close() }
+   }
+  }
+  // (b) A person's own choice, Standard stages included, stays through a reply and a fresh ask; the suggestion still shows.
+  //     Untouched, a later plan's suggestion moves the choice.
+  {
+   const {f,w,page}=await open(1280,'light')
+   try{
+    const outcome=await toAsk(page,f,planWith({id:'p1',name:'Quick fix',why:'A small change.'}))
+    await expect(radio(outcome,'Quick fix')).toBeChecked()
+    await reply(outcome,f,planWith({id:'p2',name:'Careful release',why:'Safer.'}))
+    await expect(radio(outcome,'Careful release')).toBeChecked()
+    await expect(hint(outcome)).toHaveText('Gaffer suggests this: Safer.')
+    // A reply whose plan names no pathway leaves the suggestion and the untouched choice as they are.
+    await reply(outcome,f,planWith())
+    await expect(radio(outcome,'Careful release')).toBeChecked()
+    await expect(hint(outcome)).toHaveText('Gaffer suggests this: Safer.')
+    await radio(outcome,STANDARD).check()
+    await reply(outcome,f,planWith({id:'p1',name:'Quick fix',why:'A small change.'}))
+    await expect(radio(outcome,STANDARD)).toBeChecked()
+    await expect(hint(outcome)).toHaveText('Gaffer suggests this: A small change.')
+    await expect(radio(outcome,'Quick fix').locator('xpath=ancestor::label')).toContainText('Gaffer suggests this: A small change.')
+    await outcome.getByRole('button',{name:'Back',exact:true}).click()
+    f.box.plan=planWith({id:'p2',name:'Careful release',why:'Safer.'})
+    await outcome.getByRole('button',{name:'Ask Gaffer for a plan',exact:true}).click()
+    await expect(hint(outcome)).toHaveText('Gaffer suggests this: Safer.')
+    await expect(radio(outcome,STANDARD)).toBeChecked()
+    await expect(outcome.getByRole('group',{name:'Pipeline 1 stages',exact:true})).toBeVisible()
+    expect(w.errors).toEqual([])
+   } finally { await w.context.close() }
+  }
+  // (b2) Tabbing through the radios is not a choice: a later plan still moves it. An arrow key is, and it stays.
+  {
+   const {f,w,page}=await open(1280,'light')
+   try{
+    const outcome=await toAsk(page,f,planWith({id:'p1',name:'Quick fix',why:'A small change.'}))
+    await radio(outcome,'Quick fix').focus()
+    await page.keyboard.press('Tab');await page.keyboard.press('Shift+Tab');await page.keyboard.press('Tab');await page.keyboard.press('Tab')
+    await expect(radio(outcome,'Quick fix')).toBeChecked()
+    await reply(outcome,f,planWith({id:'p2',name:'Careful release',why:'Safer.'}))
+    await expect(radio(outcome,'Careful release')).toBeChecked()
+    await radio(outcome,'Careful release').focus()
+    await page.keyboard.press('ArrowUp')
+    await expect(radio(outcome,'Quick fix')).toBeChecked()
+    await reply(outcome,f,planWith({id:'p2',name:'Careful release',why:'Still safer.'}))
+    await expect(hint(outcome)).toHaveText('Gaffer suggests this: Still safer.')
+    await expect(radio(outcome,'Quick fix')).toBeChecked()
+    expect(w.errors).toEqual([])
+   } finally { await w.context.close() }
+  }
+  // (b3) A fresh ask, or writing the plan by hand, follows the new plan: naming no pathway clears an untouched choice.
+  {
+   const {f,w,page}=await open(1280,'light')
+   try{
+    const outcome=await toAsk(page,f,planWith({id:'p2',name:'Careful release',why:'Safer.'}))
+    await expect(radio(outcome,'Careful release')).toBeChecked()
+    await outcome.getByRole('button',{name:'Back',exact:true}).click()
+    f.box.plan=planWith()
+    await outcome.getByRole('button',{name:'Ask Gaffer for a plan',exact:true}).click()
+    await expect(radio(outcome,STANDARD)).toBeChecked()
+    await expect(outcome.getByText(/Gaffer suggests this/)).toHaveCount(0)
+    await outcome.getByRole('button',{name:'Back',exact:true}).click()
+    f.box.plan=planWith({id:'p2',name:'Careful release',why:'Safer.'})
+    await outcome.getByRole('button',{name:'Ask Gaffer for a plan',exact:true}).click()
+    await expect(radio(outcome,'Careful release')).toBeChecked()
+    await outcome.getByRole('button',{name:'Back',exact:true}).click()
+    await outcome.getByRole('button',{name:'Write the plan myself',exact:true}).click()
+    await expect(radio(outcome,STANDARD)).toBeChecked()
+    await expect(outcome.getByText(/Gaffer suggests this/)).toHaveCount(0)
+    expect(w.errors).toEqual([])
+   } finally { await w.context.close() }
+  }
+  // (b4) A plan back before the pathway list is followed once the list arrives.
+  {
+   let release;const late=new Promise(r=>{release=r})
+   const {f,w,page}=await open(1280,'light',{pathways:async()=>{await late;return{pathways:PATHWAYS}}})
+   try{
+    const outcome=await toAsk(page,f,planWith({id:'p2',name:'Careful release',why:'Safer.'}))
+    release()
+    await expect(radio(outcome,'Careful release')).toBeChecked()
+    await expect(hint(outcome)).toHaveText('Gaffer suggests this: Safer.')
+    expect(w.errors).toEqual([])
+   } finally { await w.context.close() }
+  }
+  // (b5) A long reason with no spaces wraps inside its row, and a right-to-left one is kept apart from the words before it.
+  for(const theme of ['light','dark']){
+   const {f,w,page}=await open(390,theme)
+   try{
+    const outcome=await toAsk(page,f,planWith({id:'p2',name:'Careful release',why:'Aa'.repeat(100)}))
+    await expect(hint(outcome)).toHaveText(`Gaffer suggests this: ${'Aa'.repeat(100)}`)
+    await expect(hint(outcome).locator('bdi')).toHaveText('Aa'.repeat(100))
+    await dialogFits(page)
+    expect(await hint(outcome).evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
+    expect(w.errors).toEqual([])
+   } finally { await w.context.close() }
+  }
+  // (c) Not offered (a problem, switched off, unknown) or none at all: nothing is chosen or said, and the body is as before.
+  for(const suggestion of [{id:'p3',name:'Billing hotfix',why:'It is a hotfix.'},{id:'p4',name:'Docs only',why:'Docs.'},{id:'zz',name:'Gone',why:'Gone.'},undefined]){
+   const {f,w,page}=await open(1280,'light')
+   try{
+    const outcome=await toAsk(page,f,planWith(suggestion))
+    await expect(radio(outcome,STANDARD)).toBeChecked()
+    await expect(outcome.getByText(/Gaffer suggests this/)).toHaveCount(0)
+    same(await startOutcome(page,f,outcome),BASELINE_OUTCOME,'outcome')
+    expect(w.errors).toEqual([])
+   } finally { await w.context.close() }
+  }
+  // (d) A suggestion that stops being offered (read again when the window comes back) loses its line, and its preselection
+  //     goes back to Standard stages.
+  {
+   const {f,w,page}=await open(1280,'light')
+   try{
+    const outcome=await toAsk(page,f,planWith({id:'p2',name:'Careful release',why:'Safer.'}))
+    await expect(radio(outcome,'Careful release')).toBeChecked()
+    f.box.pathways=PATHWAYS.map(p=>p.id==='p2'?{...p,problems:['The skill “audit” on Review is no longer on your shelf.']}:p)
+    await page.evaluate(()=>window.dispatchEvent(new Event('focus')))
+    await expect(radio(outcome,STANDARD)).toBeChecked()
+    await expect(outcome.getByText(/Gaffer suggests this/)).toHaveCount(0)
+    expect(w.errors).toEqual([])
+   } finally { await w.context.close() }
+  }
+  // (e) The suggested row is always in the folded list: preselected beyond the first six and then another row chosen, or
+  //     suggested after the person chose Standard stages.
+  {
+   const MANY=Array.from({length:30},(_,n)=>pathway(`m${n+1}`,`Line ${n+1}`,[st('code'),st('pr')]))
+   const {f,w,page}=await open(1280,'light',{pathways:MANY})
+   try{
+    const outcome=await toAsk(page,f,planWith({id:'m27',name:'Line 27',why:'Its own line.'}))
+    const group=outcome.getByRole('radiogroup',{name:'Pathway',exact:true})
+    const names=()=>group.getByRole('radio').evaluateAll(els=>els.map(el=>el.closest('label').querySelector('strong').textContent))
+    await expect(radio(outcome,'Line 27')).toBeChecked()
+    const kept=async()=>{await expect.poll(names).toContain('Line 27');expect((await names()).length).toBe(7);await expect(hint(outcome)).toHaveText('Gaffer suggests this: Its own line.')}
+    for(const row of ['Line 5','Line 2',STANDARD]){
+     await radio(outcome,row).check()
+     await expect(radio(outcome,row)).toBeChecked()
+     await kept()
+    }
+    // Show all and Show fewer drop a lift; the suggestion stays.
+    await outcome.getByRole('button',{name:'Show all 30 pathways',exact:true}).click()
+    await outcome.getByRole('button',{name:'Show fewer',exact:true}).click()
+    await kept()
+    await reply(outcome,f,planWith({id:'m20',name:'Line 20',why:'Another line.'}))
+    await expect(radio(outcome,STANDARD)).toBeChecked()
+    await expect.poll(names).toContain('Line 20')
+    expect((await names()).length).toBe(7)
+    expect(w.errors).toEqual([])
+   } finally { await w.context.close() }
+  }
+ }
+ // 16. A stage line that wraps in the choice never ends a row with a "›": each sits before its chip, on the chip's row.
+ {
+  const LONG=pathway('p9','Long release',[st('plan'),st('code'),st('custom',{name:'Security audit of every endpoint',prompt:'Audit.'}),st('review'),st('test'),st('custom',{name:'Write the release notes',prompt:'Notes.'}),st('pr'),st('babysit'),st('merge')])
+  for(const width of [1280,390]){
+   const {f,w,page}=await open(width,'light',{pathways:[LONG,...PATHWAYS]})
+   try{
+    const outcome=await toPlan(page)
+    const line=outcome.getByRole('radiogroup',{name:'Pathway',exact:true}).locator('label').filter({hasText:'Long release'}).locator('.line')
+    const got=await line.evaluate(el=>{
+     const mid=e=>{const r=e.getBoundingClientRect();return (r.top+r.bottom)/2}
+     const items=[...el.querySelectorAll('.sep,.chip')].filter(e=>getComputedStyle(e).display!=='none')
+     return {rows:new Set(items.filter(e=>e.classList.contains('chip')).map(e=>Math.round(mid(e)))).size,hanging:items.filter((e,i)=>e.classList.contains('sep')&&!(items[i+1]&&Math.abs(mid(items[i+1])-mid(e))<6)).length}
+    })
+    expect(got.rows,'the stage line wraps').toBeGreaterThan(1)
+    expect(got.hanging,'a row ends with a separator').toBe(0)
+    await bringUp(outcome.getByText('Long release',{exact:true}))
+    await shot(page,'p3-final-choice-wrap',width,'light')
+    expect(w.errors).toEqual([])
+   } finally { await w.context.close() }
+  }
  }
  console.log('pathways-choice: ok')
 } finally { await browser.close() }

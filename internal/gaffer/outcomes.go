@@ -16,9 +16,12 @@ import (
 )
 
 // An outcome is an objective the person hands Gaffer. Planning it is one model
-// request that proposes the sessions to start. It reads no reet data, starts no
-// session, saves nothing and grants nothing: the person reviews and edits the
-// plan, and their browser starts each session through the ordinary launch path.
+// request that proposes the sessions to start. The only reet data it reads is the
+// name, description and stage names of each of the person's enabled pathways, so
+// the plan can suggest one; never a stage's prompt, agent, model or skills. It
+// starts no session, saves nothing and grants nothing: the person reviews and
+// edits the plan, and their browser starts each session through the ordinary
+// launch path.
 const (
 	MaxOutcomeSessions = 5
 	// MaxOutcomeImages matches the images one ACP prompt can carry: an
@@ -85,15 +88,40 @@ type OutcomePlan struct {
 	UsageReported bool             `json:"usageReported"`
 	InputTokens   int              `json:"inputTokens"`
 	OutputTokens  int              `json:"outputTokens"`
+	Pathway       *PlanPathway     `json:"pathway,omitempty"`
+}
+
+// PlanPathway is one of the person's enabled pathways that Gaffer suggests for
+// the plan. Why is the model's words: one line, shown and never run.
+type PlanPathway struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Why  string `json:"why,omitempty"` // one line, at most 200 bytes
 }
 
 var planSessionsTool = elicore.Tool{Name: "propose_sessions", Description: "Propose the coding-agent sessions to start for the user's objective. This starts nothing: the user reviews and edits the proposal before any session exists.", Parameters: json.RawMessage(`{"type":"object","properties":{"summary":{"type":"string","minLength":1,"maxLength":1000},"sessions":{"type":"array","minItems":1,"maxItems":5,"items":{"type":"object","properties":{"title":{"type":"string","minLength":1,"maxLength":80},"prompt":{"type":"string","minLength":1,"maxLength":6000},"stages":{"type":"array","maxItems":8,"items":{"type":"string","enum":["plan","design","code","review","test","pr","babysit","merge"]}},"ratings":{"type":"array","maxItems":8,"items":{"type":"object","properties":{"stage":{"type":"string","enum":["plan","design","code","review","test","pr","babysit","merge"]},"tier":{"type":"string","enum":["light","standard","heavy"]},"why":{"type":"string","maxLength":240}},"required":["stage","tier"],"additionalProperties":false}},"parts":{"type":"array","maxItems":12,"items":{"type":"object","properties":{"stage":{"type":"string","enum":["plan","design","code","review","test"]},"title":{"type":"string","minLength":1,"maxLength":60},"brief":{"type":"string","minLength":1,"maxLength":1000},"tier":{"type":"string","enum":["light","standard","heavy"]},"why":{"type":"string","maxLength":240}},"required":["stage","title","brief"],"additionalProperties":false}}},"required":["title","prompt"],"additionalProperties":false}}},"required":["summary","sessions"],"additionalProperties":false}`)}
 
-func outcomeSystem(max int) string {
+// planSessionsWithPathwaysTool is planSessionsTool with a top-level choice of
+// one of the person's pathways. It is offered only to an account that has an
+// enabled pathway, so without one the request is exactly as it always was.
+var planSessionsWithPathwaysTool = elicore.Tool{Name: planSessionsTool.Name, Description: planSessionsTool.Description, Parameters: json.RawMessage(strings.Replace(string(planSessionsTool.Parameters),
+	`},"required":["summary","sessions"]`, `,"pathway":{"type":"string","maxLength":60},"pathway_why":{"type":"string","maxLength":200}},"required":["summary","sessions"]`, 1))}
+
+// maxPlanPathways is how many enabled pathways, by name, planning offers.
+const maxPlanPathways = 20
+
+// maxPlanPathwayWhyBytes is the most of the model's reason for a pathway kept.
+const maxPlanPathwayWhyBytes = 200
+
+func outcomeSystem(max int, pathways bool) string {
+	suggest := ""
+	if pathways {
+		suggest = "\nIf one of the person's saved pathways clearly fits the objective, name it in `pathway` with a short reason in `pathway_why`; otherwise leave both out. Still propose stages for every session."
+	}
 	return "You are Gaffer, the user's warm, practical critical buddy in reet.sh, with occasional dry Yorkshire humour. The user has given you an objective to own. Plan the coding-agent sessions that would meet it, then call propose_sessions exactly once. You start nothing: the user reviews, edits and approves the plan before any session exists.\n" +
 		"Each session is a separate coding agent working in its own isolated copy of the same project. Sessions cannot see or message each other, so every prompt must stand alone: say what to build or change, what is out of scope, how to check it, and that it should raise a pull request describing the work. Split only where the work is genuinely independent, so two sessions never edit the same code. Prefer one session for a small objective. Propose at most " + strconv.Itoa(max) + " sessions.\n" +
 		"Stay inside the objective: add no scope the user did not ask for, and when something is ambiguous say so in the summary instead of guessing. Each session is a pipeline that runs through stages in this order: plan, design, code, review, test, pr, babysit, merge. For each session list in \"stages\" the ones it needs: leave out plan and design for small, obvious work, and include review and test for anything that changes behaviour. You advise on how demanding each stage is; the user decides which agent and model that means and whether merge happens without them, and you name neither. In \"ratings\" rate a stage light, standard or heavy with one short reason, judged from this work and not from the stage's name: light is mechanical or routine (a pull request for finished work, a small rename), standard is ordinary building and checking, heavy needs careful judgement (unfamiliar or intricate code, data that must not be lost, security, a design with real trade-offs). The user's defaults are heavy for plan, design and review, standard for code and test, and light for pr, babysit and merge: rate only the stages where this work calls for something else, and leave the rest out. A stage whose work falls into clearly different pieces that suit different tiers can be split: in \"parts\" give two to four parts for that stage, each with a short title, a brief saying exactly what that part does and, where it differs from the stage's, its own tier and reason. Parts of a stage run one after another in the same folder, each done by a separate agent that sees only its own brief and the part before's handover, so each brief must stand alone and the order must make sense. Split only when it lets cheaper work go to a lighter tier or hard work to a heavier one; most stages are not split, and the pull request, babysitting and merge never are. Every prompt must end with the sentence \"Do not merge.\" Titles are short plain names of at most 80 characters. The summary says in two or three sentences how the sessions divide the work and what the user should check.\n" +
-		"When the person replies to a previous proposal, their reply is the instruction to act on. Keep what is still right, change what they asked, and address their reply directly in the summary rather than repeating a proposal they turned down."
+		"When the person replies to a previous proposal, their reply is the instruction to act on. Keep what is still right, change what they asked, and address their reply directly in the summary rather than repeating a proposal they turned down." + suggest
 }
 
 // strictJSON decodes raw into v, refusing a field v does not name and anything after the one value.
@@ -145,6 +173,8 @@ type planRequest struct {
 	cfg      Input
 	ask      string
 	sessions int
+	// pathways are the enabled pathways offered to the model, by name.
+	pathways []store.GafferPathway
 }
 
 // PlanOutcome asks the chosen provider for a session plan. The provider
@@ -221,7 +251,40 @@ func (s *Service) preparePlan(p Principal, id string, in OutcomePlanInput) (plan
 		}
 		ask += "\n\nThe person replied:\n" + reply + "\n\nRevise the proposal as a direct response to that reply. Keep what is still right, change what the person asked, and address their reply in the summary. Call propose_sessions exactly once."
 	}
-	return planRequest{old: old, cfg: cfg, ask: ask, sessions: in.Sessions}, nil
+	// The suggestion is an optional extra: pathways that cannot be read are
+	// left out, and the plan is asked for as it was before there were any.
+	all, err := s.store.GafferPathwaysFor(p.UserID)
+	if err != nil {
+		all = nil
+	}
+	var pathways []store.GafferPathway
+	for _, pathway := range all {
+		if pathway.Enabled && len(pathways) < maxPlanPathways {
+			pathways = append(pathways, pathway)
+		}
+	}
+	if len(pathways) > 0 {
+		// The name and description are the person's own text, checked when
+		// saved; each pathway is one line of data.
+		ask += "\n\nPathways the person has saved (optional):"
+		for _, pathway := range pathways {
+			labels := make([]string, len(pathway.Stages))
+			for i, stage := range pathway.Stages {
+				labels[i] = stage.Kind
+				if stage.Kind == "custom" {
+					labels[i] = stage.Name
+				}
+			}
+			ask += "\n- " + pathway.Name + ":"
+			// A saved description may hold line breaks; folding its whitespace
+			// keeps it on its pathway's line, so it cannot end the list.
+			if description := strings.Join(strings.Fields(pathway.Description), " "); description != "" {
+				ask += " " + description
+			}
+			ask += " [" + strings.Join(labels, " › ") + "]"
+		}
+	}
+	return planRequest{old: old, cfg: cfg, ask: ask, sessions: in.Sessions, pathways: pathways}, nil
 }
 
 // step is told where the plan has got to: PlanSending until the provider accepts the request, PlanWriting while it
@@ -236,7 +299,11 @@ func (s *Service) executePlan(ctx context.Context, outer context.Context, p Prin
 		return plan, err
 	}
 	defer client.CloseIdleConnections()
-	stream, err := backend.Chat(ctx, elicore.Request{Model: request.cfg.Model, System: outcomeSystem(request.sessions), Messages: []elicore.Message{{Role: elicore.RoleUser, Content: request.ask}}, Tools: []elicore.Tool{planSessionsTool}, MaxTokens: 4096})
+	tool := planSessionsTool
+	if len(request.pathways) > 0 {
+		tool = planSessionsWithPathwaysTool
+	}
+	stream, err := backend.Chat(ctx, elicore.Request{Model: request.cfg.Model, System: outcomeSystem(request.sessions, len(request.pathways) > 0), Messages: []elicore.Message{{Role: elicore.RoleUser, Content: request.ask}}, Tools: []elicore.Tool{tool}, MaxTokens: 4096})
 	if err != nil {
 		return plan, planFailure(outer, err)
 	}
@@ -276,11 +343,11 @@ func (s *Service) executePlan(ctx context.Context, outer context.Context, p Prin
 	if len(calls) != 1 || calls[0].Name != planSessionsTool.Name {
 		return plan, &ProbeError{"This model did not return a plan. Choose a model that supports tools, or write the plan yourself."}
 	}
-	summary, sessions, err := outcomeSessions(calls[0].Arguments, request.sessions)
+	summary, sessions, pathway, err := outcomeSessions(calls[0].Arguments, request.sessions, request.pathways)
 	if err != nil {
 		return plan, err
 	}
-	plan.Summary, plan.Sessions, plan.Model = summary, sessions, request.cfg.Model
+	plan.Summary, plan.Sessions, plan.Pathway, plan.Model = summary, sessions, pathway, request.cfg.Model
 	return plan, nil
 }
 
@@ -411,11 +478,13 @@ func planFailure(parent context.Context, err error) error {
 
 // outcomeSessions accepts only a complete plan within the asked size. Model
 // text becomes editable titles and prompts and nothing else: it is never run,
-// and a session exists only after the person approves it.
-func outcomeSessions(raw json.RawMessage, max int) (string, []OutcomeSession, error) {
+// and a session exists only after the person approves it. A suggested pathway
+// is kept only when it names one of pathways, the ones the model was offered;
+// otherwise it is dropped and the plan kept.
+func outcomeSessions(raw json.RawMessage, max int, pathways []store.GafferPathway) (string, []OutcomeSession, *PlanPathway, error) {
 	malformed := &ProbeError{"The provider returned a plan reet could not read. Try again, or write the plan yourself."}
 	if len(raw) > 64<<10 {
-		return "", nil, malformed
+		return "", nil, nil, malformed
 	}
 	// The provider's plan is a title, a prompt and stage kinds. It has no
 	// field for an agent, a model or auto-merge, so it cannot choose them.
@@ -438,30 +507,37 @@ func outcomeSessions(raw json.RawMessage, max int) (string, []OutcomeSession, er
 				Why   string `json:"why"`
 			} `json:"parts"`
 		} `json:"sessions"`
+		// Raw, so that a field's presence counts even when its value is null.
+		Pathway    json.RawMessage `json:"pathway"`
+		PathwayWhy json.RawMessage `json:"pathway_why"`
 	}
-	if !strictJSON(raw, &in) || len(in.Sessions) == 0 {
-		return "", nil, malformed
+	// Without pathways the tool has no such fields, and a plan naming them is
+	// refused as any unknown field is.
+	var name, why string
+	if !strictJSON(raw, &in) || len(in.Sessions) == 0 || len(pathways) == 0 && (in.Pathway != nil || in.PathwayWhy != nil) ||
+		in.Pathway != nil && json.Unmarshal(in.Pathway, &name) != nil || in.PathwayWhy != nil && json.Unmarshal(in.PathwayWhy, &why) != nil {
+		return "", nil, nil, malformed
 	}
 	if len(in.Sessions) > max {
-		return "", nil, &ProbeError{"The provider proposed more sessions than you asked for. Try again, or write the plan yourself."}
+		return "", nil, nil, &ProbeError{"The provider proposed more sessions than you asked for. Try again, or write the plan yourself."}
 	}
 	summary := strings.TrimSpace(in.Summary)
 	if len(summary) > maxOutcomeSummaryBytes || !utf8.ValidString(summary) || strings.ContainsRune(summary, 0) {
-		return "", nil, malformed
+		return "", nil, nil, malformed
 	}
 	seen := map[string]bool{}
 	out := make([]OutcomeSession, 0, len(in.Sessions))
 	for _, item := range in.Sessions {
 		prompt := strings.TrimSpace(pipelineText.Replace(item.Prompt))
 		if prompt == "" || len(prompt) > MaxOutcomePromptBytes || !terminalproto.ValidPrompt(prompt) {
-			return "", nil, malformed
+			return "", nil, nil, malformed
 		}
 		title := strings.TrimSpace(item.Title)
 		if !terminalproto.ValidTitle(title) {
 			title = terminalproto.PromptTitle(prompt)
 		}
 		if !terminalproto.ValidTitle(title) || seen[title] {
-			return "", nil, malformed
+			return "", nil, nil, malformed
 		}
 		seen[title] = true
 		var stages []OutcomeStageInput
@@ -469,7 +545,7 @@ func outcomeSessions(raw json.RawMessage, max int) (string, []OutcomeSession, er
 		for _, kind := range item.Stages {
 			at := stageIndex(kind)
 			if at <= last {
-				return "", nil, malformed
+				return "", nil, nil, malformed
 			}
 			last = at
 			stages = append(stages, OutcomeStageInput{Kind: kind})
@@ -481,7 +557,7 @@ func outcomeSessions(raw json.RawMessage, max int) (string, []OutcomeSession, er
 		for _, rating := range item.Ratings {
 			why := strings.TrimSpace(rating.Why)
 			if !validStageTier(rating.Tier) || rated[rating.Stage] || len(why) > 300 || why != "" && !store.ValidWorkerText(why) {
-				return "", nil, malformed
+				return "", nil, nil, malformed
 			}
 			rated[rating.Stage] = true
 			found := false
@@ -491,7 +567,7 @@ func outcomeSessions(raw json.RawMessage, max int) (string, []OutcomeSession, er
 				}
 			}
 			if !found {
-				return "", nil, malformed
+				return "", nil, nil, malformed
 			}
 		}
 		// A split replaces a stage with its parts, in the order given. A part is
@@ -504,11 +580,11 @@ func outcomeSessions(raw json.RawMessage, max int) (string, []OutcomeSession, er
 			why := strings.TrimSpace(part.Why)
 			if !stageTakesParts(part.Stage) || !terminalproto.ValidTitle(name) || brief == "" || len(brief) > maxPartBriefBytes || !store.ValidWorkerText(brief) ||
 				part.Tier != "" && !validStageTier(part.Tier) || len(why) > 300 || why != "" && !store.ValidWorkerText(why) {
-				return "", nil, malformed
+				return "", nil, nil, malformed
 			}
 			for _, have := range split[part.Stage] {
 				if have.Part == name {
-					return "", nil, malformed
+					return "", nil, nil, malformed
 				}
 			}
 			if len(split[part.Stage]) == 0 {
@@ -526,7 +602,7 @@ func outcomeSessions(raw json.RawMessage, max int) (string, []OutcomeSession, er
 			}
 			// One part is not a split, and a split is of a stage the pipeline has.
 			if at < 0 || len(parts) < 2 || len(parts) > MaxStageParts {
-				return "", nil, malformed
+				return "", nil, nil, malformed
 			}
 			for i := range parts {
 				if parts[i].Tier == "" {
@@ -538,5 +614,30 @@ func outcomeSessions(raw json.RawMessage, max int) (string, []OutcomeSession, er
 		}
 		out = append(out, OutcomeSession{Title: title, Prompt: prompt, Stages: stages})
 	}
-	return summary, out, nil
+	return summary, out, planPathway(name, why, pathways), nil
+}
+
+// planPathway is the pathway the model named, matched without case against
+// those it was offered, or nil. Its reason is clipped and kept only as one line
+// of plain text; a bad reason drops the reason, not the suggestion.
+func planPathway(name, why string, pathways []store.GafferPathway) *PlanPathway {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil
+	}
+	for _, pathway := range pathways {
+		if !strings.EqualFold(name, pathway.Name) {
+			continue
+		}
+		out := &PlanPathway{ID: pathway.ID, Name: pathway.Name}
+		text := strings.TrimSpace(why)
+		if len(text) > maxPlanPathwayWhyBytes {
+			text = strings.TrimSpace(strings.ToValidUTF8(text[:maxPlanPathwayWhyBytes], ""))
+		}
+		if store.ValidWorkerText(text) && !strings.ContainsAny(text, "\r\n") {
+			out.Why = text
+		}
+		return out
+	}
+	return nil
 }

@@ -16,7 +16,7 @@ const home = asURL(compile('./home.ts').replace("from './attention'", `from '${a
 const colour = asURL(compile('./projectColour.ts'))
 const api = asURL(compile('./terminal/api.ts'))
 const source = compile('./sessions.ts').replace("from './home'", `from '${home}'`).replace("from './agentLaunch'", `from '${agentLaunch}'`).replace("from './catalogue'", `from '${catalogue}'`).replace("from './projectColour'", `from '${colour}'`).replaceAll("from './terminal/api'", `from '${api}'`)
-const { sessionColourOf, deskPlaces, searchSessions, filterSessions, filtersOn, agentChoicesOf, sessionGroups, offlineSentence, rowMeta, sortSessions, stateBucket, worktreeTargetOf, continueLaunch, canContinue, continueChatLaunch, canContinueChat, canReattachChat, MAX_TABS, openTab, closeTab, startedAgo, headerMeta, decisionsLine, changedList, switchModeState, switchWhy, terminalWay } = await import(asURL(source))
+const { sessionColourOf, deskPlaces, searchSessions, filterSessions, filtersOn, agentChoicesOf, sessionGroups, offlineSentence, rowMeta, sortSessions, stateBucket, worktreeTargetOf, continueLaunch, canContinue, continueChatLaunch, canContinueChat, canReattachChat, MAX_TABS, openTab, closeTab, startedAgo, headerMeta, decisionsLine, changedList, switchModeState, switchWhy, terminalWay, chatWay } = await import(asURL(source))
 
 const NOW = 1_800_000_000_000
 const MIN = 60_000
@@ -357,4 +357,13 @@ test('terminalWay: open the native view, restart in the terminal, or none with t
   assert.deepEqual(terminalWay({ available: false, pending: true, reason: '' }, to(true), true), { way: 'none', reason: 'Checking this running agent’s terminal support…' })
   assert.equal(terminalWay({ available: false, pending: false, reason: 'x' }, to(true, 'chat'), true).way, 'none')
   assert.equal(terminalWay({ available: false, pending: false, reason: 'x' }, to(true), false).way, 'none', 'a session with no chat view has nothing to restart')
+})
+
+test('chatWay: a TUI session that can switch restarts in Gaffer from the header, the mirror of terminalWay', () => {
+  const to = (enabled, dest = 'chat', why = '') => ({ to: dest, enabled, why })
+  assert.deepEqual(chatWay(to(false, 'terminal'), true), { way: 'open', reason: '' })
+  assert.deepEqual(chatWay(to(true), false), { way: 'restart', reason: '' })
+  assert.deepEqual(chatWay(to(false, 'chat', 'Only a running session can switch.'), false), { way: 'none', reason: 'Only a running session can switch.' })
+  assert.deepEqual(chatWay(to(false, 'chat'), false), { way: 'none', reason: 'This terminal session has no shared conversation view.' })
+  assert.equal(chatWay(to(true, 'terminal'), false).way, 'none')
 })

@@ -40,6 +40,9 @@
   import StartWorkbench from './StartWorkbench.svelte'
   import FirstRun from './FirstRun.svelte'
   import GafferOutcome from '../GafferOutcome.svelte'
+  import RouteSkeleton from '../RouteSkeleton.svelte'
+  import PageLoadError from '../PageLoadError.svelte'
+  import { homeFirstRead } from './homeFirstRead'
 
   // Writers get the persistent session board and project rail. New agents start from the standard Start an agent modal;
   // the launch bar opens in a modal for Select and an address that hands over projects.
@@ -114,6 +117,9 @@
   let backlogCount = $state<number | undefined>()
   let now = $state(Date.now())
   let problem = $state('')
+  // Home's first read decides the whole page: the skeleton or an error until it settles, then content. Later polls
+  // keep whatever is on screen.
+  let firstReadSettled = $state(false), firstReadFailed = $state(false)
   // The last read of the Factory or of Gaffer's goals failed: the list may lack what waits there, and says so.
   let factoryFailed = $state(false)
   let followups = $state<GafferGoalOverviewView | undefined>()
@@ -185,6 +191,7 @@
   let guideShowing = $state(false), guideBack = $state(false)
   let firstRun = $state<FirstRun | undefined>()
   const firstMachine = $derived(terminals?.find(t => connected.some(card => card.agentId === t.agentId)))
+  const firstRead = $derived(homeFirstRead({ settled: firstReadSettled, failed: firstReadFailed, writer, hasSessions: sessions !== undefined, hasHealth: health !== undefined || sync !== undefined }))
 
   // Which sections are open, remembered in this browser for this person. The first time, only Waiting for you is.
   const SECTIONS_FIRST = { waiting: true }
@@ -323,6 +330,7 @@
       now = at
       problem = failed ? (readOnce ? "Couldn't refresh just now. Showing what was last read." : "Couldn't read everything just now. Home tries again every 15 seconds.")
         : factoryFailed ? (readOnce ? 'The Factory could not be read; showing what was last read.' : 'The Factory could not be read. Home tries again every 15 seconds.') : ''
+      if (!readOnce) { firstReadFailed = failed; firstReadSettled = true }
       readOnce = true
       if (writer && desks) {
         // The panes of the desks holding a session that waits (each desk read once per version).
@@ -593,7 +601,11 @@
 
 <svelte:window onfocusin={noteFocus} />
 
-<!-- One thing waiting: a Factory pipeline with its choices, or a session. A row on a wide screen, a card on a narrow one. -->
+{#if firstRead === 'loading'}
+  <RouteSkeleton variant={writer ? 'home' : 'cards'} />
+{:else if firstRead === 'error'}
+  <PageLoadError />
+{:else}
 {#snippet waitingEntry(entry: WaitingEntry)}
   {#if entry.source === 'factory'}{@const pair = pairs.get(entry.id)}{#if pair}
     <WaitingItem item={entry.item} layout={narrow ? 'card' : 'row'} pipeline={narrow ? (phone ? 'circles' : 'labelled') : 'dots'} {busy}
@@ -724,6 +736,7 @@
     {/if}
   </div>
 </div>
+{/if}
 
 <style>
   .guide-back { margin-bottom: 8px; }

@@ -271,6 +271,31 @@ test('launch defaults follow the precedence chain and never take a mismatched de
     availableAgents: ['opencode'],
   }), { agent: 'opencode', model: 'string-model', effort: '' })
 
+  // The effort saved beside an agent's default model is the person's own choice for that agent: it outranks the project
+  // and account efforts, and only for its own agent. Without one, the project and account still fill it in.
+  assert.deepEqual(resolveLaunchDefaults({
+    project: { defaultTool: 'claude', defaultEffort: 'low' },
+    account: { defaultTool: 'claude', defaultEffort: 'medium' },
+    favouriteDefault: { tool: 'claude', model: 'favourite-model', effort: 'max' },
+    availableAgents: ['claude'],
+  }), { agent: 'claude', model: 'favourite-model', effort: 'max' })
+  assert.deepEqual(resolveLaunchDefaults({
+    explicitAgent: 'cline',
+    account: { defaultTool: 'claude', defaultEffort: 'high' },
+    favouriteDefault: { tool: 'claude', model: 'favourite-model', effort: 'max' },
+    availableAgents: ['claude', 'cline'],
+  }), { agent: 'cline', model: '', effort: '' })
+  assert.deepEqual(resolveLaunchDefaults({
+    account: { defaultTool: 'claude', defaultEffort: 'high' },
+    favouriteDefault: { tool: 'claude', model: 'favourite-model', effort: '' },
+    availableAgents: ['claude'],
+  }), { agent: 'claude', model: 'favourite-model', effort: 'high' })
+  // An agent that takes no effort never carries one.
+  assert.deepEqual(resolveLaunchDefaults({
+    favouriteDefault: { tool: 'opencode', model: 'favourite-model', effort: 'high' },
+    availableAgents: ['opencode'],
+  }), { agent: 'opencode', model: 'favourite-model', effort: '' })
+
   assert.deepEqual(resolveLaunchDefaults({
     project: { defaultTool: 'claude', defaultModel: 'project-model', defaultEffort: 'high' },
     availableAgents: ['claude'],

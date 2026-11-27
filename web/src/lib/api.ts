@@ -1528,6 +1528,9 @@ export async function removeModelFavourite(tool: string, model: string): Promise
 export async function reorderModelFavourites(version: number, items: { tool: string; model: string }[]): Promise<ModelFavourites> {
   return (await req(`${modelFavouritesPath}/order`, { method: 'PUT', body: json({ version, items }) })).json()
 }
+export async function setModelFavouriteDefaultEffort(tool: string, effort: string): Promise<ModelFavourites> {
+  return (await req(`${modelFavouritesPath}/default-effort`, { method: 'PUT', body: json({ tool, effort }) })).json()
+}
 export async function setModelFavouriteDefault(tool: string, model: string): Promise<ModelFavourites> {
   return (await req(`${modelFavouritesPath}/default`, { method: 'PUT', body: json({ tool, model }) })).json()
 }

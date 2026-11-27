@@ -377,6 +377,8 @@ export function eventLabel(e: Event): string {
       return d.model ? `Unstarred ${d.model} for ${toolName(d.tool)}` : 'Unstarred a model'
     case 'model-favourite-default':
       return d.model ? `Made ${d.model} the default for ${toolName(d.tool)}` : `Cleared the default model for ${toolName(d.tool)}`
+    case 'model-favourite-default-effort':
+      return d.effort ? `Made ${d.effort} the default effort for ${toolName(d.tool)}` : `Cleared the default effort for ${toolName(d.tool)}`
   }
   return `${e.action.replace(/-/g, ' ')} ${name}`.trim()
 }
@@ -407,6 +409,7 @@ const CATEGORY_ACTIONS: Record<string, EventCategory> = {
   'model-favourite-added': 'agents',
   'model-favourite-removed': 'agents',
   'model-favourite-default': 'agents',
+  'model-favourite-default-effort': 'agents',
   'worktree-remove': 'agents',
   'worktree-kept': 'agents',
   'worktree-base': 'agents',

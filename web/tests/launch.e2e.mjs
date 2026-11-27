@@ -766,6 +766,21 @@ try {
   await context.close()
  }
 
+ // The effort saved beside an agent's default model opens the bar with that model, over the account's own thinking, and a
+ // start sends it.
+ if (run('an agent default opens the bar with its saved effort')) {
+  const routes = {'/api/v2/profile': () => accountProfile({defaultTool:'claude', defaultModel:'sonnet', defaultEffort:'low'})}
+  const {context,page,errors,box} = await launch({routes, favourites:[{tool:'claude', model:'opus', agentDefault:true, effort:'high'}]})
+  await page.goto(base); await openQuick(page)
+  await expect(slot(page,'Model')).toHaveAccessibleName('Model: opus')
+  await expect(slot(page,'Thinking')).toHaveAccessibleName('Thinking: high')
+  await startButton(page).click()
+  await expect(page).toHaveURL(/\/sessions\?/)
+  expect(box.posts[0]).toMatchObject({tool:'claude', model:'opus', effort:'high'})
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
  // The chosen machine's list is read automatically, grouped by provider, and Refresh replaces it.
  if (run('the machine list groups by provider and refreshes')) {
   const reads = [], refreshes = []

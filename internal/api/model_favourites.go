@@ -19,6 +19,7 @@ func (s *server) registerModelFavouriteRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/v2/profile/model-favourites", s.requireWriter(s.modelFavouriteRemove))
 	mux.HandleFunc("PUT /api/v2/profile/model-favourites/order", s.requireWriter(s.modelFavouritesOrder))
 	mux.HandleFunc("PUT /api/v2/profile/model-favourites/default", s.requireWriter(s.modelFavouriteDefault))
+	mux.HandleFunc("PUT /api/v2/profile/model-favourites/default-effort", s.requireWriter(s.modelFavouriteDefaultEffort))
 }
 
 func (s *server) modelFavouritesList(w http.ResponseWriter, r *http.Request) {
@@ -121,6 +122,35 @@ func (s *server) modelFavouriteDefault(w http.ResponseWriter, r *http.Request) {
 	}
 	if changed {
 		s.event(s.uid(r), "ui", "model-favourite-default", "", map[string]any{"tool": in.Tool, "model": in.Model})
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// modelFavouriteDefaultEffort saves, or with "" clears, the thinking level new
+// sessions of an agent start on beside its default model.
+func (s *server) modelFavouriteDefaultEffort(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Tool   string `json:"tool"`
+		Effort string `json:"effort"`
+	}
+	if !decodeStrictJSON(w, r, maxModelFavouritesBodyBytes, &in, "Invalid model favourite effort request.") {
+		return
+	}
+	if !terminalproto.ValidToolV2(in.Tool) {
+		writeErrCode(w, http.StatusUnprocessableEntity, "invalid_tool", "tool", "Choose one of the agents reet can start.", "")
+		return
+	}
+	if !terminalproto.ValidEffort(in.Effort) || !terminalproto.ToolTakesEffortLevel(in.Tool, in.Effort) {
+		writeErrCode(w, http.StatusUnprocessableEntity, "invalid_effort", "effort", "Choose a thinking level the agent offers, or the agent's default.", "")
+		return
+	}
+	out, changed, err := s.st.SetModelFavouriteDefaultEffortFor(s.uid(r), in.Tool, in.Effort)
+	if err != nil {
+		modelFavouriteError(w, err)
+		return
+	}
+	if changed {
+		s.event(s.uid(r), "ui", "model-favourite-default-effort", "", map[string]any{"tool": in.Tool, "effort": in.Effort})
 	}
 	writeJSON(w, http.StatusOK, out)
 }

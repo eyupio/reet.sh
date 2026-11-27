@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"path/filepath"
 	"testing"
+
+	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
 
 func favouriteModel(i int) string { return fmt.Sprintf("model-%02d", i) }
@@ -44,7 +46,7 @@ func TestModelFavouritesMigrateAndRoundTrip(t *testing.T) {
 	if err := s.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('model_favourites')`).Scan(&columns); err != nil {
 		t.Fatal(err)
 	}
-	if columns != 7 {
+	if columns != 8 {
 		t.Fatal("model_favourites columns", columns)
 	}
 }
@@ -333,5 +335,103 @@ func TestProfileModelWithoutToolStaysReadable(t *testing.T) {
 	p, err := s.ProfileFor(uid)
 	if err != nil || p.DefaultModel != "model-one" || p.DefaultTool != "" {
 		t.Fatal("an existing row with a model and no tool was not readable", p, err)
+	}
+}
+
+func TestModelFavouriteDefaultEffortBelongsToTheDefaultModel(t *testing.T) {
+	dir := t.TempDir()
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	uid := projectUser(t, s, "a")
+	if _, _, err := s.SetModelFavouriteDefaultEffortFor(uid, "claude", "high"); !errors.Is(err, ErrModelFavouriteNotFound) {
+		t.Fatal("an effort with no default model:", err)
+	}
+	for _, m := range []string{"model-a", "model-b"} {
+		if _, _, err := s.AddModelFavouriteFor(uid, "claude", m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, _, err := s.SetModelFavouriteDefaultFor(uid, "claude", "model-a"); err != nil {
+		t.Fatal(err)
+	}
+	effortOf := func(out ModelFavourites, model string) string {
+		for _, f := range out.Favourites {
+			if f.Tool == "claude" && f.Model == model {
+				return f.Effort
+			}
+		}
+		t.Fatal("missing favourite", model)
+		return ""
+	}
+	out, changed, err := s.SetModelFavouriteDefaultEffortFor(uid, "claude", "max")
+	if err != nil || !changed || effortOf(out, "model-a") != "max" || effortOf(out, "model-b") != "" {
+		t.Fatal("save", changed, err, out)
+	}
+	version := out.Version
+	if out, changed, err = s.SetModelFavouriteDefaultEffortFor(uid, "claude", "max"); err != nil || changed || out.Version != version {
+		t.Fatal("an unchanged effort moved the version", changed, err, out.Version, version)
+	}
+	for _, bad := range []struct{ tool, effort string }{{"claude", "ultra"}, {"codex", "max"}, {"opencode", "low"}, {"nope", "low"}} {
+		if _, _, err := s.SetModelFavouriteDefaultEffortFor(uid, bad.tool, bad.effort); !errors.Is(err, terminalproto.ErrInvalid) {
+			t.Fatal("accepted", bad, err)
+		}
+	}
+	s.Close()
+	s, err = Open(dir)
+	if err != nil {
+		t.Fatal("reopen", err)
+	}
+	defer s.Close()
+	if got := effortOf(mustFavourites(t, s, uid), "model-a"); got != "max" {
+		t.Fatal("effort lost over a reopen:", got)
+	}
+	// A level belongs to its model: a new default starts with none, and so does one set again after a clear.
+	if _, _, err := s.SetModelFavouriteDefaultFor(uid, "claude", "model-b"); err != nil {
+		t.Fatal(err)
+	}
+	out = mustFavourites(t, s, uid)
+	if effortOf(out, "model-a") != "" || effortOf(out, "model-b") != "" {
+		t.Fatal("a new default kept the old effort", out)
+	}
+	if _, _, err := s.SetModelFavouriteDefaultEffortFor(uid, "claude", "low"); err != nil {
+		t.Fatal(err)
+	}
+	if out, _, err = s.SetModelFavouriteDefaultEffortFor(uid, "claude", ""); err != nil || effortOf(out, "model-b") != "" {
+		t.Fatal("clear", err, out)
+	}
+	if _, _, err := s.SetModelFavouriteDefaultEffortFor(uid, "claude", "low"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.SetModelFavouriteDefaultFor(uid, "claude", ""); err != nil {
+		t.Fatal(err)
+	}
+	if got := effortOf(mustFavourites(t, s, uid), "model-b"); got != "" {
+		t.Fatal("clearing the default kept its effort:", got)
+	}
+}
+
+func TestModelFavouritesTableFromBeforeEffortGainsTheColumn(t *testing.T) {
+	dir := t.TempDir()
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	uid := projectUser(t, s, "a")
+	if _, _, err := s.AddModelFavouriteFor(uid, "claude", "model-a"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`ALTER TABLE model_favourites DROP COLUMN effort`); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	s, err = Open(dir)
+	if err != nil {
+		t.Fatal("reopen", err)
+	}
+	defer s.Close()
+	if out := mustFavourites(t, s, uid); len(out.Favourites) != 1 || out.Favourites[0].Effort != "" {
+		t.Fatal(out)
 	}
 }

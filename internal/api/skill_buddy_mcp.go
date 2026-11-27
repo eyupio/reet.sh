@@ -17,7 +17,8 @@ func (s *server) executeMCPBuddy(access mcpAccess, name string, args map[string]
 	if name == "reet_load_skill" {
 		sk, err := s.buddyLoad(access.User.ID, str("id"))
 		if err != nil {
-			return nil, err
+			_, problem := buddyLoadProblem(err)
+			return nil, errors.New(problem)
 		}
 		return map[string]any{"skill": sk, "guidance": skillbuddy.Prompt(sk), "limits": "Instructions only. Supporting scripts and plugin hooks are not installed. Loading does not prove use or grant permissions."}, nil
 	}

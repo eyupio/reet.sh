@@ -4,9 +4,10 @@
   let { context, oninsert, fits, disabled = false, sessionHref = '', compact = false }: { context: BuddyContext; oninsert?: (text: string) => boolean | Promise<boolean>; fits?: (text: string) => boolean; disabled?: boolean; sessionHref?: string; compact?: boolean } = $props()
   const uid = $props.id()
   let answer = $state<BuddyAnswer | null>(null), error = $state(''), note = $state(''), loading = $state(false), busy = $state(false)
-  let expanded = $state(false), paused = $state(false), preview = $state<{ skill: BuddySkill; text: string } | null>(null)
+  let expanded = $state(false), paused = $state(false), preview = $state<{ skill: BuddySkill; text: string; tooLong?: boolean } | null>(null)
   let sequence = 0
-  const shown = $derived((answer?.skills ?? []).filter(s => s.state !== 'dismissed'))
+  // A removed skill stays listed so it can be chosen again.
+  const shown = $derived(answer?.skills ?? [])
   const selected = (s: BuddySkill) => ['selected', 'prepared', 'drafted'].includes(s.state ?? '')
   const contextKey = $derived(JSON.stringify([context.sessionId, context.outcomeId, context.pipeline, context.stage]))
   $effect(() => { const key = contextKey; untrack(() => { preview = null; answer = null; error = ''; note = ''; try { paused = localStorage.getItem(`reet-skill-buddy:${key}`) === 'paused' } catch { paused = false } }) })
@@ -27,7 +28,7 @@
   async function inspect(skill: BuddySkill) {
     busy = true; error = ''; note = ''
     const key = contextKey
-    try { const out = await chooseSkill(context, skill.id, 'inspect'); if (key === contextKey) preview = { skill: { ...out.skill, reason: skill.reason }, text: out.text } }
+    try { const out = await chooseSkill(context, skill.id, 'inspect'); if (key === contextKey) preview = { skill: { ...out.skill, reason: skill.reason }, text: out.text, tooLong: out.tooLong } }
     catch (e) { if (key === contextKey) error = e instanceof Error ? e.message : 'This skill could not be opened.' }
     finally { busy = false }
   }
@@ -44,7 +45,7 @@
       // shortcut: a caller with no `fits` is only checked here, after the server holds "drafted"; give each such caller a `fits`.
       if (!remove && !target.outcomeId && !(await oninsert?.(out.text))) { error = noRoom; return }
       preview = null
-      note = remove ? 'Suggestion dismissed.' : target.outcomeId ? 'Selected. These instructions will travel with this stage when it starts.' : 'Added to your message. Read it, then send when ready.'
+      note = remove ? 'Removed from this stage.' : target.outcomeId ? 'Selected. These instructions will travel with this stage when it starts.' : 'Added to your message. Read it, then send when ready.'
       await load(target)
     } catch (e) { if (key === contextKey) error = e instanceof Error ? e.message : 'That choice could not be saved.' }
     finally { busy = false }
@@ -82,6 +83,7 @@
       <div class="preview-head"><strong>{preview.skill.name}</strong><button class="text-button" onclick={() => preview = null}>Close</button></div>
       <pre>{preview.text}</pre>
       {#if preview.skill.state === 'selected' && context.outcomeId}<p class="hint">These are the instructions selected for this stage</p>
+      {:else if preview.tooLong}<p class="hint">This skill is too long to add to a message. If it is installed on this machine, type / in the message box to use it.</p>
       {:else if answer?.editable && !disabled}<button class="btn" disabled={busy} onclick={() => preview && void choose(preview.skill)}>{busy ? 'Saving…' : context.outcomeId ? 'Use for this stage' : 'Add to message'}</button>
       {:else}<p class="hint">{context.outcomeId ? 'This stage has already started.' : 'This session is not running.'}{#if sessionHref} <a href={sessionHref}>Open its session to add guidance.</a>{/if}</p>{/if}
     </div>{/if}

@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"github.com/eyupio/reet.sh/internal/skillbuddy"
+	"github.com/eyupio/reet.sh/internal/skillbundle"
 	"github.com/eyupio/reet.sh/internal/store"
 	"github.com/eyupio/reet.sh/internal/terminalbroker"
 	"strings"
@@ -52,6 +53,24 @@ func TestSkillBuddySessionOwnershipAndReceipts(t *testing.T) {
 	code, _, _ = f.do(t, f.cookie, "POST", "/api/v2/skill-buddy/choose", map[string]any{"sessionId": id, "skillId": "community:any", "action": "drafted"})
 	if code != 400 {
 		t.Fatalf("community executed %d", code)
+	}
+	// A saved skill too long for the composer says so when reviewed, and a
+	// missing one is reported plainly rather than as a storage error.
+	base := ""
+	if _, err = f.st.SaveLibraryContentFor(f.uid, "", store.PrivateSkillWrite{RequestID: strings.Repeat("c", 32), ExpectedBase: &base, Name: "long", Files: []skillbundle.ContentFile{{Path: "SKILL.md", Data: []byte("---\nname: long\ndescription: Long\n---\n" + strings.Repeat("x", 3000))}}}); err != nil {
+		t.Fatal(err)
+	}
+	items, err := f.st.LibraryFor(f.uid)
+	if err != nil || len(items) != 1 {
+		t.Fatalf("library %v %+v", err, items)
+	}
+	code, out, body = f.do(t, f.cookie, "POST", "/api/v2/skill-buddy/choose", map[string]any{"sessionId": id, "skillId": "library:" + items[0].ID, "action": "inspect"})
+	if code != 200 || out["tooLong"] != true {
+		t.Fatalf("long skill inspect %d %s", code, body)
+	}
+	code, _, body = f.do(t, f.cookie, "POST", "/api/v2/skill-buddy/choose", map[string]any{"sessionId": id, "skillId": "library:gone", "action": "inspect"})
+	if code != 404 || strings.Contains(body, "private skill") || !strings.Contains(body, "no longer in your library") {
+		t.Fatalf("missing skill %d %s", code, body)
 	}
 }
 

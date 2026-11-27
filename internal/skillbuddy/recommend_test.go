@@ -32,6 +32,26 @@ func TestStageRecommendationsKeepBoundariesAndStableIdentity(t *testing.T) {
 	}
 }
 
+func TestAChatDraftIsMatchedOnItsOwnWords(t *testing.T) {
+	catalogue := append(Builtins(), Skill{ID: "community:fmt", Name: "Code formatter", Description: "Format code", Source: "community"})
+	for _, tc := range []struct{ task, want string }{
+		{"My chat session", ""},
+		{"My chat session fix the login redirect", ""},
+		{"My chat session please write tests for the parser", "builtin:test"},
+		{"Reviewing the auth change", "builtin:review"},
+		{"Tidy the code formatter output", "community:fmt"},
+	} {
+		got := Recommend(tc.task, "", catalogue)
+		first := ""
+		if len(got) > 0 {
+			first = got[0].ID
+		}
+		if first != tc.want {
+			t.Errorf("%q: first suggestion %q, want %q (%+v)", tc.task, first, tc.want, got)
+		}
+	}
+}
+
 func TestDisabledDefaultsAndUntrustedInstructionsDoNotDriveMatching(t *testing.T) {
 	all := []Skill{{ID: "builtin:code", Name: "Focus", Stage: "code", Source: "builtin", Disabled: true}, {ID: "library:bad", Name: "Other", Description: "Other", Instructions: "security authentication review", Source: "personal"}}
 	if got := Recommend("Review security authentication", "review", all); len(got) != 0 {

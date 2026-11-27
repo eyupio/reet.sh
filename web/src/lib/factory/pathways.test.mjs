@@ -133,3 +133,41 @@ test('byteLength counts UTF-8 bytes and sameEdit ignores updatedAt and problems'
   assert.equal(p.sameEdit(a, { ...a, name: 'Other' }), false)
   assert.equal(p.sameEdit(a, p.patchStage(a, 0, { tier: 'light' })), false)
 })
+
+test('a stage that names its own agent runs on it before any saved crew', () => {
+  const stages = [{ kind: 'code', agent: { tool: 'claude', model: 'opus', effort: 'high' } }]
+  const runs = p.resolvePathwayRuns({ ...p.blankPathway(), stages }, { standard: { tool: 'codex', model: 'gpt' } }, { tool: 'opencode', model: 'other' })
+  assert.deepEqual(runs.map(run => [run.tier, run.origin, run.member, run.spares]), [[null, 'pathway', { tool: 'claude', model: 'opus', effort: 'high' }, []]])
+})
+
+test('the saved crew for a stage’s tier wins, with its backups flattened in tried order', () => {
+  const crew = { standard: { tool: 'claude', model: 'opus', effort: 'high', backup: { tool: 'codex', model: 'gpt' }, moreBackups: [{ tool: 'opencode', model: '', effort: 'low' }, { tool: '' }] } }
+  const runs = p.resolvePathwayRuns({ ...p.blankPathway(), stages: [{ kind: 'code' }] }, crew, { tool: 'cline', model: 'own' })
+  assert.deepEqual(runs.map(run => [run.tier, run.origin, run.member]), [['standard', 'saved-crew', { tool: 'claude', model: 'opus', effort: 'high' }]])
+  assert.deepEqual(runs[0].spares, [{ tool: 'codex', model: 'gpt', effort: '' }, { tool: 'opencode', model: '', effort: 'low' }])
+})
+
+test('a tier with no saved crew uses the outcome’s agent, even when another tier is saved', () => {
+  const crew = { light: { tool: 'claude', model: 'opus' } }
+  const runs = p.resolvePathwayRuns({ ...p.blankPathway(), stages: [{ kind: 'code' }, { kind: 'pr' }] }, crew, { tool: 'codex', model: 'gpt', effort: 'medium' })
+  assert.deepEqual(runs.map(run => [run.tier, run.origin, run.member]), [
+    ['standard', 'outcome', { tool: 'codex', model: 'gpt', effort: 'medium' }],
+    ['light', 'saved-crew', { tool: 'claude', model: 'opus', effort: '' }],
+  ])
+  assert.deepEqual(runs.map(run => run.spares), [[], []])
+})
+
+test('a stage’s own tier overrides its kind’s default tier', () => {
+  const crew = { heavy: { tool: 'claude' }, standard: { tool: 'codex' } }
+  const runs = p.resolvePathwayRuns({ ...p.blankPathway(), stages: [{ kind: 'code', tier: 'heavy' }] }, crew, { tool: 'opencode', model: '' })
+  assert.equal(runs[0].tier, 'heavy')
+  assert.equal(runs[0].member.tool, 'claude')
+})
+
+test('a crew that was not read is not guessed: tier stages are unknown', () => {
+  const runs = p.resolvePathwayRuns({ ...p.blankPathway(), stages: [{ kind: 'code' }, { kind: 'pr', agent: { tool: 'claude' } }] }, { standard: { tool: 'codex' } }, { tool: 'opencode', model: '' }, false)
+  assert.deepEqual(runs.map(run => [run.tier, run.origin, run.member, run.spares]), [
+    ['standard', 'unknown-crew', { tool: '', model: '', effort: '' }, []],
+    [null, 'pathway', { tool: 'claude', model: '', effort: '' }, []],
+  ])
+})

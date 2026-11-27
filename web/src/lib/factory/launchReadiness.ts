@@ -7,6 +7,7 @@ import { accountFor, limitsNote, planLeft, readAgo, signInLine, startHint, type 
 import { agentDisplayName } from '../catalogue'
 import { modelStatus, formatAge, type MachineModels } from '../models'
 import { readiness, type TerminalMachine } from '../terminal/api'
+import type { PathwayRunOrigin } from './pathways'
 
 /** Five distinct outcomes. `default` is a choice (left to the agent); `missing` is nothing where something is needed;
  *  `stale` is an old answer; `unavailable` cannot be used or asked now; `ready` is reported by the machine as chosen. */
@@ -17,9 +18,9 @@ export type Fact = {
   /** Not checked against this machine: the sentence saying what happens once the stage starts. */ later?: string
   /** Worth saying, never a thing to look at: it does not count against the stage and is never the summary's first item. */ quiet?: boolean
 }
-/** Where the agent came from: the saved crew's tier, the outcome's own agent, the person's change in this dialog, or the
- *  outcome's agent because the saved crew's is not on this machine. */
-export type AgentSource = 'saved' | 'outcome' | 'chosen' | 'fallback'
+/** Where the agent came from: the saved crew's tier, the outcome's own agent, the person's change in this dialog, the
+ *  outcome's agent because the saved crew's is not on this machine, a pathway stage's own agent, or a crew not read. */
+export type AgentSource = 'saved' | 'outcome' | 'chosen' | 'fallback' | 'pathway' | 'unknown'
 export type Choice = { tool: string; model: string; effort?: string }
 export type SpareReadiness = {
   agent: string; model: string; effort: string
@@ -73,6 +74,8 @@ export type ReadinessInput = {
   saved: { tool?: string; model?: string; effort?: string } | null | undefined
   /** The person has set this tier in the dialog (or it started from the saved crew). */
   edited: boolean
+  /** Where a pathway stage's agent comes from; absent for an ordinary tier. */
+  origin?: PathwayRunOrigin
 }
 
 /** The server balances only on figures read within this long (internal/gaffer/outcome_balance.go). */
@@ -89,8 +92,9 @@ const capital = (word: string) => word ? word[0].toUpperCase() + word.slice(1) :
 /** The accounts the controller holds for the machine, whether or not the latest read succeeded. */
 const kept = (accounts: MachineAccounts | null | undefined): AgentAccount[] => accounts?.accounts ?? []
 
-export function agentSource(input: Pick<ReadinessInput, 'saved' | 'edited' | 'member' | 'tools'>): AgentSource {
-  const { saved, edited, member, tools } = input
+export function agentSource(input: Pick<ReadinessInput, 'saved' | 'edited' | 'member' | 'tools' | 'origin'>): AgentSource {
+  const { saved, edited, member, tools, origin } = input
+  if (origin) return origin === 'saved-crew' ? 'saved' : origin === 'unknown-crew' ? 'unknown' : origin
   if (!edited) return saved?.tool && !tools.includes(saved.tool) ? 'fallback' : 'outcome'
   const same = saved?.tool === member.tool && (saved.model ?? '') === member.model.trim() && (saved.effort ?? '') === (member.effort ?? '')
   return same ? 'saved' : 'chosen'
@@ -98,6 +102,8 @@ export function agentSource(input: Pick<ReadinessInput, 'saved' | 'edited' | 'me
 
 function sourceFact(source: AgentSource, input: ReadinessInput): Fact {
   const agent = name(input.member.tool)
+  if (source === 'pathway') return fact('ready', 'From the pathway', `This stage uses its own agent, ${agent}, from the pathway.`)
+  if (source === 'unknown') return fact('missing', 'Crew not known', 'Your saved Factory crew could not be read, so what this stage runs on is not known.')
   if (source === 'saved') return fact('ready', 'Saved crew', 'From your saved crew for this tier.')
   if (source === 'chosen') return fact('ready', 'Your choice', 'Chosen for this outcome.')
   if (source === 'fallback') return fact('unavailable', 'Outcome’s agent', `${name(input.saved?.tool ?? '')} from your saved crew is not on ${input.machine?.host || 'this machine'}, so this tier uses the outcome’s agent, ${agent}.`)
@@ -221,6 +227,7 @@ export type ReadinessItem = { level: 'blocked' | 'look' | 'note'; text: string; 
  *  the tier’s model, effort, sign-in and backups do not matter until that is fixed. */
 export function readinessItems(ready: StageReadiness): ReadinessItem[] {
   if (ready.connected.state !== 'ready') return [{ level: 'blocked', text: ready.connected.text, machine: true, ...(ready.locked ? { waiting: true as const } : {}) }]
+  if (ready.source === 'unknown') return [{ level: 'blocked', text: ready.sourceFact.text }]
   if (ready.agent.state !== 'ready') return [{ level: 'blocked', text: ready.agent.text }]
   const facts = [ready.signIn, ready.model, ready.effort, ready.sourceFact].filter(item => !item.pending && item.state !== 'ready' && item.state !== 'default')
   const later = [...new Set([ready.model.later, ready.effort.later].filter((text): text is string => !!text))]

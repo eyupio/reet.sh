@@ -227,8 +227,11 @@ export function modelStatus(machine: MachineModels | null | undefined, host: str
   }
 }
 
-export function effortChoices(tool: string): string[] {
-  return CATALOGUE.find(entry => entry.id === tool)?.effort ? ['', 'low', 'medium', 'high'] : ['']
+/** An agent's terminal effort levels. `more` adds the levels beyond high, which only a machine with effort-levels-v1 takes;
+ *  a saved default has no machine in view, so it offers them all. */
+export function effortChoices(tool: string, more = false): string[] {
+  const agent = CATALOGUE.find(entry => entry.id === tool)
+  return agent?.effort ? ['', 'low', 'medium', 'high', ...(more ? agent.moreEfforts ?? [] : [])] : ['']
 }
 
 export function moveFavourite<T>(items: readonly T[], index: number, delta: number): T[] {

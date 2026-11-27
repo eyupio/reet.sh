@@ -1065,7 +1065,12 @@ func (b *Broker) CreateSessionReserved(ctx context.Context, uid int64, agent, re
 		if in.Provider != "" && !(caps.Capabilities.ACPProvider && in.Structured && terminalproto.ToolTakesProvider(in.Tool)) {
 			return store.TerminalSession{}, false, ErrLaunchOptionUnsupported
 		}
-		badEffort := !in.Structured && in.Effort != "" && !terminalproto.ToolTakesEffort(in.Tool)
+		// A level beyond low, medium and high goes only to a machine that
+		// negotiated effort-levels-v1; an older one refuses it as invalid.
+		if !in.Structured && !terminalproto.BasicEffort(in.Effort) && !caps.Capabilities.EffortLevels {
+			return store.TerminalSession{}, false, ErrLaunchOptionUnsupported
+		}
+		badEffort := !in.Structured && !terminalproto.ToolTakesEffortLevel(in.Tool, in.Effort)
 		badModel := in.Model != "" && !terminalproto.ToolTakesModel(in.Tool)
 		if badEffort || badModel {
 			return store.TerminalSession{}, false, ErrLaunchOptionUnsupported

@@ -74,6 +74,16 @@ test('a terminal launch of Claude Code offers the three thinking levels a start 
  assert.deepEqual(effortChoices('claude'), ['', 'low', 'medium', 'high'])
 })
 
+test('levels beyond high are offered only by a machine with effort-levels-v1, and only for an agent that takes them', () => {
+ assert.deepEqual(launchOptions.launchEfforts('claude', { effortLevels: true }, false), ['', 'low', 'medium', 'high', 'xhigh', 'max'])
+ assert.deepEqual(launchOptions.launchEfforts('claude', {}, false), ['', 'low', 'medium', 'high'])
+ assert.deepEqual(launchOptions.launchEfforts('codex', { effortLevels: true }, false), ['', 'low', 'medium', 'high'])
+ assert.deepEqual(launchOptions.launchEfforts('cline', { effortLevels: true }, false), ['', 'low', 'medium', 'high'])
+ // A saved default has no machine in view, so it offers every level the agent takes.
+ assert.deepEqual(effortChoices('claude', true), ['', 'low', 'medium', 'high', 'xhigh', 'max'])
+ assert.deepEqual(effortChoices('opencode', true), [''])
+})
+
 test('providers, deduplication and recent models', () => {
   assert.equal(providerOf('anthropic/claude-sonnet-4-5'), 'anthropic')
   assert.equal(providerOf('local-model'), '')

@@ -409,8 +409,8 @@ func TestPresetFlagValuesAppearInHelpText(t *testing.T) {
 		}
 		check(p.SafeArgs)
 		check(p.YoloArgs)
-		for _, level := range []string{"low", "medium", "high"} {
-			check(p.EffortArgs[level])
+		for _, args := range p.EffortArgs {
+			check(args)
 		}
 	}
 }
@@ -610,8 +610,12 @@ func TestControllerOptionTableMatchesCatalogue(t *testing.T) {
 		if !enabled {
 			continue
 		}
-		effort := len(p.EffortArgs["low"]) > 0 && len(p.EffortArgs["medium"]) > 0 && len(p.EffortArgs["high"]) > 0
-		if terminalproto.ToolTakesEffort(p.ID) != effort || terminalproto.ToolTakesModel(p.ID) != (p.ModelFlag != "") || terminalproto.ToolTakesYolo(p.ID) != (len(p.YoloArgs) > 0) {
+		levels := terminalproto.ToolEfforts(p.ID)
+		mapped := len(levels) == len(p.EffortArgs)
+		for _, level := range levels {
+			mapped = mapped && len(p.EffortArgs[level]) > 0
+		}
+		if !mapped || terminalproto.ToolTakesModel(p.ID) != (p.ModelFlag != "") || terminalproto.ToolTakesYolo(p.ID) != (len(p.YoloArgs) > 0) {
 			t.Fatal(p.ID, "controller option table differs from the catalogue")
 		}
 	}

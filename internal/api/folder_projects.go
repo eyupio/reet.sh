@@ -203,7 +203,7 @@ const (
 	sentenceFolderDir      = "The folder must be an absolute path starting with /, at most 4096 bytes, without control characters or line separators."
 	sentenceFolderName     = "Give the project a name of 1 to 80 characters, without line breaks or control characters."
 	sentenceFolderMachine  = "That machine isn't enrolled on this account."
-	sentenceFolderEffort   = "Choose low, medium or high thinking, or the agent's default."
+	sentenceFolderEffort   = "Choose a thinking level the agent offers, or the agent's default."
 )
 
 // folderRefusal maps every store error for folder projects to a code and one
@@ -342,6 +342,9 @@ func (s *server) checkFolderProject(names map[string]string, p *store.FolderProj
 	unsupported := p.DefaultTool == "" || !terminalproto.ToolTakesEffort(p.DefaultTool)
 	if checkEffort && unsupported {
 		return &projectRefusal{422, "invalid_effort", "defaultEffort", "A default effort needs a default agent that takes one.", ""}
+	}
+	if checkEffort && !terminalproto.ToolTakesEffortLevel(p.DefaultTool, p.DefaultEffort) {
+		return &projectRefusal{422, "invalid_effort", "defaultEffort", sentenceFolderEffort, ""}
 	}
 	// A saved prompt's shape is checked again only when it changes, so one
 	// that today's rules refuse does not block editing anything else. The

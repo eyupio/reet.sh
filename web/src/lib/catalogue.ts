@@ -1,9 +1,9 @@
 import type { TerminalMachine } from './terminal/api'
 
-export type CatalogueAgent = { id: string; name: string; models: string[]; effort: boolean; enabled: boolean; resume?: boolean; yolo?: boolean; disabledReason?: string }
+export type CatalogueAgent = { id: string; name: string; models: string[]; effort: boolean; /** Levels beyond low, medium and high the terminal CLI takes, offered only by a machine with effort-levels-v1. */ moreEfforts?: string[]; enabled: boolean; resume?: boolean; yolo?: boolean; disabledReason?: string }
 // The one table of tool names and model hints (agentLaunch.ts reads it; it must not import agentLaunch back). Display suggestions only: the connector owns executable names and arguments.
 export const CATALOGUE: CatalogueAgent[] = [
-  { id: 'claude', name: 'Claude Code', models: ['sonnet', 'opus', 'haiku'], effort: true, enabled: true, resume: true, yolo: true },
+  { id: 'claude', name: 'Claude Code', models: ['sonnet', 'opus', 'haiku'], effort: true, moreEfforts: ['xhigh', 'max'], enabled: true, resume: true, yolo: true },
   { id: 'codex', name: 'Codex', models: ['gpt-5-codex'], effort: true, enabled: true, resume: true, yolo: true },
   { id: 'opencode', name: 'OpenCode', models: [], effort: false, enabled: true, resume: true, yolo: true },
   { id: 'pi', name: 'Pi', models: [], effort: false, enabled: false, disabledReason: "reet doesn't start this agent yet." },

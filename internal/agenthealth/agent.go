@@ -65,6 +65,7 @@ type AgentConfig struct {
 	antigravity        bool
 	antigravityACP     bool
 	copilot            bool
+	effortLevels       bool
 	worktree           bool
 	browse             bool
 	branches           bool
@@ -1093,6 +1094,7 @@ func negotiateFeatures(cfg *AgentConfig, advertised string) {
 	cfg.antigravity = cfg.agentsV2 && terminalproto.SupportsAntigravity(advertised)
 	cfg.antigravityACP = cfg.antigravity && terminalproto.SupportsAntigravityACP(advertised)
 	cfg.copilot = cfg.agentsV2 && terminalproto.SupportsCopilot(advertised)
+	cfg.effortLevels = cfg.agentsV2 && terminalproto.SupportsEffortLevels(advertised)
 	cfg.worktree = terminalproto.SupportsWorktree(advertised)
 	cfg.browse = terminalproto.SupportsBrowse(advertised)
 	cfg.branches = terminalproto.SupportsBranches(advertised)
@@ -1193,6 +1195,9 @@ func terminalFeatures(cfg AgentConfig) string {
 	}
 	if cfg.copilot {
 		features = append(features, terminalproto.CopilotFeature)
+	}
+	if cfg.effortLevels {
+		features = append(features, terminalproto.EffortLevelsFeature)
 	}
 	if cfg.launch {
 		features = append(features, terminalproto.LaunchFeature)
@@ -1513,11 +1518,14 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 		Launch:    launch,
 		Resume:    launch && cfg.resume,
 		AgentsV2:  cfg.agentsV2,
-		Yolo:      launch && cfg.agentsV2 && enabled && cfg.yoloAllowed,
-		OSVersion: reportedOSVersion(cfg.agentsV2),
-		Tools:     tools,
-		Worktree:  worktree,
-		Browse:    cfg.browse && control && enabled && cfg.browseAllowed,
+		// Only on a connection that negotiated effort-levels-v1: an older
+		// controller's strict decoder would refuse the field.
+		EffortLevels: launch && cfg.effortLevels,
+		Yolo:         launch && cfg.agentsV2 && enabled && cfg.yoloAllowed,
+		OSVersion:    reportedOSVersion(cfg.agentsV2),
+		Tools:        tools,
+		Worktree:     worktree,
+		Browse:       cfg.browse && control && enabled && cfg.browseAllowed,
 		// Only on a connection that negotiated browse-v1: an older
 		// controller's strict decoder would refuse the field.
 		BrowseOff:       cfg.browse && control && enabled && !cfg.browseAllowed,

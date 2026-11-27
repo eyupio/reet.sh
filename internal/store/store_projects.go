@@ -878,14 +878,13 @@ func (l RunLaunch) validate() error {
 	if l.Model != "" && !validModel {
 		return invalid("model has characters or a length the connector would refuse, or the agent takes none")
 	}
-	switch l.Effort {
-	case "":
-	case "low", "medium", "high":
-		if !terminalproto.ToolTakesEffort(l.Tool) {
-			return invalid("that agent takes no thinking effort")
-		}
-	default:
-		return invalid("thinking effort must be low, medium or high")
+	switch {
+	case !terminalproto.ValidEffort(l.Effort):
+		return invalid("thinking effort must be a level reet knows")
+	case !terminalproto.ToolTakesEffort(l.Tool) && l.Effort != "":
+		return invalid("that agent takes no thinking effort")
+	case !terminalproto.ToolTakesEffortLevel(l.Tool, l.Effort):
+		return invalid("that agent does not offer that thinking effort")
 	}
 	if l.Prompt != "" && !terminalproto.ValidPrompt(l.Prompt) {
 		return invalid("opening prompt must be valid text of at most %d bytes with no control characters except newline, and must not start with -", terminalproto.MaxPromptBytes)

@@ -341,12 +341,15 @@ func normalizeFolderWith(p FolderProject, checkPrompt, checkDefaults bool) (Fold
 		return p, folderInvalid("default model needs a default agent")
 	}
 	if !terminalproto.ValidEffort(p.DefaultEffort) {
-		return p, folderInvalid("default effort must be blank, low, medium or high")
+		return p, folderInvalid("default effort must be blank or a thinking level reet knows")
 	}
 	checkEffort := checkDefaults && p.DefaultEffort != ""
 	unsupported := p.DefaultTool == "" || !terminalproto.ToolTakesEffort(p.DefaultTool)
 	if checkEffort && unsupported {
 		return p, folderInvalid("default effort needs a default agent that takes an effort level")
+	}
+	if checkEffort && !terminalproto.ToolTakesEffortLevel(p.DefaultTool, p.DefaultEffort) {
+		return p, folderInvalid("default effort must be a thinking level the default agent offers")
 	}
 	hasPrompt := p.StarterPrompt != ""
 	validPrompt := len(p.StarterPrompt) <= maxFolderProjectPromptBytes &&

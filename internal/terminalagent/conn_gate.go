@@ -57,6 +57,10 @@ func (r *agentReq) checkFeatures() (answered bool, err error) {
 			r.reply.Body = terminalproto.Result{Code: terminalproto.LaunchOptionUnsupported}
 			return true, r.send(callCtx, r.reply)
 		}
+		if !create.Structured && !terminalproto.BasicEffort(create.Effort) && !features.Has(terminalproto.EffortLevelsFeature) {
+			r.reply.Body = terminalproto.Result{Code: terminalproto.LaunchOptionUnsupported}
+			return true, r.send(callCtx, r.reply)
+		}
 		if create.Provider != "" && !features.Has(terminalproto.ACPProviderFeature) {
 			r.reply.Body = terminalproto.Result{Code: terminalproto.LaunchOptionUnsupported}
 			return true, r.send(callCtx, r.reply)

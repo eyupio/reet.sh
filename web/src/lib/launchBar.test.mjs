@@ -220,6 +220,10 @@ test('startable names the first reason', () => {
   assert.equal(startable(choice({ agent: 'codex', effort: 'high' }), projects, machines), null)
   assert.equal(startable(choice({ agent: 'opencode', effort: 'high' }), projects, [machine('m-studio', 'studio', { tools: ['opencode'] })]), "That agent doesn't take that option.")
   assert.equal(startable(choice({ effort: 'high' }), projects, machines), null)
+  // Levels beyond high need a machine with effort-levels-v1, and an agent that takes them.
+  assert.equal(startable(choice({ agent: 'claude', effort: 'max' }), projects, machines), 'Update reet on that machine to use that option.')
+  assert.equal(startable(choice({ agent: 'claude', effort: 'max' }), projects, [machine('m-studio', 'studio', { effortLevels: true })]), null)
+  assert.equal(startable(choice({ agent: 'codex', effort: 'max' }), projects, [machine('m-studio', 'studio', { effortLevels: true })]), "That agent doesn't take that option.")
   assert.equal(startable(choice({ agent: 'antigravity' }), projects, machines), 'Not installed on studio')
   const down = [machine('m-studio', 'studio', {}, false)]
   assert.equal(startable(choice(), projects, down), 'The machine is reconnecting. Existing shells will be kept.')
@@ -453,7 +457,7 @@ test('a start in several projects words its own refusals', () => {
     [422, 'invalid_selection', 'Choose 2 to 12 different projects.'],
     [409, 'yolo_not_allowed', 'An owner or admin can allow YOLO for this account in Settings.'],
     [409, 'yolo_refused', "That machine doesn't accept YOLO sessions."],
-    [422, 'invalid_effort', "Choose low, medium or high thinking, or the agent's default."],
+    [422, 'invalid_effort', "Choose a thinking level the agent offers, or the agent's default."],
     [422, 'invalid_model', "That model name isn't one reet can pass on. Use letters, digits and . _ : / @ + -, up to 100 characters, starting with a letter or digit."],
     [422, 'request_id_required', 'Starting needs a request id: 16 to 128 letters, digits, hyphens or underscores.'],
     [422, 'invalid_prompt', 'The prompt must be valid text of at most 8,000 bytes, without control characters other than line breaks, and must not start with a dash.'],

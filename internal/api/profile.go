@@ -162,12 +162,16 @@ func (s *server) profileSave(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if !terminalproto.ValidEffort(defaultEffort) {
-			writeErr(w, 400, "defaultEffort must be blank, low, medium or high")
+			writeErr(w, 400, "defaultEffort must be blank or a thinking level reet knows")
 			return
 		}
 		needsTool := defaultTool == "" || !terminalproto.ToolTakesEffort(defaultTool)
 		if defaultEffort != "" && needsTool {
 			writeErr(w, 400, "defaultEffort needs a defaultTool that takes an effort level")
+			return
+		}
+		if !terminalproto.ToolTakesEffortLevel(defaultTool, defaultEffort) {
+			writeErr(w, 400, "defaultEffort must be a thinking level the defaultTool offers")
 			return
 		}
 	}

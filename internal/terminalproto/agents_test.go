@@ -161,6 +161,20 @@ func TestEveryStartedAgentTakesYolo(t *testing.T) {
 	}
 }
 
+func TestEffortLevelsArePerAgent(t *testing.T) {
+	for _, tc := range []struct {
+		tool, effort string
+		want         bool
+	}{{"claude", "max", true}, {"claude", "xhigh", true}, {"codex", "xhigh", false}, {"cline", "xhigh", false}, {"cline", "high", true}, {"opencode", "low", false}, {"opencode", "", true}} {
+		if ToolTakesEffortLevel(tc.tool, tc.effort) != tc.want {
+			t.Fatalf("%s %q: want %v", tc.tool, tc.effort, tc.want)
+		}
+	}
+	if !BasicEffort("high") || BasicEffort("max") || !ValidEffort("max") || ValidEffort("ultra") {
+		t.Fatal("basic or valid effort levels moved")
+	}
+}
+
 func TestAgentsV2ToolsAndOptions(t *testing.T) {
 	for _, id := range []string{"pi", "cursor", "gemini", "nonesuch", ""} {
 		if ValidToolV2(id) {

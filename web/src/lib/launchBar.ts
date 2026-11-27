@@ -3,7 +3,7 @@ import type { BranchesResult, FolderProject, LaunchRequest, TerminalMachine, Ter
 import { chatNeedsTrust, isChatTool, readiness, structuredAgent } from './terminal/api'
 import { CATALOGUE, agentChoices } from './catalogue'
 import { launchEfforts } from './terminal/launchOptions'
-import { resolveLaunchDefaults, type ModelFavourite } from './models'
+import { effortChoices, resolveLaunchDefaults, type ModelFavourite } from './models'
 import { MAX_PROMPT_BYTES, cleanModel, codeSentence, promptTitle, refusalText, titleFor, titleOriginFor, toolName, validateModel, validatePrompt } from './agentLaunch'
 
 // The launch bar's logic: what the sentence says, what it starts from, whether Start may be pressed, and the one create
@@ -140,7 +140,6 @@ export function initialChoice(projects: LaunchProject[], profile: LaunchDefaults
   return out
 }
 
-const EFFORTS: Effort[] = ['low', 'medium', 'high']
 
 /**
  * The last launch, read from the sessions list (the newest session that names an agent): its agent, model, effort and
@@ -152,7 +151,7 @@ export function lastChoice(sessions: Pick<TerminalSession, 'agentId' | 'createdA
   const newest = sessions.filter(s => s.tool).reduce<typeof sessions[number] | null>((a, s) => (!a || s.createdAt > a.createdAt ? s : a), null)
   if (!newest?.tool) return null
   const project = newest.projectId ? projects.find(p => p.id === newest.projectId) : undefined
-  const effort = takesEffort(newest.tool) && EFFORTS.includes(newest.effort as Effort) ? newest.effort as Effort : ''
+  const effort = newest.effort && effortChoices(newest.tool, true).includes(newest.effort) ? newest.effort as Effort : ''
   const out: LaunchChoice = {
     agent: newest.tool, model: newest.model ?? '', projectIds: project ? [project.id] : [],
     branch: project?.baseBranch || profile.defaultBaseBranch || '', worktree: project?.isRepo ? !!newest.worktreePath : worktreeFor(project, profile),
@@ -318,7 +317,7 @@ export function startable(choice: LaunchChoice, projects: LaunchProject[], machi
   const model = validateModel(choice.model)
   if (model) return model
   if (choice.approvals === 'yolo' && !agent.yolo) return NO_OPTION
-  if (choice.effort && (!agent.effort || !EFFORTS.includes(choice.effort))) return NO_OPTION
+  if (choice.effort && !effortChoices(choice.agent, true).includes(choice.effort)) return NO_OPTION
   const targets: { agentId: string; repo: boolean; base: boolean }[] = picked.length > 0
     ? picked.map(p => ({ agentId: p.host, repo: p.isRepo, base: !!baseFor(choice, p, profile) }))
     : [{ agentId: choice.homeMachine ?? '', repo: false, base: false }]
@@ -331,6 +330,7 @@ export function startable(choice: LaunchChoice, projects: LaunchProject[], machi
     if (offer && !offer.available) return offer.reason ?? "reet doesn't start this agent yet."
     if (target.repo && choice.worktree && !caps.worktree) return codeSentence('worktree_unsupported')
     if ((choice.effort || target.base || choice.approvals === 'yolo') && !caps.agentsV2) return UPDATE_FOR_OPTION
+    if (choice.effort && !effortChoices(choice.agent, caps.effortLevels === true).includes(choice.effort)) return UPDATE_FOR_OPTION
     if (choice.approvals === 'yolo' && !caps.yolo) return `${m!.host} doesn't accept YOLO sessions.`
   }
   return null
@@ -442,7 +442,7 @@ const RUN_REFUSALS: Record<string, string> = {
   invalid_selection: 'Choose 2 to 12 different projects.',
   yolo_not_allowed: 'An owner or admin can allow YOLO for this account in Settings.',
   yolo_refused: "That machine doesn't accept YOLO sessions.",
-  invalid_effort: "Choose low, medium or high thinking, or the agent's default.",
+  invalid_effort: "Choose a thinking level the agent offers, or the agent's default.",
   invalid_model: "That model name isn't one reet can pass on. Use letters, digits and . _ : / @ + -, up to 100 characters, starting with a letter or digit.",
   request_id_required: 'Starting needs a request id: 16 to 128 letters, digits, hyphens or underscores.',
   invalid_prompt: `The prompt must be valid text of at most ${MAX_PROMPT_BYTES.toLocaleString('en-GB')} bytes, without control characters other than line breaks, and must not start with a dash.`,

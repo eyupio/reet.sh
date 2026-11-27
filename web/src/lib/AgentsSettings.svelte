@@ -371,7 +371,7 @@
     const badModel = validateModel(model)
     if (badModel) return badModel
     if (defaultEffort !== '' && (!defaultTool || !takesEffort)) return 'A thinking level needs an agent that takes one.'
-    if (defaultEffort !== '' && !['low', 'medium', 'high'].includes(defaultEffort)) return "Choose low, medium or high thinking, or the agent's default."
+    if (!effortChoices(defaultTool, true).includes(defaultEffort)) return "Choose a thinking level the agent offers, or the agent's default."
     return ''
   }
 
@@ -473,7 +473,7 @@
       {#if takesEffort}
         <label><span>Thinking</span>
           <select id="agents-effort" aria-label="Thinking" bind:value={defaultEffort} disabled={!canWrite || busy === 'profile'}>
-            {#each effortChoices(defaultTool) as value (value || 'default')}<option value={value}>{value || 'The agent’s default'}</option>{/each}
+            {#each effortChoices(defaultTool, true) as value (value || 'default')}<option value={value}>{value || 'The agent’s default'}</option>{/each}
           </select>
           <small>Only agents that take an effort level show this.</small>
         </label>

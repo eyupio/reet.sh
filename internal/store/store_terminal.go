@@ -524,9 +524,9 @@ const listingOutcomeRefsSession = `(EXISTS(SELECT 1 FROM json_each(o.data,'$.ses
 // can outlive the other, so neither alone is enough. The first placeholder keeps
 // an explicitly requested session, so a direct link still opens a session whose
 // outcome was archived or deleted while the lists leave it out.
-// shortcut: a deleted outcome leaves only the goal, so if that goal is removed
-// (conversation deleted, or pruned past MaxGafferConversations) the session is
-// listed again; upgrade by archiving the sessions when an outcome is deleted.
+// A deleted outcome leaves its sessions' goals as the marker, until
+// pruneFactoryGoals archives the ended ones and removes their goals. A session
+// still running, or holding a worktree, keeps its goal and so stays hidden.
 const listingHideFactorySessions = ` AND (terminal_sessions.id=? OR NOT (
 	(EXISTS(SELECT 1 FROM gaffer_goals g WHERE g.user_id=terminal_sessions.user_id AND json_extract(g.data,'$.sessionId')=terminal_sessions.id AND substr(json_extract(g.data,'$.text'),1,9)='Outcome: ')
 		OR EXISTS(SELECT 1 FROM gaffer_outcomes o WHERE o.user_id=terminal_sessions.user_id AND COALESCE(json_extract(o.data,'$.archivedAt'),0)<>0 AND ` + listingOutcomeRefsSession + `))
@@ -638,45 +638,47 @@ func (s *Store) ArchiveTerminalFor(uid int64, sessionID string) error {
 	if !terminalproto.ValidID(sessionID) {
 		return terminalproto.ErrInvalid
 	}
-	return s.withTx(func(tx *sql.Tx) error {
-		result, err := tx.Exec(`UPDATE terminal_sessions SET id=id WHERE id=? AND user_id=? AND EXISTS(SELECT 1 FROM users WHERE id=? AND disabled_at=0 AND role<>'viewer')`, sessionID, uid, uid)
-		if err != nil {
-			return err
-		}
-		count, err := result.RowsAffected()
-		if err != nil {
-			return err
-		}
-		if count != 1 {
-			return ErrRemoteNotFound
-		}
-		session, err := readTerminal(tx.QueryRow(`SELECT `+terminalSessionCols+` FROM terminal_sessions WHERE id=? AND user_id=?`, sessionID, uid))
-		if err != nil {
-			return err
-		}
-		switch session.State {
-		case terminalproto.EndRequested, terminalproto.Ended, terminalproto.Exited, terminalproto.Lost:
-		default:
-			return ErrTerminalConflict
-		}
-		_, err = tx.Exec(`INSERT INTO terminal_session_archives(session_id,user_id,agent_id,archived_at) VALUES(?,?,?,?) ON CONFLICT(session_id) DO NOTHING`, session.ID, uid, session.AgentID, now())
-		if err != nil {
-			return err
-		}
-		// What its agent reported using goes with the session. A finished
-		// pipeline stage has already kept its own figures.
-		if _, err = tx.Exec(`DELETE FROM terminal_session_usage WHERE user_id=? AND session_id=?`, uid, session.ID); err != nil {
-			return err
-		}
-		if err = clearArchivedPrompt(tx, uid, session.ID); err != nil {
-			return err
-		}
-		if err = clearArchivedDeskSessionTx(tx, uid, session.ID); err != nil {
-			return err
-		}
-		_, err = tx.Exec(`UPDATE terminal_chat_queue SET text='',images='[]',state='removed',note='',revision=revision+1 WHERE session_id=? AND user_id=?`, session.ID, uid)
+	return s.withTx(func(tx *sql.Tx) error { return archiveTerminalTx(tx, uid, sessionID) })
+}
+
+func archiveTerminalTx(tx *sql.Tx, uid int64, sessionID string) error {
+	result, err := tx.Exec(`UPDATE terminal_sessions SET id=id WHERE id=? AND user_id=? AND EXISTS(SELECT 1 FROM users WHERE id=? AND disabled_at=0 AND role<>'viewer')`, sessionID, uid, uid)
+	if err != nil {
 		return err
-	})
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if count != 1 {
+		return ErrRemoteNotFound
+	}
+	session, err := readTerminal(tx.QueryRow(`SELECT `+terminalSessionCols+` FROM terminal_sessions WHERE id=? AND user_id=?`, sessionID, uid))
+	if err != nil {
+		return err
+	}
+	switch session.State {
+	case terminalproto.EndRequested, terminalproto.Ended, terminalproto.Exited, terminalproto.Lost:
+	default:
+		return ErrTerminalConflict
+	}
+	_, err = tx.Exec(`INSERT INTO terminal_session_archives(session_id,user_id,agent_id,archived_at) VALUES(?,?,?,?) ON CONFLICT(session_id) DO NOTHING`, session.ID, uid, session.AgentID, now())
+	if err != nil {
+		return err
+	}
+	// What its agent reported using goes with the session. A finished
+	// pipeline stage has already kept its own figures.
+	if _, err = tx.Exec(`DELETE FROM terminal_session_usage WHERE user_id=? AND session_id=?`, uid, session.ID); err != nil {
+		return err
+	}
+	if err = clearArchivedPrompt(tx, uid, session.ID); err != nil {
+		return err
+	}
+	if err = clearArchivedDeskSessionTx(tx, uid, session.ID); err != nil {
+		return err
+	}
+	_, err = tx.Exec(`UPDATE terminal_chat_queue SET text='',images='[]',state='removed',note='',revision=revision+1 WHERE session_id=? AND user_id=?`, session.ID, uid)
+	return err
 }
 
 // clearArchivedPrompt drops the opening prompt of a session that has an archive

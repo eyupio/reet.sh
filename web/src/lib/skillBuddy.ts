@@ -7,7 +7,7 @@ export type BuddyRecord = { scope: string; sessionId: string; stage: string; ski
 export async function recommendSkills(context: BuddyContext, signal?: AbortSignal): Promise<BuddyAnswer> {
   return (await terminalRequest('/api/v2/skill-buddy/recommendations', { method: 'POST', body: JSON.stringify(context), signal })).json()
 }
-export async function chooseSkill(context: BuddyContext, skillId: string, action: string, revision = ''): Promise<{ text: string; skill: BuddySkill }> {
+export async function chooseSkill(context: BuddyContext, skillId: string, action: string, revision = ''): Promise<{ text: string; skill: BuddySkill; tooLong?: boolean }> {
   return (await terminalRequest('/api/v2/skill-buddy/choose', { method: 'POST', body: JSON.stringify({ ...context, skillId, action, revision }), signal: AbortSignal.timeout(15000) })).json()
 }
 export async function skillInsights(signal?: AbortSignal): Promise<{ records: BuddyRecord[]; limit: number; retentionDays: number; sessionUsage?: Record<string, {inputTokens: number; outputTokens: number; cachedTokens: number; reported: boolean}> }> {

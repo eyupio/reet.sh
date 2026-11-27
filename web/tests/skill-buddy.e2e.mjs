@@ -24,7 +24,8 @@ try{
    '/api/v2/admin/system-skills':r=>{if(r.method()==='PUT'){const body=r.postDataJSON();choices.push(body);system={...system,version:system.version+1,skills:system.skills.map(s=>s.id===body.skill.id?body.skill:s)}}return system},
    '/api/v2/gaffer/outcomes':{outcomes:[outcome]},
    '/api/v2/gaffer/providers':{providers:[],presets:[],available:true,canUseLocal:true,maxProviders:12},
-   '/api/v2/skill-buddy/recommendations':r=>{const body=r.postDataJSON();return{skills:[{...unslop,instructions:undefined,state:choices.some(c=>c.action==='selected')?'selected':'suggested'}],stage:stages[body.stage??0].kind,editable:(body.stage??0)>0,scope:`factory:outcome:a:${body.stage??0}`}},
+   // Unslop starts removed from the stage: it must still be listed and selectable again.
+   '/api/v2/skill-buddy/recommendations':r=>{const body=r.postDataJSON();return{skills:[{...unslop,instructions:undefined,state:choices.some(c=>c.action==='selected')?'selected':'dismissed'}],stage:stages[body.stage??0].kind,editable:(body.stage??0)>0,scope:`factory:outcome:a:${body.stage??0}`}},
    '/api/v2/skill-buddy/choose':r=>{const body=r.postDataJSON();choices.push(body);return{text:unslop.instructions,skill:unslop}},
   }})
   await w.page.goto(base+'/skill-insights')

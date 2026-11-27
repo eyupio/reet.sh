@@ -84,24 +84,36 @@ func words(text string) map[string]bool {
 	return out
 }
 
+// stageForms are the task words that name a stage when no Factory stage is given.
+var stageForms = map[string]string{"review": "review", "reviews": "review", "reviewing": "review", "design": "design", "designs": "design", "designing": "design", "test": "test", "tests": "test", "testing": "test", "plan": "plan", "plans": "plan", "planning": "plan", "merge": "merge", "merging": "merge"}
+
 // Recommend ranks metadata, never instructions. A community result is discovery only.
 func Recommend(task, stage string, candidates []Skill) []Skill {
 	explicitStage := stage != ""
 	normalizedTask := " " + strings.Join(tokens(task), " ") + " "
+	query := words(task)
+	// A stage the task does not name defaults to code for eligibility only: it
+	// earns no score, so every chat does not get the same suggestions.
+	defaulted := false
 	if !explicitStage {
-		stage = "code"
+		named := map[string]bool{}
+		for w := range query {
+			named[stageForms[w]] = true
+		}
+		stage, defaulted = "code", true
 		for _, candidate := range []string{"review", "design", "test", "plan", "merge"} {
-			if words(task)[candidate] {
-				stage = candidate
+			if named[candidate] {
+				stage, defaulted = candidate, false
 				break
 			}
 		}
 	}
-	query := words(task)
-	query[stage] = true
-	stageWords := map[string]string{"plan": "planning requirements architecture", "design": "design ux ui accessibility responsive", "code": "implementation coding fix", "review": "review security bugs", "test": "tests testing regression", "pr": "pull request documentation", "babysit": "ci checks conflicts", "merge": "merge readiness"}
-	for word := range words(stageWords[stage]) {
-		query[word] = true
+	if !defaulted {
+		query[stage] = true
+		stageWords := map[string]string{"plan": "planning requirements architecture", "design": "design ux ui accessibility responsive", "code": "implementation coding fix", "review": "review security bugs", "test": "tests testing regression", "pr": "pull request documentation", "babysit": "ci checks conflicts", "merge": "merge readiness"}
+		for word := range words(stageWords[stage]) {
+			query[word] = true
+		}
 	}
 	out := []Skill{}
 	for _, sk := range candidates {
@@ -109,7 +121,7 @@ func Recommend(task, stage string, candidates []Skill) []Skill {
 			continue
 		}
 		sk.Score = 0
-		if sk.Source == "builtin" && sk.ID == "builtin:"+stage && stage != "" {
+		if sk.Source == "builtin" && sk.ID == "builtin:"+stage && !defaulted {
 			sk.Score = 12
 			sk.Reason = "Reet's guidance for the " + stage + " stage."
 		}

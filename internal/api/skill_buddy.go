@@ -134,6 +134,21 @@ type skillCannotLoad string
 
 func (e skillCannotLoad) Error() string { return string(e) }
 
+// chatGuidanceBytes keeps room for the person's task in the session composer's 2,000 bytes.
+const chatGuidanceBytes = 1500
+
+// buddyLoadProblem says why a load failed without passing a storage error to the person.
+func buddyLoadProblem(err error) (int, string) {
+	var refused skillCannotLoad
+	switch {
+	case errors.As(err, &refused):
+		return 400, refused.Error()
+	case errors.Is(err, store.ErrPrivateSkillMissing):
+		return 404, "That skill is no longer in your library."
+	}
+	return 500, "That skill could not be read."
+}
+
 func (s *server) buddyLoad(uid int64, id string) (skillbuddy.Skill, error) {
 	system, _, err := s.buddySystem()
 	if err != nil {
@@ -243,10 +258,12 @@ func (s *server) buddyChoose(w http.ResponseWriter, r *http.Request) {
 		}
 		sk, err := s.buddyLoad(uid, in.SkillID)
 		if err != nil {
-			writeErr(w, 400, err.Error())
+			code, problem := buddyLoadProblem(err)
+			writeErr(w, code, problem)
 			return
 		}
-		writeJSON(w, 200, map[string]any{"text": skillbuddy.Prompt(sk), "skill": sk})
+		text := skillbuddy.Prompt(sk)
+		writeJSON(w, 200, map[string]any{"text": text, "skill": sk, "tooLong": in.SessionID != "" && len(text) > chatGuidanceBytes})
 		return
 	}
 	if !editable {
@@ -281,7 +298,8 @@ func (s *server) buddyChoose(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if err != nil {
-		writeErr(w, 400, err.Error())
+		code, problem := buddyLoadProblem(err)
+		writeErr(w, code, problem)
 		return
 	}
 	if in.Action != "dismissed" && in.Revision != "" && in.Revision != sk.Revision {
@@ -289,8 +307,7 @@ func (s *server) buddyChoose(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	text := skillbuddy.Prompt(sk)
-	// The session composer has a 2,000-byte limit. Keep space for the person's task.
-	if in.SessionID != "" && in.Action == "drafted" && len(text) > 1500 {
+	if in.SessionID != "" && in.Action == "drafted" && len(text) > chatGuidanceBytes {
 		writeErr(w, 400, "Use this skill through the session's Skills picker; its instructions are too long for the composer.")
 		return
 	}

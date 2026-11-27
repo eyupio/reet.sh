@@ -303,7 +303,7 @@ func (s *Service) executePlan(ctx context.Context, outer context.Context, p Prin
 	if len(request.pathways) > 0 {
 		tool = planSessionsWithPathwaysTool
 	}
-	stream, err := backend.Chat(ctx, elicore.Request{Model: request.cfg.Model, System: outcomeSystem(request.sessions, len(request.pathways) > 0), Messages: []elicore.Message{{Role: elicore.RoleUser, Content: request.ask}}, Tools: []elicore.Tool{tool}, MaxTokens: 4096})
+	stream, err := backend.Chat(ctx, elicore.Request{Model: request.cfg.Model, System: outcomeSystem(request.sessions, len(request.pathways) > 0), Messages: []elicore.Message{{Role: elicore.RoleUser, Content: request.ask}}, Tools: []elicore.Tool{tool}, MaxTokens: hostToolMaxTokens})
 	if err != nil {
 		return plan, planFailure(outer, err)
 	}

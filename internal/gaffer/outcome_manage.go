@@ -334,7 +334,7 @@ func (s *Service) reviewOutcome(parent context.Context, p Principal, id string, 
 		return outcomeView(o), err
 	}
 	defer client.CloseIdleConnections()
-	stream, err := backend.Chat(ctx, elicore.Request{Model: cfg.Model, System: outcomeReviewSystem, Messages: []elicore.Message{{Role: elicore.RoleUser, Content: s.outcomeEvidence(o)}}, Tools: []elicore.Tool{reportOutcomeTool}, MaxTokens: 4096})
+	stream, err := backend.Chat(ctx, elicore.Request{Model: cfg.Model, System: outcomeReviewSystem, Messages: []elicore.Message{{Role: elicore.RoleUser, Content: s.outcomeEvidence(o)}}, Tools: []elicore.Tool{reportOutcomeTool}, MaxTokens: hostToolMaxTokens})
 	if err != nil {
 		return outcomeView(o), planFailure(parent, err)
 	}

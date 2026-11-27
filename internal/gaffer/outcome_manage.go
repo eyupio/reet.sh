@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -734,6 +735,11 @@ func (s *Service) sendPipelineBack(uid int64, id, key, kind string, why func(fro
 			return outcomeView(o), err
 		}
 	}
+	// A stage sent back for its work may move up a tier; with the crew unread it stays where it is.
+	crew, crewErr := s.store.GafferCrewFor(uid)
+	if crewErr != nil {
+		crew = store.GafferCrew{}
+	}
 	found := false
 	var refused error
 	abandoned := ""
@@ -761,9 +767,10 @@ func (s *Service) sendPipelineBack(uid int64, id, key, kind string, why func(fro
 			}
 			for j := target; j < len(row.Stages); j++ {
 				// A stage done again is asked for under a new request, so it gets a session of its own.
-				row.Stages[j] = store.GafferOutcomeStage{Kind: row.Stages[j].Kind, Name: row.Stages[j].Name, Prompt: row.Stages[j].Prompt, Tool: row.Stages[j].Tool, Model: row.Stages[j].Model, Effort: askedEffort(row.Stages[j]), Provider: row.Stages[j].Provider, Tier: row.Stages[j].Tier, TierWhy: row.Stages[j].TierWhy, Part: row.Stages[j].Part, Brief: row.Stages[j].Brief, SkillGuidance: row.Stages[j].SkillGuidance, Backup: row.Stages[j].Backup, More: row.Stages[j].More, First: row.Stages[j].First, Balanced: row.Stages[j].Balanced, State: "pending", RequestID: fresh[j]}
+				row.Stages[j] = store.GafferOutcomeStage{Kind: row.Stages[j].Kind, Name: row.Stages[j].Name, Prompt: row.Stages[j].Prompt, Tool: row.Stages[j].Tool, Model: row.Stages[j].Model, Effort: askedEffort(row.Stages[j]), Provider: row.Stages[j].Provider, Tier: row.Stages[j].Tier, TierWhy: row.Stages[j].TierWhy, TierFrom: row.Stages[j].TierFrom, FromCrew: row.Stages[j].FromCrew, Part: row.Stages[j].Part, Brief: row.Stages[j].Brief, SkillGuidance: row.Stages[j].SkillGuidance, Backup: row.Stages[j].Backup, More: row.Stages[j].More, First: row.Stages[j].First, Balanced: row.Stages[j].Balanced, State: "pending", RequestID: fresh[j]}
 			}
 			row.Stages[target].SentBack = why(from)
+			raiseTier(&row.Stages[target], crew, o.Trust, o.Yolo)
 			// Work that is done again is delivered again: an earlier acceptance
 			// was of what is now being changed.
 			row.Stage, row.MergeApproved, row.DeliveryAccepted = target, false, false
@@ -817,6 +824,37 @@ func (s *Service) TellPipelineAgent(ctx context.Context, uid int64, id, key, req
 		return s.WorkerMessage(ctx, uid, "gaffer", piece.ConversationID, piece.SessionID, request, "", text)
 	}
 	return store.WorkerMessage{}, invalid("tell", "That pipeline is not part of this outcome.")
+}
+
+// raiseTier moves a stage that was sent back up one tier, to the crew's next
+// tier, once: only a stage the account's crew chose whose first choice is
+// still its tier's crew member (one the person picked an agent for, or that
+// came from an outcome's own crew, stays as it is), never above heavy, only to
+// a different worker, and only to workers the outcome's folder trust and
+// approval mode let start, as creating it and changing a worker check.
+func raiseTier(stage *store.GafferOutcomeStage, crew store.GafferCrew, trust, yolo bool) {
+	at := slices.Index(StageTiers, stage.Tier)
+	if !stage.FromCrew || stage.TierFrom != "" || at < 0 || at == len(StageTiers)-1 {
+		return
+	}
+	first := store.GafferStageAgent{Tool: stage.Tool, Model: stage.Model, Effort: stage.Effort, Provider: stage.Provider}
+	if stage.First != nil {
+		first = *stage.First
+	}
+	was, next := crew.Tier(stage.Tier), crew.Tier(StageTiers[at+1])
+	if was.Tool == "" || next.Tool == "" || first != (store.GafferStageAgent{Tool: was.Tool, Model: was.Model, Effort: was.Effort, Provider: was.Provider}) ||
+		first == (store.GafferStageAgent{Tool: next.Tool, Model: next.Model, Effort: next.Effort, Provider: next.Provider}) {
+		return
+	}
+	for _, worker := range append([]store.GafferStageAgent{{Tool: next.Tool}}, store.Spares(next.Backup, next.More)...) {
+		if worker.Tool == "antigravity" && !trust || yolo && !terminalproto.ToolTakesYolo(worker.Tool) {
+			return
+		}
+	}
+	stage.Tool, stage.Model, stage.Effort, stage.Provider = next.Tool, next.Model, next.Effort, next.Provider
+	stage.Backup, stage.More, stage.First, stage.Balanced = next.Backup, next.More, nil, ""
+	stage.TierFrom, stage.Tier = stage.Tier, StageTiers[at+1]
+	stage.TierWhy = "Moved up from " + stage.TierFrom + " because it was sent back."
 }
 
 // askedEffort is the effort a stage asks for when it is done again: the one

@@ -95,7 +95,7 @@ the body), and passes the read time to the service (`internal/api/gaffer_pathway
 read time with the row's `updated_at` and refuses with `ErrGafferPathwayChanged` if it has moved on
 (`internal/store/store_gaffer_pathways.go:123-136`). The new `updated_at` is `max(now, old+1)`, so two quick saves
 cannot share a timestamp (`internal/store/store_gaffer_pathways.go:134`). The web client sends the pathway's
-`updatedAt` on every save, including the enable switch (`web/src/lib/factory/pathways.ts:175-178`;
+`updatedAt` on every save, including the enable switch (`web/src/lib/api.ts:459,464`;
 `web/src/lib/factory/pathways/PathwayList.svelte:33-47`). A stale PUT is `409 pathway_changed`
 (`internal/api/gaffer_pathways.go:30-32`), covered by `TestPathwayCreateListAndStalePut`
 (`internal/api/gaffer_pathways_test.go:100-140`).
@@ -126,7 +126,7 @@ enforce:
 | Prompt at most 4,000 bytes of plain text, custom or built-in | `internal/gaffer/pathways.go:88-90` |
 | A stage has a tier or an agent, not both; default tier when neither | `internal/gaffer/pathways.go:91-108` |
 | At most 2 skills, each once | `internal/gaffer/pathways.go:109-120` |
-| Stage 50-per-account limit | `store_gaffer_pathways.go:12,112-119` |
+| 50 pathways per account | `internal/store/store_gaffer_pathways.go:12,112-119` |
 
 Skill IDs are checked for shape only at save: existence, size and availability are checked when the pathway is
 listed or started (`internal/gaffer/pathways.go:186-199,207-210`). That is why a pathway can be saved with a missing
@@ -301,9 +301,10 @@ pipeline and one standard pipeline, is refused entirely, not just for the pathwa
 
 **Finding T2 (workflow).** A template's plan cannot be edited. "Rename or change the description" is the only edit, and
 it saves a new version with the same plan (`web/src/lib/factory/Templates.svelte:113-123`). To change stages, prompts
-or criteria, a person must start from the template, adjust the live plan, finish the outcome, and only then save it as
-a new version (`docs/factory.md:437-441`; `web/src/lib/factory/Templates.svelte:116`). That loop requires a full run to
-change a saved plan.
+or criteria, a person must run an outcome — normally by starting from the template, though any finished outcome can
+become a new version (`web/src/lib/factory/TemplateSave.svelte:52`) — adjust the live plan, and only then save it
+(`docs/factory.md:437-441`; `web/src/lib/factory/Templates.svelte:116`). That loop requires a full run to change a
+saved plan.
 
 **Finding T3 (asymmetry).** Templates have no MCP tool and are not offered to Gaffer (`docs/factory.md:418-419`). The
 pathway is both suggestible and startable through the MCP tools, while a template is only reachable through the

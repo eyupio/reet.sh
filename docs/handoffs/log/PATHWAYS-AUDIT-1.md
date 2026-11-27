@@ -16,3 +16,10 @@ limit is stated in section 7 of the document.
 **Not done:** no code, API, UI, schema or behaviour changed, and no throwaway probe was left behind. The recommendation
 to bridge Templates and pathway outcomes, and the suggestion that Gaffer could propose a pathway, are design notes
 only. The later stages (review, pull request, babysit, merge) have not been started.
+
+**Review (27 November 2026):** all cited line ranges were re-checked against the source and are within their files;
+every substantive claim in sections 1 to 6 was re-read against the code. Three fixes: the `updatedAt`-on-save citation
+now points at `web/src/lib/api.ts` (the save and body helpers) rather than `pathways.ts`, the per-account limit row now
+says "50 pathways" rather than "Stage 50", and Finding T2 no longer says a plan change must start from the template,
+since any finished outcome can be saved as a new version. No finding's severity changed; the verdict, recommendations
+and open questions stand, including that no runtime test was run.

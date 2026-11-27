@@ -329,3 +329,57 @@ func TestFolderProjectClineAndEffort(t *testing.T) {
 		t.Fatal("unexpected effort", res.raw)
 	}
 }
+
+func TestModelFavouriteDefaultEffortSetClearAndRefusals(t *testing.T) {
+	f := launchAPIFixture(t, launchCaps("claude"))
+	path := favouritesPath() + "/default-effort"
+	if code, out, raw := f.do(t, f.cookie, "PUT", path, map[string]any{"tool": "claude", "effort": "high"}); code != 404 || out["code"] != "favourite_not_found" {
+		t.Fatal("an effort with no default model", code, raw)
+	}
+	for _, fav := range []map[string]any{{"tool": "claude", "model": "model-a"}, {"tool": "opencode", "model": "model-b"}} {
+		if code, _, raw := f.do(t, f.cookie, "POST", favouritesPath(), fav); code != 201 {
+			t.Fatal("star", code, raw)
+		}
+	}
+	for _, def := range []map[string]any{{"tool": "claude", "model": "model-a"}, {"tool": "opencode", "model": "model-b"}} {
+		if code, _, raw := f.do(t, f.cookie, "PUT", favouritesPath()+"/default", def); code != 200 {
+			t.Fatal("default", code, raw)
+		}
+	}
+	code, out, raw := f.do(t, f.cookie, "PUT", path, map[string]any{"tool": "claude", "effort": "xhigh"})
+	if code != 200 || favouriteEffort(out, "claude", "model-a") != "xhigh" {
+		t.Fatal("save", code, raw)
+	}
+	if code, out, raw = f.do(t, f.cookie, "PUT", path, map[string]any{"tool": "claude", "effort": ""}); code != 200 || favouriteEffort(out, "claude", "model-a") != "" {
+		t.Fatal("clear", code, raw)
+	}
+	for _, bad := range []map[string]any{{"tool": "claude", "effort": "ultra"}, {"tool": "opencode", "effort": "low"}} {
+		if code, out, raw = f.do(t, f.cookie, "PUT", path, bad); code != 422 || out["code"] != "invalid_effort" {
+			t.Fatal("accepted", bad, code, raw)
+		}
+	}
+	if code, out, raw = f.do(t, f.cookie, "PUT", path, map[string]any{"tool": "nope", "effort": "low"}); code != 422 || out["code"] != "invalid_tool" {
+		t.Fatal("a tool reet cannot start", code, raw)
+	}
+	rows := projectEvents(t, f.st, f.uid, "model-favourite-default-effort")
+	if len(rows) != 2 {
+		t.Fatal("effort audit", rows)
+	}
+	for _, row := range rows {
+		if len(row) != 2 || row["tool"] == nil || row["effort"] == nil {
+			t.Fatal("effort audit carries more than tool and effort", row)
+		}
+	}
+}
+
+func favouriteEffort(out map[string]any, tool, model string) string {
+	list, _ := out["favourites"].([]any)
+	for _, raw := range list {
+		fav, _ := raw.(map[string]any)
+		if fav["tool"] == tool && fav["model"] == model {
+			effort, _ := fav["effort"].(string)
+			return effort
+		}
+	}
+	return "missing"
+}

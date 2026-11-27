@@ -223,12 +223,17 @@
   })
   // Favourites are a help, not a prerequisite: the bar waits for no read, and never overwrites a model the person chose.
   // A favourite marked as the default for the agent is the person's own choice for that agent, so a late read applies
-  // it over the project and account defaults too.
+  // it over the project and account defaults too, and so is the effort saved beside it (a chat keeps it only where the
+  // agent offers that level).
   $effect(() => {
     const current = choice
-    if (!favouritesRead || !current || explicitModel || locked) return
+    if (!favouritesRead || !current || locked) return
     const favourite = favourites.find(f => f.agentDefault && f.tool === current.agent)
-    if (favourite?.model && current.model !== favourite.model) choice = { ...current, model: favourite.model }
+    if (!favourite) return
+    const host = current.projectIds.length === 1 ? projects?.find(p => p.id === current.projectIds[0])?.host : current.homeMachine
+    const model = !explicitModel && favourite.model ? favourite.model : current.model
+    const effort = !explicitEffort && favourite.effort ? chatEffort({ ...current, effort: favourite.effort }, host, machines ?? []) : current.effort
+    if (model !== current.model || effort !== current.effort) choice = { ...current, model, effort }
   })
   // An address that names a project later (an old /projects/<id> link, looked up after the bar opened) chooses it once.
   $effect(() => {

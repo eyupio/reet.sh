@@ -8,9 +8,9 @@
  import { prefillText } from '../sessions/fixMessages'
  import { alreadyThere } from '../sessions/fixDelivery'
  import { chatToolName, setAgentMode, chatAnswer, chatCancel, chatQuestionAnswer, chatModel, machineModels, chatPrompt, chatURL, getSessionSkills, chatCommands, launchUpload, terminalClosed, type TerminalSession } from './api'
- import { addModelFavourite, getProfile, listModelFavourites, saveProfile, setModelFavouriteDefault } from '../api'
+ import { addModelFavourite, getProfile, listModelFavourites, saveProfile, setModelFavouriteDefault, setModelFavouriteDefaultEffort } from '../api'
  import { creditGuidance, sourceChoices, sourceLabel } from '../clineSource'
- import { defaultLabel, modelOptions, modelStatus, type MachineModels, type ModelFavourite } from '../models'
+ import { defaultLabel, effortChoices, modelOptions, modelStatus, type MachineModels, type ModelFavourite } from '../models'
  import { modelSuggestions, validateModel } from '../agentLaunch'
  import SlotPicker, { type SlotOption } from '../launch/SlotPicker.svelte'
 import Toast from '../Toast.svelte'
@@ -164,7 +164,10 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
   catch (e) { modeOverride = ''; throw e }
  }
   const agentDefault = $derived(favourites.find(f => f.tool === tool && f.agentDefault)?.model ?? '')
-  const selectedIsDefault = $derived(!!selectedModel.trim() && selectedModel.trim() === agentDefault)
+  // The level worth saving beside the default model: one this agent's launches take ("default" and the like are not).
+  const savableEffort = $derived(liveEffort && effortChoices(tool, true).includes(liveEffort.current) ? liveEffort.current : '')
+  const savedEffort = $derived(favourites.find(f => f.tool === tool && f.agentDefault)?.effort ?? '')
+  const selectedIsDefault = $derived(!!selectedModel.trim() && selectedModel.trim() === agentDefault && (!savableEffort || savableEffort === savedEffort))
   const selectedIsFavourite = $derived(favourites.some(f => f.tool === tool && f.model === selectedModel.trim()))
   const modelChoices = $derived<SlotOption[]>(modelOptions({
    tool, current: currentModel, machine: modelMachine, favourites, recent: [],
@@ -218,12 +221,15 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
   const model = selectedModel.trim()
   if (!acpModel || !model || favouriteBusy) return
   const wasDefault = selectedIsDefault
+  const effort = wasDefault ? '' : savableEffort
   favouriteBusy = true
   try {
    if (!wasDefault && !selectedIsFavourite) await addModelFavourite(tool, model)
-   const answer = await setModelFavouriteDefault(tool, wasDefault ? '' : model)
+   let answer = await setModelFavouriteDefault(tool, wasDefault ? '' : model)
+   // Clearing the default clears its effort with it; making it saves the level this chat is running beside the model.
+   if (effort) answer = await setModelFavouriteDefaultEffort(tool, effort)
    if (answer?.favourites) favourites = answer.favourites
-   flash(wasDefault ? `Cleared the default for ${tool}.` : `New ${tool} sessions use ${model}.`)
+   flash(wasDefault ? `Cleared the default for ${tool}.` : `New ${tool} sessions use ${model}${effort ? ` at ${effort} effort` : ''}.`)
   } catch (e) {
    flash(e instanceof Error ? e.message : 'Couldn’t update the agent default just now. Try again.', true)
   } finally { favouriteBusy = false }
@@ -1110,7 +1116,7 @@ const promptBlocked = $derived(!!locked || reattaching || sending || uploading |
         <span class="value">{selectedModel.trim() || 'Agent default'}</span>
         {#if changingModel}<span class="chev" aria-hidden="true">…</span>{:else}<span class="chev" aria-hidden="true">▾</span>{/if}
        </button>
-       <button type="button" class="star" class:on={selectedIsDefault} disabled={!selectedModel.trim() || favouriteBusy || chat.connection !== 'open'} aria-pressed={selectedIsDefault} aria-label={defaultLabel(tool, selectedModel.trim(), selectedIsDefault)} title={selectedIsDefault ? `Default for new ${tool} sessions. Click to clear.` : `Make this the default for new ${tool} sessions`} onclick={() => void toggleDefault()}>
+       <button type="button" class="star" class:on={selectedIsDefault} disabled={!selectedModel.trim() || favouriteBusy || chat.connection !== 'open'} aria-pressed={selectedIsDefault} aria-label={defaultLabel(tool, selectedModel.trim(), selectedIsDefault)} title={selectedIsDefault ? `Default for new ${tool} sessions${savedEffort ? ` (${savedEffort} effort)` : ''}. Click to clear.` : `Make this the default for new ${tool} sessions${savableEffort ? `, at ${savableEffort} effort` : ''}`} onclick={() => void toggleDefault()}>
         <svg viewBox="0 0 24 24" fill={selectedIsDefault ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.1 1 5.9L12 16.9 6.8 19.7l1-5.9L3.5 9.7l5.9-.8z" /></svg>
         <span class="star-word">{favouriteBusy ? 'Saving…' : selectedIsDefault ? 'Default' : 'Make default'}</span>
        </button>

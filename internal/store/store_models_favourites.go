@@ -18,11 +18,13 @@ var (
 )
 
 // ModelFavourite is one starred model. AgentDefault marks the model to use
-// when the person switches to this agent (decision D3).
+// when the person switches to this agent (decision D3). Effort is the thinking
+// level saved beside that default model; only the default carries one.
 type ModelFavourite struct {
 	Tool         string `json:"tool"`
 	Model        string `json:"model"`
 	AgentDefault bool   `json:"agentDefault"`
+	Effort       string `json:"effort,omitempty"`
 }
 
 // ModelFavourites is the account's list and the version a picker sends back
@@ -39,7 +41,7 @@ type ModelFavouriteRef struct {
 }
 
 func (s *Store) migrateModelFavourites() error {
-	return s.withTx(func(tx *sql.Tx) error {
+	if err := s.withTx(func(tx *sql.Tx) error {
 		for _, stmt := range []string{
 			`CREATE TABLE IF NOT EXISTS model_favourites (
 				user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -61,7 +63,15 @@ func (s *Store) migrateModelFavourites() error {
 			}
 		}
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+	// The thinking level saved beside an agent's default model came after the table.
+	if ok, err := hasColumn(s.db, "model_favourites", "effort"); err != nil || ok {
+		return err
+	}
+	_, err := s.db.Exec(`ALTER TABLE model_favourites ADD COLUMN effort TEXT NOT NULL DEFAULT ''`)
+	return err
 }
 
 func validModelFavourite(tool, model string) error {
@@ -76,7 +86,7 @@ func modelFavouritesTx(q dbQuerier, uid int64) (ModelFavourites, error) {
 	if err := q.QueryRow(`SELECT COALESCE((SELECT version FROM model_favourite_meta WHERE user_id=?),0)`, uid).Scan(&out.Version); err != nil {
 		return out, err
 	}
-	rows, err := q.Query(`SELECT tool,model,agent_default FROM model_favourites WHERE user_id=? ORDER BY position,created_at,model`, uid)
+	rows, err := q.Query(`SELECT tool,model,agent_default,effort FROM model_favourites WHERE user_id=? ORDER BY position,created_at,model`, uid)
 	if err != nil {
 		return out, err
 	}
@@ -84,7 +94,7 @@ func modelFavouritesTx(q dbQuerier, uid int64) (ModelFavourites, error) {
 	for rows.Next() {
 		var f ModelFavourite
 		var isDefault int
-		if err := rows.Scan(&f.Tool, &f.Model, &isDefault); err != nil {
+		if err := rows.Scan(&f.Tool, &f.Model, &isDefault, &f.Effort); err != nil {
 			return out, err
 		}
 		f.AgentDefault = isDefault != 0
@@ -252,7 +262,8 @@ func (s *Store) ReorderModelFavouritesFor(uid, version int64, items []ModelFavou
 
 // SetModelFavouriteDefaultFor makes model the one default for its agent, or
 // clears the default when model is empty. A non-empty model must already be
-// starred for that tool. An unchanged default does not move the version.
+// starred for that tool. An unchanged default does not move the version. A
+// changed default starts with no saved effort: a level belongs to its model.
 func (s *Store) SetModelFavouriteDefaultFor(uid int64, tool, model string) (out ModelFavourites, changed bool, err error) {
 	validTool := terminalproto.ValidToolV2(tool)
 	validModel := model == "" || terminalproto.ValidModel(model)
@@ -278,7 +289,7 @@ func (s *Store) SetModelFavouriteDefaultFor(uid int64, tool, model string) (out 
 			out, err = modelFavouritesTx(tx, uid)
 			return err
 		}
-		if _, err := tx.Exec(`UPDATE model_favourites SET agent_default=0,updated_at=MAX(updated_at,?) WHERE user_id=? AND tool=? AND agent_default=1`, now(), uid, tool); err != nil {
+		if _, err := tx.Exec(`UPDATE model_favourites SET agent_default=0,effort='',updated_at=MAX(updated_at,?) WHERE user_id=? AND tool=? AND agent_default=1`, now(), uid, tool); err != nil {
 			return err
 		}
 		if model != "" {
@@ -290,6 +301,38 @@ func (s *Store) SetModelFavouriteDefaultFor(uid int64, tool, model string) (out 
 			return err
 		}
 		changed = true
+		out, err = modelFavouritesTx(tx, uid)
+		return err
+	})
+	return out, changed, err
+}
+
+// SetModelFavouriteDefaultEffortFor saves the thinking level new sessions of
+// tool start on beside its default model, or clears it when effort is empty.
+// The agent must already have a default model, and the level must be one its
+// preset maps. An unchanged level does not move the version.
+func (s *Store) SetModelFavouriteDefaultEffortFor(uid int64, tool, effort string) (out ModelFavourites, changed bool, err error) {
+	if !terminalproto.ValidToolV2(tool) || !terminalproto.ValidEffort(effort) || !terminalproto.ToolTakesEffortLevel(tool, effort) {
+		return ModelFavourites{}, false, terminalproto.ErrInvalid
+	}
+	err = s.withTx(func(tx *sql.Tx) error {
+		var current string
+		err := tx.QueryRow(`SELECT effort FROM model_favourites WHERE user_id=? AND tool=? AND agent_default=1`, uid, tool).Scan(&current)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrModelFavouriteNotFound
+		}
+		if err != nil {
+			return err
+		}
+		if current != effort {
+			if _, err := tx.Exec(`UPDATE model_favourites SET effort=?,updated_at=MAX(updated_at,?) WHERE user_id=? AND tool=? AND agent_default=1`, effort, now(), uid, tool); err != nil {
+				return err
+			}
+			if err := bumpModelFavouritesTx(tx, uid); err != nil {
+				return err
+			}
+			changed = true
+		}
 		out, err = modelFavouritesTx(tx, uid)
 		return err
 	})

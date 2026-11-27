@@ -14,7 +14,7 @@ export type MachineModels = {
   reason: string
   sentence: string
 }
-export type ModelFavourite = { tool: string; model: string; agentDefault: boolean }
+export type ModelFavourite = { tool: string; model: string; agentDefault: boolean; effort?: string }
 export type ModelOption = {
   value: string
   label: string
@@ -48,7 +48,7 @@ export type ResolveLaunchDefaultsInput = {
   explicitAgent?: string
   project?: LaunchDefaultSource | null
   account?: LaunchDefaultSource | null
-  favouriteDefault?: { tool: string; model: string } | string | null
+  favouriteDefault?: { tool: string; model: string; effort?: string } | string | null
   availableAgents?: readonly string[]
   /** The Cline source the person has chosen, when one is shown: a default model follows the saved default source. */
   chosenSource?: string
@@ -175,8 +175,11 @@ export function resolveLaunchDefaults({
   const savedSource = account?.defaultClineSource ?? ''
   if (agent === 'cline' && savedSource && chosenSource !== undefined && chosenSource !== savedSource) model = ''
 
+  // The effort saved beside that default model is the person's own choice for the agent too, so it outranks theirs.
+  const favouriteEffort = typeof favouriteDefault === 'object' && favouriteDefault?.tool === agent ? favouriteDefault.effort ?? '' : ''
   let effort = ''
-  if (agent && project?.defaultTool === agent && project.defaultEffort) effort = project.defaultEffort
+  if (favouriteEffort) effort = favouriteEffort
+  else if (agent && project?.defaultTool === agent && project.defaultEffort) effort = project.defaultEffort
   else if (agent && account?.defaultTool === agent && account.defaultEffort) effort = account.defaultEffort
   if (!CATALOGUE.find(entry => entry.id === agent)?.effort) effort = ''
 

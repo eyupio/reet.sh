@@ -104,6 +104,13 @@ reason, sentence}`; the browser adds the relative age.
   Settings › Agents and a live chat's model switch). The server still stores one
   default per agent, and picking a model that is not yet a favourite stars it
   first. The favourites manager keeps its checkbox and order controls.
+- An agent's default can also carry a **thinking level**, saved beside its default model (`effort` on that favourite).
+  A live chat's **Make default** saves the effort the chat is running along with the model, so a new session of that
+  agent opens on both. Only a level the agent's launches take is saved (Claude Code up to max, Codex low to high), and
+  the agent needs a default model first. Changing the effort in the chat makes **Make default** available again, and
+  pressing it saves just the new level. A level belongs to its model: making another model the default, or clearing the
+  default, clears the effort. The Start dialog and launch bar open on it, and a chat keeps it only where the agent
+  offers that level.
 - Cline also has a **default source**: the billing source a new Cline session starts on (Usage-Billing, ClinePass
   or Cline's own choice). The account profile stores it as `defaultClineSource`, a provider id Cline reports
   (blank is Cline's own choice), validated by the model-name rule and audited by value. A read-only account cannot
@@ -123,7 +130,9 @@ reason, sentence}`; the browser adds the relative age.
   marked as the default for that agent, then the project default, then the
   account default, then the agent's own default. A model marked as the agent's
   default is the person's own choice for that agent, so it is applied even when
-  a project or the account names another model. The server stores and validates
+  a project or the account names another model; the effort saved beside it is
+  applied the same way, and where none is saved the project and account efforts
+  still fill it in. The server stores and validates
   these values but never substitutes one into a launch; what the browser sends
   is what runs.
 
@@ -134,15 +143,18 @@ GET    /api/v2/profile/model-favourites
 POST   /api/v2/profile/model-favourites          {tool, model}
 DELETE /api/v2/profile/model-favourites?tool=&model=
 PUT    /api/v2/profile/model-favourites/order    {version, items:[{tool,model}]}
-PUT    /api/v2/profile/model-favourites/default  {tool, model}   # "" clears
+PUT    /api/v2/profile/model-favourites/default  {tool, model}   # "" clears (and clears its effort)
+PUT    /api/v2/profile/model-favourites/default-effort  {tool, effort}   # "" clears; needs a default model
 PATCH  /api/v2/profile                            defaultTool/defaultModel/defaultEffort/defaultClineSource
 PATCH  /api/v2/folder-projects/{id}               defaultEffort (and Cline as defaultTool)
 ```
 
 Errors use `invalid_tool`, `invalid_model`, `invalid_effort`, `favourites_full`,
-`favourite_not_found` and `favourites_stale`. Mutations are writer-only; reads
-are available to any signed-in account. Audit rows name the tool and model only:
-`model-favourite-added`, `model-favourite-removed`, `model-favourite-default`.
+`favourite_not_found` and `favourites_stale`. Saving an effort for an agent with no
+default model is `favourite_not_found`. Mutations are writer-only; reads
+are available to any signed-in account. Audit rows name the tool and model only
+(and the effort, for `model-favourite-default-effort`): `model-favourite-added`,
+`model-favourite-removed`, `model-favourite-default`.
 
 ## What is here, and what is next
 
@@ -167,7 +179,8 @@ The models UI now exists wherever a model or a default is chosen:
   model offers **Make default**, which stars it first when it is not yet a
   favourite, and **Clear default** for the model that is already the agent
   default. The choice is the account's default for that agent, so it applies to
-  new sessions, not the one already open.
+  new sessions, not the one already open. Where the chat has an effort control, Make
+  default saves its level along with the model.
 - **Machines → a machine's Settings → Agents** lists the installed launchable
   agents and the model state last read: “42 read 3 h ago”, “not supported”,
   “couldn't read: timed out”, “off”, “offline” or “update”. **Refresh** asks the

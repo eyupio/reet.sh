@@ -109,6 +109,8 @@ test('model activity names the tool and never a host or a path', () => {
   assert.equal(eventLabel(event('model-favourite-removed', { tool: 'opencode', model: 'anthropic/claude-sonnet-4-5' })), 'Unstarred anthropic/claude-sonnet-4-5 for OpenCode')
   assert.equal(eventLabel(event('model-favourite-default', { tool: 'opencode', model: 'anthropic/claude-sonnet-4-5' })), 'Made anthropic/claude-sonnet-4-5 the default for OpenCode')
   assert.equal(eventLabel(event('model-favourite-default', { tool: 'opencode', model: '' })), 'Cleared the default model for OpenCode')
+  assert.equal(eventLabel(event('model-favourite-default-effort', { tool: 'claude', effort: 'high' })), 'Made high the default effort for Claude Code')
+  assert.equal(eventLabel(event('model-favourite-default-effort', { tool: 'claude', effort: '' })), 'Cleared the default effort for Claude Code')
   assert.doesNotMatch(eventLabel(event('machine-models-read', { machine: 'a1', tool: 'opencode', state: 'listed', count: 2 })), /a1|studio/)
 })
 test('YOLO approvals read as one counted line per turn, and Gaffer\'s own actions say what happened and why', () => {
@@ -148,6 +150,7 @@ test('activity events fall into the areas the filters offer', () => {
   assert.equal(eventCategory(event('model-favourite-added')), 'agents')
   assert.equal(eventCategory(event('model-favourite-removed')), 'agents')
   assert.equal(eventCategory(event('model-favourite-default')), 'agents')
+  assert.equal(eventCategory(event('model-favourite-default-effort')), 'agents')
   assert.equal(eventCategory(event('terminal-launch')), 'agents')
   assert.equal(eventCategory(event('worktree-remove')), 'agents')
   assert.equal(eventCategory(event('worktree-kept')), 'agents')

@@ -145,7 +145,7 @@ try {
     const w = await open(config)
     try {
       await w.page.goto(base)
-      if (!config.status) { await w.page.getByRole('button', { name: 'Continue working', exact: true }).click(); await expect(w.page.getByText("Couldn't read your sessions just now.", { exact: true })).toBeVisible() }
+      if (!config.status) { await expect(w.page.getByRole('alert')).toBeVisible(); await expect(w.page.getByRole('button', { name: 'Reload page', exact: true })).toBeVisible() }
       else await expect(w.page.getByRole('heading', { name: 'Home', exact: true })).toBeVisible()
       await expect(workbench(w.page)).toHaveCount(0)
       expect(w.writes).toEqual([])

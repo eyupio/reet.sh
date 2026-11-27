@@ -22,8 +22,12 @@ What changed.
 Tests. `web/src/lib/home/homeFirstRead.test.mjs` tables the helper over before-settle, full failure for a writer and a
 viewer, and partial data. `web/tests/home-refresh.e2e.mjs` (built UI) gates `/api/v2/terminal/sessions`: the `home`
 skeleton is visible and "Nothing is waiting for you." / "0 waiting for you" are absent, then release shows the heading,
-real content and no skeleton. A 503 first read shows the alert and Reload with no skeleton and no empty-Home copy.
-`npm test` and `svelte-check` pass.
+real content and no skeleton. A 503 first read shows the alert and Reload with no skeleton and no empty-Home copy. A
+viewer gets the `cards` skeleton while `/api/v2/machines/health` is held, then their Home. `home-refresh` runs in the
+Home browser CI step (`terminal-browser.yml`). `npm test` and `svelte-check` pass.
 
-Not checked: a viewer's Home in the browser (the helper covers it; the e2e uses a writer), and the known out-of-scope
-case of a signed-out visitor refreshing a private route, which still gets the app boot shell before sign-in.
+Review. Re-ran `home-refresh`, `home`, `projects`, `home-waiting`, `home-followups` and `loading` on a fresh build, plus
+`svelte-check`: all green. The other browser suites were not rerun here.
+
+Not checked: the known out-of-scope case of a signed-out visitor refreshing a private route, which still gets the app
+boot shell before sign-in.

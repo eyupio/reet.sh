@@ -171,7 +171,7 @@ jobs:
             fi
             echo "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=$chromium_path" >> "$GITHUB_ENV"
           fi
-      - name: Long names never zoom a phone out, and Home across screens and themes
+      - name: Long names never zoom a phone out, and Home across screens, themes and a fresh read
         env:
           REET_UI_URL: http://127.0.0.1:4173
         run: |
@@ -182,7 +182,7 @@ jobs:
             if curl -fsS http://127.0.0.1:4173/ > /dev/null; then break; fi
             sleep 1
           done
-          scripts/run-browser-suites.sh phone-zoom shell-fidelity home projects
+          scripts/run-browser-suites.sh phone-zoom shell-fidelity home home-refresh projects
       # The Add project dialog's later fixes (stale edit, branch suggestions, filter while a folder opens). It serves the
       # dialog's component fixture with Vite, so it needs no preview server.
       - name: Add project dialog, later fixes

@@ -80,6 +80,16 @@ func goalQuestion(call elicore.ToolCall) (string, *store.GafferGoalAdvice, error
 	if call.Name == handOverTool.Name {
 		limit, what = maxHandoverBytes, "The handover must be one summary of up to 4,000 UTF-8 bytes."
 	}
+	// A model that overshoots a handover would fail the whole review, which is
+	// not repeated, so the stage sat in "issue" until the person retried.
+	// Clip it at a character boundary instead.
+	if call.Name == handOverTool.Name && len(in.Summary) > limit {
+		cut := limit - len("…")
+		for cut > 0 && !utf8.RuneStart(in.Summary[cut]) {
+			cut--
+		}
+		in.Summary = strings.TrimSpace(in.Summary[:cut]) + "…"
+	}
 	var extra any
 	if d.Decode(&extra) != io.EOF || !store.ValidWorkerText(in.Summary) || len(in.Summary) > limit {
 		return "", nil, errors.New(what)

@@ -59,7 +59,7 @@ are for this revision.
 | 16 | `mkdocs.yml` (206 lines) | Site navigation, the public page set, and `exclude_docs` for design notes, research, handoffs and plans | Docs CI | Active |
 | 17 | `docs/documentation.md` (9 lines) | Front page of the documentation hub | Site visitors | Active |
 | 18 | `README.md` contribution pointers (`:19`, `:23`, `:505-509`, `:574`) | Points readers at `CONTRIBUTING.md`, instruction-file discovery and a handoff | Contributors and readers | Active |
-| 19 | `docs/handoffs/*.md` outside `log/` (37 files, 5,802 lines) | Feature continuation notes, acceptance contracts, QA lists and one-off delivery records | Contributors resuming that feature | Mixed; no status marker |
+| 19 | `docs/handoffs/*.md` outside `log/` and `archive.md` (36 files, 5,802 lines) | Feature continuation notes, acceptance contracts, QA lists and one-off delivery records | Contributors resuming that feature | Mixed; no status marker |
 | 20 | `docs/handoff-golang-code-style.md` (149 lines) | Record of a one-off Go style migration | Excluded from the site; kept as history | Historical |
 | 21 | `docs/superpowers/plans/*.md` (28 files) | Implementation plans for delivered work | Excluded from the site; used as a record | Historical |
 | 22 | `docs/superpowers/specs/*.md` (42 files) | Design specifications for delivered work | Excluded from the site; used as a record | Historical |
@@ -160,7 +160,7 @@ that can mislead; **S4** historical noise, or a setup heavier than the work need
     live guidance.
 
 13. **`docs/ui-verification.md` and `docs/handoffs/*.md` mix current and historical instructions without a marker.**
-    All 37 files outside `log/` share one directory, from live continuation notes (`real-agent-checks.md`,
+    The 36 feature files outside `log/` and `archive.md` share one directory, from live continuation notes (`real-agent-checks.md`,
     `seo-follow-up.md`, `gaffer-continuation.md`, `gaffer-resume.md`) to closed design records. There is no index or
     status line, so a reader cannot tell which file still binds them. `docs/ui-verification.md` compounds this with
     nine references to sections of `handoff.md` that no longer exist.
@@ -176,8 +176,8 @@ that can mislead; **S4** historical noise, or a setup heavier than the work need
 ### S4: heavier than the work needs, or purely historical
 
 15. **The planning record is larger than the live instructions.** `docs/superpowers/` holds 28 plans and 42 specs
-    (about 1.2 MB), all excluded from the site. Roughly 70 places in them still instruct the reader to edit
-    `handoff.md` (for example `docs/superpowers/plans/2026-10-26-agents-home.md:16, 76, 574`,
+    (about 1.2 MB), all excluded from the site. Thirty-two references in fifteen of them still instruct the reader to
+    edit `handoff.md` (for example `docs/superpowers/plans/2026-10-26-agents-home.md:16, 76, 574`,
     `docs/superpowers/plans/2026-11-05-session-overview.md:24, 66, 109, 311` and
     `docs/superpowers/specs/2026-11-05-session-overview-design.md:243-245`). `docs/handoffs/archive.md:3786` records an
     earlier precedent: finished plans and specs were removed and left to git history.
@@ -235,7 +235,8 @@ can skip them:
 ## Method and limits
 
 - Every citation was read at this revision, and line numbers come from `nl -ba` on the file named.
-- Counts: 51 files in `docs/handoffs/log/`; 37 other files in `docs/handoffs/`; 28 plans and 42 specs; 99 references
+- Counts: 51 files in `docs/handoffs/log/`; 36 feature files in `docs/handoffs/` plus `archive.md`; 28 plans and 42
+  specs; 99 references
   to `handoff.md` in 42 Markdown files; 10 `scripts/probe-*.py` scripts plus `scripts/check-claude-credentials.py`.
 - `handoff-history.md` was confirmed absent from the built site because it sits outside `docs_dir: docs`
   (`mkdocs.yml:26`), not because of an exclusion rule.

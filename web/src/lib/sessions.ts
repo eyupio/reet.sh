@@ -271,6 +271,14 @@ export function terminalWay(native: { available: boolean; pending: boolean; reas
   return { way: 'none', reason: native.pending ? 'Checking this running agent’s terminal support…' : native.reason || 'This session has no shared native terminal.' }
 }
 
+/** How a TUI session reaches Gaffer from the header's Chat button: a chat shows its own view, a TUI that can switch restarts
+ *  in Gaffer (the header's confirm), else neither, with the switch's reason. The mirror of terminalWay. */
+export function chatWay(state: { to: 'terminal' | 'chat'; enabled: boolean; why: string }, chatView: boolean): { way: 'open' | 'restart' | 'none'; reason: string } {
+  if (chatView) return { way: 'open', reason: '' }
+  if (state.enabled && state.to === 'chat') return { way: 'restart', reason: '' }
+  return { way: 'none', reason: state.why || 'This terminal session has no shared conversation view.' }
+}
+
 /** The context panel's changed files (R19): the first twenty paths the worktree status lists, the total, and how many more. */
 export function changedList(status: { changed: number; paths: string[] }): { shown: string[]; total: number; more: number } {
   const shown = (status.paths ?? []).slice(0, 20)

@@ -12,7 +12,7 @@
   import { fleetCards, stateWord, type FleetCard } from '../home'
   import { HELD_SENTENCE, STOPPED_LINE, heldWork, sessionStatus, stoppedWaiting } from '../sessionStatus'
   import type { RunMember } from '../projects'
-  import { headerMeta, offlineSentence, switchModeState, switchWhy, terminalWay, worktreeTargetOf } from '../sessions'
+  import { chatWay, headerMeta, offlineSentence, switchModeState, switchWhy, terminalWay, worktreeTargetOf } from '../sessions'
   import { toolName } from '../agentLaunch'
   import { CATALOGUE } from '../catalogue'
   import YoloDialog from '../launch/YoloDialog.svelte'
@@ -301,6 +301,8 @@
   // How Chat reaches its terminal: the header's own decision, which Chat's link reads and uses.
   const terminalHow = $derived(terminalWay({ available: nativeAvailable, pending: nativePending, reason: nativeReason }, switchState, chatView))
   export function getTerminalWay() { return terminalHow }
+  // How the header's Chat button reaches Gaffer from a TUI session: the mirror of terminalHow.
+  const chatHow = $derived(chatWay(switchState, chatView))
   export function showTerminal() {
     if (terminalHow.way === 'open') onview?.('terminal')
     else if (terminalHow.way === 'restart') openSwitch(document.activeElement as HTMLElement | null)
@@ -433,7 +435,7 @@
       </div>
       <span class="pill" data-status={statusKind} data-stopped={stoppedWaiting(session) ? '' : undefined} title={source}>{#if statusKind === 'finished' && !stoppedWaiting(session)}<span class="status-tick" aria-hidden="true"></span>{:else if statusKind === 'working' && heldWork(session)}<span class="status-ring" aria-hidden="true"></span>{:else if stoppedWaiting(session)}<span class="status-mark" aria-hidden="true"></span>{:else}<span class="dot" aria-hidden="true"></span>{/if}{word.word}{#if away}{' '}<span class="lk">· last known</span>{/if}<span class="vh"> · {word.source}{statusKind === 'working' && heldWork(session) ? `. ${HELD_SENTENCE}` : stoppedWaiting(session) ? `. ${STOPPED_LINE}` : ''}</span></span>
       <div class="header-actions">
-        {#if onview}<SessionViewSwitch view={view ?? (chatView ? 'chat' : 'terminal')} chat={chatView} terminal={!chatView || nativeAvailable} pending={nativePending} reason={nativeReason && chatView && switchState.enabled ? `${nativeReason} Click to restart it in the ${terminalLabel}.` : nativeReason} {onview} onunavailable={text => { if (terminalHow.way === 'restart') openSwitch(document.activeElement as HTMLElement | null); else notice = { text } }} />{/if}
+        {#if onview}<SessionViewSwitch view={view ?? (chatView ? 'chat' : 'terminal')} chat={chatView} terminal={!chatView || nativeAvailable} pending={nativePending} reason={nativeReason && chatView && switchState.enabled ? `${nativeReason} Click to restart it in the ${terminalLabel}.` : nativeReason} chatReason={chatHow.way === 'restart' ? 'Click to restart this session in Gaffer.' : chatHow.reason} {onview} onunavailable={(text, button) => { if ((button === 'chat' ? chatHow : terminalHow).way === 'restart') openSwitch(document.activeElement as HTMLElement | null); else notice = { text } }} />{/if}
         {@render contextControls?.()}
         {#if (terminalShowing || focusOn) && $gafferChatEntry}<button type="button" class="gaffer-entry" aria-label="Ask Gaffer" title="Ask Gaffer about this session" onclick={event => $gafferChatEntry?.(event.currentTarget)}><GafferCompanionAvatar size={24} /></button>{/if}
         <button type="button" class="actions-button" data-keeps-focus bind:this={actionsButton} aria-label="Session actions" aria-haspopup="dialog" aria-expanded={actionsOpen}

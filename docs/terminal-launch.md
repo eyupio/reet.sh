@@ -321,8 +321,8 @@ naming the machine in the sentence. An empty base leaves the branch to the
 machine: a `base-fresh-v1` connector starts from the repository's default branch
 on GitHub, and an older one keeps the existing HEAD behaviour.
 
-Effort accepts `low`, `medium` or `high`. Cline 3.0.74 maps these to its
-confirmed `--thinking` option, Claude Code 2.1.319 and Antigravity CLI 1.5.0 to `--effort` (Claude Code's own help also lists `xhigh` and `max`, which a launch does not carry), GitHub Copilot CLI 1.0.112 to `--reasoning-effort` (its help lists more levels and says the supported ones depend on the model), and Codex to a `-c model_reasoning_effort=<level>` override (its CLI does not check the value, so only these three are sent; `ultra` is not, because a model that lacks it falls back to `medium`); other presets have no effort mapping until their
+Effort accepts `low`, `medium` or `high`, and for Claude Code `xhigh` and `max` where `effort-levels-v1` was negotiated in both directions: the controller sends a level beyond `high` only to a machine that reports `effortLevels`, and the connector refuses one from a controller that did not advertise the token, because an older peer refuses the value as invalid. Cline 3.0.74 maps these to its
+confirmed `--thinking` option, Claude Code 2.1.319 and Antigravity CLI 1.5.0 to `--effort` (and `xhigh` and `max`, which its own help lists, under `effort-levels-v1`), GitHub Copilot CLI 1.0.112 to `--reasoning-effort` (its help lists more levels and says the supported ones depend on the model), and Codex to a `-c model_reasoning_effort=<level>` override (its CLI does not check the value, so only these three are sent; `ultra` is not, because a model that lacks it falls back to `medium`); other presets have no effort mapping until their
 exact CLI arguments have captured help evidence. An
 unsupported mapping answers `launch_option_unsupported`; it never silently
 ignores the choice. YOLO maps to a reviewed option only for Claude Code

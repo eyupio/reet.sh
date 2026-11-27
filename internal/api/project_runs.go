@@ -216,9 +216,9 @@ func (s *server) selectionRunStart(w http.ResponseWriter, r *http.Request) {
 		refuse(http.StatusUnprocessableEntity, "tool_unavailable", "tool", "reet doesn't start this agent yet.")
 	case in.Model != "" && !terminalproto.ValidModel(in.Model):
 		refuse(http.StatusUnprocessableEntity, "invalid_model", "model", sentenceModel)
-	case in.Effort != "" && in.Effort != "low" && in.Effort != "medium" && in.Effort != "high":
-		refuse(http.StatusUnprocessableEntity, "invalid_effort", "effort", "Choose low, medium or high thinking, or the agent's default.")
-	case in.Effort != "" && !terminalproto.ToolTakesEffort(in.Tool), in.Model != "" && !terminalproto.ToolTakesModel(in.Tool):
+	case !terminalproto.ValidEffort(in.Effort):
+		refuse(http.StatusUnprocessableEntity, "invalid_effort", "effort", "Choose a thinking level the agent offers, or the agent's default.")
+	case !terminalproto.ToolTakesEffortLevel(in.Tool, in.Effort), in.Model != "" && !terminalproto.ToolTakesModel(in.Tool):
 		refuse(http.StatusConflict, "launch_option_unsupported", "", sentenceNoOption)
 	case in.Prompt != "" && !terminalproto.ValidPrompt(in.Prompt):
 		refuse(http.StatusUnprocessableEntity, "invalid_prompt", "prompt", sentenceRunPrompt)

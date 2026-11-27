@@ -43,6 +43,8 @@ type Preset struct {
 // --dangerously-skip-permissions and --effort); Codex CLI 0.166.0 --help and
 // `resume --help` (a resume subcommand, -c/--config overrides and no effort flag,
 // so the effort is a model_reasoning_effort override); opencode.ai/docs/cli/.
+// Claude Code's captured --help lists --effort low, medium, high, xhigh and max;
+// the last two are sent only under effort-levels-v1.
 // Those rows preserve exact argv.
 //
 // Catalogue preserves the three shipped presets' previously reviewed arguments.
@@ -58,7 +60,7 @@ type Preset struct {
 // resumed session keeps the allow-all state it had, which a machine with YOLO
 // switched off must not be handed.
 var Catalogue = []Preset{
-	{ID: "claude", Name: "Claude Code", Binary: "claude", ModelFlag: "--model", PromptPositional: true, YoloArgs: []string{"--dangerously-skip-permissions"}, ResumeArgs: []string{"--continue"}, SessionArgs: []string{"--resume"}, EffortArgs: map[string][]string{"low": {"--effort", "low"}, "medium": {"--effort", "medium"}, "high": {"--effort", "high"}}, ACP: "adapter"},
+	{ID: "claude", Name: "Claude Code", Binary: "claude", ModelFlag: "--model", PromptPositional: true, YoloArgs: []string{"--dangerously-skip-permissions"}, ResumeArgs: []string{"--continue"}, SessionArgs: []string{"--resume"}, EffortArgs: map[string][]string{"low": {"--effort", "low"}, "medium": {"--effort", "medium"}, "high": {"--effort", "high"}, "xhigh": {"--effort", "xhigh"}, "max": {"--effort", "max"}}, ACP: "adapter"},
 	{ID: "codex", Name: "Codex", Binary: "codex", ModelFlag: "--model", PromptPositional: true, YoloArgs: []string{"--ask-for-approval", "never", "--sandbox", "danger-full-access"}, ResumeArgs: []string{"resume", "--last"}, SessionArgs: []string{"resume"}, EffortArgs: map[string][]string{"low": {"-c", "model_reasoning_effort=low"}, "medium": {"-c", "model_reasoning_effort=medium"}, "high": {"-c", "model_reasoning_effort=high"}}, OptionsFloor: "0.156.1", ACP: "adapter"},
 	{ID: "opencode", Name: "OpenCode", Binary: "opencode", ModelFlag: "--model", PromptFlag: "--prompt", YoloArgs: []string{"--auto"}, ResumeArgs: []string{"--continue"}, SessionArgs: []string{"--session"}, ACP: "native", ModelList: &ModelList{Argv: []string{"models"}, Env: []string{"OPENCODE_DISABLE_MODELS_FETCH=1", "OPENCODE_DISABLE_AUTOUPDATE=1", "NO_COLOR=1", "LANG=C.UTF-8", "CI=1"}}},
 	{ID: "pi", Name: "Pi", Binary: "pi", DisabledReason: "This CLI has no built-in approval policy for tool execution."},

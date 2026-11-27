@@ -191,6 +191,9 @@ type Capabilities struct {
 	ACPLiveControls bool `json:"acpLiveControls,omitempty"`
 	ACPPreviews     bool `json:"acpPreviews,omitempty"`
 	ACPStartOptions bool `json:"acpStartOptions,omitempty"`
+	// EffortLevels is set on a connection that negotiated effort-levels-v1:
+	// a terminal launch may then carry a level beyond low, medium and high.
+	EffortLevels bool `json:"effortLevels,omitempty"`
 	// ACPProvider is set on a connection that negotiated acp-provider-v1 and
 	// live controls: the connector may report a provider setting and take a
 	// provider on a structured Cline create.
@@ -283,6 +286,9 @@ func (c Capabilities) Validate() error {
 	}
 	if c.ACPStartOptions {
 		features = append(features, ACPStartOptionsFeature)
+	}
+	if c.EffortLevels {
+		features = append(features, EffortLevelsFeature)
 	}
 	if c.ACPProvider {
 		features = append(features, ACPProviderFeature)
@@ -377,6 +383,9 @@ func (c Capabilities) ValidateFor(features string) error {
 	}
 	validStartOptions := SupportsACPStartOptions(features) && c.ACPLiveControls
 	if c.ACPStartOptions && !validStartOptions {
+		return ErrInvalid
+	}
+	if c.EffortLevels && !(SupportsEffortLevels(features) && c.Launch) {
 		return ErrInvalid
 	}
 	validProvider := SupportsACPProvider(features) && c.ACPLiveControls

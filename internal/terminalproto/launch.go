@@ -52,8 +52,15 @@ func RetiredTools() []string {
 func ValidModel(model string) bool { return validModel(model) }
 
 // ValidEffort accepts the empty value (the agent's own default) and the effort
-// levels a preset maps.
+// levels a preset maps. A preset maps only the levels its CLI takes.
 func ValidEffort(effort string) bool {
+	return BasicEffort(effort) || effort == "xhigh" || effort == "max"
+}
+
+// BasicEffort reports whether effort is the default or one of the levels every
+// peer knows. Any other level is sent only where effort-levels-v1 was
+// negotiated: an older peer refuses it.
+func BasicEffort(effort string) bool {
 	return effort == "" || effort == "low" || effort == "medium" || effort == "high"
 }
 

@@ -1,6 +1,9 @@
 package terminalproto
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
 
 // AgentsFeature negotiates the expanded agent catalogue and launch fields.
 const AgentsFeature = "agents-v2"
@@ -32,6 +35,19 @@ func SupportsCopilot(features string) bool {
 	return false
 }
 
+// EffortLevelsFeature negotiates terminal effort levels beyond low, medium
+// and high (xhigh, max). An older peer's validator refuses them.
+const EffortLevelsFeature = "effort-levels-v1"
+
+func SupportsEffortLevels(features string) bool {
+	for _, feature := range strings.Split(features, ",") {
+		if strings.TrimSpace(feature) == EffortLevelsFeature {
+			return true
+		}
+	}
+	return false
+}
+
 func SupportsAgents(features string) bool {
 	for _, feature := range strings.Split(features, ",") {
 		if strings.TrimSpace(feature) == AgentsFeature {
@@ -47,23 +63,29 @@ func SupportsAgents(features string) bool {
 // equal, order included) so the controller can refuse an option before it
 // reserves a session, and can list every agent it knows in one order. Disabled
 // presets (pi, cursor) are absent until the connector starts them.
-var launchAgents = []struct {
-	id                  string
-	effort, model, yolo bool
-}{
-	{id: "claude", effort: true, model: true, yolo: true},
-	{id: "codex", effort: true, model: true, yolo: true},
+var launchAgents = []agentLaunchOptions{
+	{id: "claude", efforts: []string{"low", "medium", "high", "xhigh", "max"}, model: true, yolo: true},
+	{id: "codex", efforts: basicEfforts, model: true, yolo: true},
 	{id: "opencode", model: true, yolo: true},
-	{id: "cline", effort: true, model: true, yolo: true},
-	{id: "antigravity", effort: true, model: true, yolo: true},
-	{id: "copilot", effort: true, model: true, yolo: true},
+	{id: "cline", efforts: basicEfforts, model: true, yolo: true},
+	{id: "antigravity", efforts: basicEfforts, model: true, yolo: true},
+	{id: "copilot", efforts: basicEfforts, model: true, yolo: true},
 }
 
+type agentLaunchOptions struct {
+	id string
+	// efforts are the levels the preset maps, lightest first.
+	efforts     []string
+	model, yolo bool
+}
+
+var basicEfforts = []string{"low", "medium", "high"}
+
 // agentOptions is launchAgents by id.
-var agentOptions = func() map[string]struct{ effort, model, yolo bool } {
-	out := make(map[string]struct{ effort, model, yolo bool }, len(launchAgents))
+var agentOptions = func() map[string]agentLaunchOptions {
+	out := make(map[string]agentLaunchOptions, len(launchAgents))
 	for _, a := range launchAgents {
-		out[a.id] = struct{ effort, model, yolo bool }{a.effort, a.model, a.yolo}
+		out[a.id] = a
 	}
 	return out
 }()
@@ -89,7 +111,17 @@ func ValidToolV2(id string) bool {
 func ToolTakesProvider(id string) bool { return id == "cline" }
 
 // ToolTakesEffort reports whether the agent's preset maps an effort level.
-func ToolTakesEffort(id string) bool { return agentOptions[id].effort }
+func ToolTakesEffort(id string) bool { return len(agentOptions[id].efforts) > 0 }
+
+// ToolEfforts lists the effort levels the agent's preset maps, lightest
+// first. The caller owns the slice.
+func ToolEfforts(id string) []string { return slices.Clone(agentOptions[id].efforts) }
+
+// ToolTakesEffortLevel reports whether the agent's preset maps effort; the
+// empty value, the agent's own default, always passes.
+func ToolTakesEffortLevel(id, effort string) bool {
+	return effort == "" || slices.Contains(agentOptions[id].efforts, effort)
+}
 
 // ToolTakesModel reports whether the agent's preset takes a model.
 func ToolTakesModel(id string) bool { return agentOptions[id].model }

@@ -14,7 +14,7 @@ export const START_EFFORTS = ['low', 'medium', 'high']
  * session can still report them; the machine's start-options capability decides whether an
  * effort can be carried at all, and the agent refuses one it does not offer. */
 export function launchEfforts(tool: string, caps: Capabilities | undefined, chat: boolean): string[] {
- if (!chat) return effortChoices(tool)
+ if (!chat) return effortChoices(tool, caps?.effortLevels === true)
  const agent = structuredAgent(caps, tool)
  if (!caps?.acpStartOptions || !agent) return ['']
  const selector = agent.options?.find(option => option.category === 'thought_level')

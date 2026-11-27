@@ -81,7 +81,7 @@
     }
     return available
   })
-  const effortOptions = $derived(effortChoices(defaultTool))
+  const effortOptions = $derived(effortChoices(defaultTool, true))
   const takesEffort = $derived(effortOptions.length > 1)
   // A project read without its prompt (only the single read carries it) keeps its saved prompt as it is.
   const promptKnown = $derived(!editing || editing.starterPrompt !== undefined || !editing.hasStarterPrompt)
@@ -479,7 +479,7 @@
   function effortProblem(): string {
     if (defaultEffort === '') return ''
     if (!takesEffort) return 'A default effort needs a default agent that takes one.'
-    if (!['low', 'medium', 'high'].includes(defaultEffort)) return "Choose low, medium or high thinking, or the agent's default."
+    if (!effortOptions.includes(defaultEffort)) return "Choose a thinking level the agent offers, or the agent's default."
     return ''
   }
 

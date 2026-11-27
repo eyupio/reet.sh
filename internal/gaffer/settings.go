@@ -10,6 +10,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -131,11 +132,14 @@ func normalize(p Principal, in Input, requireModel bool) (Input, error) {
 	if (requireModel && in.Model == "") || !clean(in.Model, 256) {
 		return in, invalid("model", "Choose a model, or enter its exact name.")
 	}
-	if in.ReasoningEffort != "" && in.ReasoningEffort != "none" && in.ReasoningEffort != "low" && in.ReasoningEffort != "medium" && in.ReasoningEffort != "high" {
-		return in, invalid("reasoningEffort", "Choose one of the available reasoning levels.")
+	// Anthropic's effort has no "none" (thinking is turned down, not off) and
+	// goes up to xhigh and max; the OpenAI-compatible setting stops at high.
+	levels := []string{"", "none", "low", "medium", "high"}
+	if in.Kind == "anthropic" {
+		levels = []string{"", "low", "medium", "high", "xhigh", "max"}
 	}
-	if in.Kind == "anthropic" && in.ReasoningEffort != "" {
-		return in, invalid("reasoningEffort", "This backend does not accept the OpenAI reasoning-effort setting.")
+	if !slices.Contains(levels, in.ReasoningEffort) {
+		return in, invalid("reasoningEffort", "Choose one of the available reasoning levels.")
 	}
 	if in.AllowCode && !in.AllowSessions {
 		return in, invalid("allowCode", "Enable followed-session context before allowing its code and logs.")

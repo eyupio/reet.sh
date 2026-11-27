@@ -890,7 +890,11 @@ A model appearing in a provider's list does not prove that it supports the chose
 API protocol, reasoning setting or tools. Test the selection. OpenCode and other
 compatible presets use the OpenAI **chat-completions** protocol; models requiring
 Responses or Messages need a backend supporting that protocol. Anthropic uses
-its Messages API. Subscription CLI backends are not available in this slice.
+its Messages API. **Reasoning effort** is sent on every request, the test
+included: as `reasoning_effort` (None to High) to a compatible server, and as
+`output_config.effort` (Low to Max, with Extra high) to Anthropic. A model that
+does not take the level says so when you test it. Subscription CLI backends are
+not available in this slice.
 An OpenAI API key uses API billing, separately from a ChatGPT subscription.
 
 ## Native service and Docker

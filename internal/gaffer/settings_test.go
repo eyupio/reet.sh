@@ -237,3 +237,20 @@ func TestProviderAddressPolicyRejectsUnapprovedAndMixedDestinations(t *testing.T
 		}
 	}
 }
+
+// Anthropic's effort runs low to max with no none; the OpenAI-compatible
+// setting runs none to high.
+func TestReasoningEffortLevelsFollowTheProviderKind(t *testing.T) {
+	for _, c := range []struct {
+		kind, effort string
+		ok           bool
+	}{
+		{"anthropic", "", true}, {"anthropic", "xhigh", true}, {"anthropic", "max", true}, {"anthropic", "none", false},
+		{"openai_compatible", "none", true}, {"openai_compatible", "high", true}, {"openai_compatible", "max", false},
+	} {
+		_, err := normalize(Principal{UserID: 1}, Input{Name: "p", Kind: c.kind, BaseURL: "https://api.example.com", Model: "m", ReasoningEffort: c.effort}, true)
+		if (err == nil) != c.ok {
+			t.Errorf("%s %q: %v", c.kind, c.effort, err)
+		}
+	}
+}

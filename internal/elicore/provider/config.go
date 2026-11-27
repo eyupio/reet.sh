@@ -11,9 +11,10 @@ type Config struct {
 	BaseURL string
 	APIKey  string
 	Model   string
-	// ReasoningEffort is sent as reasoning_effort on every chat-completion
-	// request when set, the check included, so a model that does not take it
-	// says so under Test and not in the middle of a conversation.
+	// ReasoningEffort is sent on every request when set, the check included,
+	// so a model that does not take it says so under Test and not in the
+	// middle of a conversation: as reasoning_effort on a chat completion, and
+	// as output_config.effort on an Anthropic message.
 	ReasoningEffort string
 	// PromptCacheKey is sent as prompt_cache_key on chat-completion requests
 	// when set, for servers that route cached prompts by a stable key. Leave it

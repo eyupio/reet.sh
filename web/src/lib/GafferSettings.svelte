@@ -60,10 +60,14 @@
     finally { if (!life.signal.aborted && mine === loadEpoch) loading = false }
   }
   function invalidateModels() { epoch++; modelRequest?.abort(); modelsLoading = false; models = []; modelsError = ''; modelFilter = '' }
+  // Anthropic's effort has no None and goes up to Extra high and Max; the OpenAI-compatible setting stops at High.
+  const efforts = (): [string, string][] => kind === 'anthropic'
+    ? [['', 'Provider default'], ['low', 'Low'], ['medium', 'Medium'], ['high', 'High'], ['xhigh', 'Extra high'], ['max', 'Max']]
+    : [['', 'Provider default'], ['none', 'None'], ['low', 'Low'], ['medium', 'Medium'], ['high', 'High']]
   function choosePreset(id: string) {
     const p = data?.presets.find(p => p.id === id); if (!p) return
     invalidateModels(); preset = id; kind = p.kind; baseUrl = p.baseUrl; name = p.name; localOnly = p.localOnly
-    model = ''; manual = false; key = ''; clearKey = false; if (kind === 'anthropic') effort = ''
+    model = ''; manual = false; key = ''; clearKey = false; if (!efforts().some(([value]) => value === effort)) effort = ''
   }
   function openForm(p: GafferProvider | null) {
     editing = p; formError = ''; notice = ''; invalidateModels(); key = ''; clearKey = false
@@ -81,7 +85,7 @@
     invalidateModels(); dialog?.close(); formOpen = false; editing = null; key = ''; clearKey = false
   }
   function input(): GafferInput {
-    return { ...(editing ? { id: editing.id, revision: editing.revision } : {}), name, kind, baseUrl, model, reasoningEffort: kind === 'anthropic' ? '' : effort,
+    return { ...(editing ? { id: editing.id, revision: editing.revision } : {}), name, kind, baseUrl, model, reasoningEffort: effort,
       enabled, localOnly, allowStatus, allowSessions, allowCode: allowSessions && allowCode, ...(key ? { apiKey: key } : {}), clearKey, ...(!editing ? { makeDefault } : {}) }
   }
   async function fetchModels() {
@@ -197,7 +201,7 @@
             {#if manual}<label>Exact model name<input bind:value={model} required maxlength="256" autocomplete="off" spellcheck="false" /></label>{/if}
             {#if modelsError}<p class="field-help bad" role="status">{modelsError} You can also enter the model name.</p>{:else if models.length}<p class="field-help" role="status">Read {models.length} models from this provider. Test your choice after saving.</p>{:else}<p class="field-help">Fetch the provider’s live list, or enter a model name.</p>{/if}
           </div>
-          {#if kind !== 'anthropic'}<label>Reasoning effort<select bind:value={effort}><option value="">Provider default</option><option value="none">None</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select><small>Supported values depend on the model. Test connection checks your choice.</small></label>{/if}
+          <label>Reasoning effort<select bind:value={effort}>{#each efforts() as [value, label] (value)}<option {value}>{label}</option>{/each}</select><small>Supported values depend on the model. Test connection checks your choice.</small></label>
           <details class="context-permissions"><summary>Advanced provider permissions</summary><p class="field-help">Session access is normally reviewed when you choose “Look after this session”. These controls set provider-wide data limits. Saving them sends no context.</p>
             <label class="check"><input type="checkbox" bind:checked={allowStatus} />Reet status and activity</label>
             <label class="check"><input type="checkbox" bind:checked={allowSessions} onchange={event => { if (!event.currentTarget.checked) allowCode = false }} />Followed-session conversations and tool results</label>

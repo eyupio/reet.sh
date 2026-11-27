@@ -31,3 +31,7 @@ Review. Re-ran `home-refresh`, `home`, `projects`, `home-waiting`, `home-followu
 
 Not checked: the known out-of-scope case of a signed-out visitor refreshing a private route, which still gets the app
 boot shell before sign-in.
+
+Babysit. CI's `phone-gaffer` shard failed in `workbench`, which still clicked "Continue working" after a 503 first
+sessions read, a path the change replaced with `PageLoadError`. The test now expects the alert and Reload instead;
+`workbench`, `home` and `home-refresh` pass locally against a fresh build.

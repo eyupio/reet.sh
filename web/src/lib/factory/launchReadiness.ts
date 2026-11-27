@@ -227,6 +227,7 @@ export type ReadinessItem = { level: 'blocked' | 'look' | 'note'; text: string; 
  *  the tier’s model, effort, sign-in and backups do not matter until that is fixed. */
 export function readinessItems(ready: StageReadiness): ReadinessItem[] {
   if (ready.connected.state !== 'ready') return [{ level: 'blocked', text: ready.connected.text, machine: true, ...(ready.locked ? { waiting: true as const } : {}) }]
+  if (ready.source === 'unknown') return [{ level: 'blocked', text: ready.sourceFact.text }]
   if (ready.agent.state !== 'ready') return [{ level: 'blocked', text: ready.agent.text }]
   const facts = [ready.signIn, ready.model, ready.effort, ready.sourceFact].filter(item => !item.pending && item.state !== 'ready' && item.state !== 'default')
   const later = [...new Set([ready.model.later, ready.effort.later].filter((text): text is string => !!text))]

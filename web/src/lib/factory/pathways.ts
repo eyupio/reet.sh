@@ -1,5 +1,5 @@
 import { STAGES, defaultTier, stageLabel, type CrewTier } from '../gafferOutcome'
-import type { Pathway, PathwayAgent, PathwaySkill, PathwayStage } from '../api'
+import type { GafferCrew, Pathway, PathwayAgent, PathwaySkill, PathwayStage } from '../api'
 
 // A pathway is a person's saved line of stages. These are the rules the server holds it to (internal/gaffer/pathways.go),
 // so the editor can say why a change is refused before the server is asked. Every edit returns a new pathway.
@@ -150,19 +150,13 @@ export type PathwayRun = {
   /** Backups of the saved crew member, in tried order. A stage own agent has none. */
   spares: PathwayRunMember[]
 }
-export type SavedCrew = Partial<Record<CrewTier, {
-  tool?: string; model?: string; effort?: string; provider?: string
-  backup?: { tool?: string; model?: string; effort?: string }
-  moreBackups?: { tool?: string; model?: string; effort?: string }[]
-}>>
-
 const memberOf = (one: { tool?: string; model?: string; effort?: string }): PathwayRunMember =>
   ({ tool: one.tool ?? '', model: one.model ?? '', effort: one.effort ?? '' })
 
 /** What each stage runs on as the controller resolves it (outcomePieces): the stage's own agent, else its tier's saved
  *  crew member with that member's backups, else the outcome's agent. A crew that was not read is not guessed. */
 export function resolvePathwayRuns(
-  pathway: Pathway, savedCrew: SavedCrew | null | undefined,
+  pathway: Pathway, savedCrew: GafferCrew | null | undefined,
   outcome: { tool: string; model: string; effort?: string }, crewKnown = true,
 ): PathwayRun[] {
   return pathway.stages.map(stage => {

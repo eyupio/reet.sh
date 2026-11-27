@@ -381,7 +381,7 @@
   const pathwayReadiness = $derived.by(() => {
     if (!pathway) return []
     const now = Date.now(), held = machine ? accounts[machine.agentId] : undefined
-    return pathwayRuns.map(run => launchReadiness({ machine, tools, efforts, models: modelsFor, accounts: held, now, member: run.member, spares: run.spares, saved: run.tier ? savedFor(run.tier) : undefined, edited: run.origin === 'saved-crew' || run.origin === 'pathway', origin: run.origin }))
+    return pathwayRuns.map(run => launchReadiness({ machine, tools, efforts, models: modelsFor, accounts: held, now, member: run.member, spares: run.spares, saved: run.tier ? savedFor(run.tier) : undefined, edited: false, origin: run.origin }))
   })
   const pathwayLaunch = $derived.by(() => {
     if (!pathway) return null
@@ -710,6 +710,7 @@
           {@render stageLine(pathway.name, pathway.stages)}
           <p class="hint">Each pipeline follows this pathway. Its stages, models, skills and prompts come from it.</p>
           <p class="hint">A stage with its own agent runs on it. Otherwise a stage runs on your saved crew for its tier; the agent chosen here is used only where no crew is saved for that tier.</p>
+          {#if crewRead === 'reading'}<p class="hint" role="status">Reading your saved Factory crew, to see which agents these stages run on…</p>{:else}
           <ul class="pathway-stages" aria-label={`What each stage of pipeline ${index + 1} runs on`}>
             {#each pathwayRuns as run, at (at)}<li>
               <span class="pathway-stage"><strong>{stageTitle(run.stage)}</strong><span>{run.tier ? tierLabel(run.tier) : 'Pathway agent'}</span></span>
@@ -718,6 +719,7 @@
           </ul>
           {#if pathwayRuns.length && pathwayRuns.every(run => run.origin === 'pathway')}<p class="hint">Every stage names its own agent, so no saved crew is used.</p>{/if}
           {#if CREW_TIERS.some(({ tier }) => editedRoles[tier])}<p class="warning" role="status">The crew you changed before choosing this pathway is not used: a pathway’s tier stages run on the crew saved in Gaffer settings.</p>{/if}
+          {/if}
           {:else}
           <div class="stage-pick" role="group" aria-label={`Pipeline ${index + 1} stages`}>
             {#each STAGES as stage (stage.kind)}<button type="button" class="stage-chip" aria-pressed={item.stages?.includes(stage.kind) ?? false} onclick={() => toggleStage(item, stage.kind)}>{stage.label}</button>{/each}
@@ -853,7 +855,7 @@
 {/snippet}
 <!-- What each stage would run on, before the person starts. A blocker here holds the start, for a template as for a plan, and opens the crew editor. -->
 {#snippet readinessPanel()}
-      {#if launch.ready + launch.look + launch.blocked + launch.reading}<section class="readiness" aria-label="Launch readiness">
+      {#if !(pathway && crewRead === 'reading') && launch.ready + launch.look + launch.blocked + launch.reading}<section class="readiness" aria-label="Launch readiness">
         <p class="launch" class:look={(launch.look > 0 && !launch.blocked) || (launch.blocked > 0 && launch.waiting === launch.blocked)} class:stop={launch.blocked > launch.waiting}><strong>Launch readiness{machine ? ` on ${machine.host}` : ''}.</strong> <span aria-hidden="true">{launch.blocked > launch.waiting ? '✕' : launch.waiting ? '!' : launch.look ? '!' : launch.reading ? '…' : '✓'}</span> {launch.text}</p>
         {#if launch.causes.length}<ul>{#each launch.causes as cause (cause.text)}<li class={cause.waiting ? 'waiting' : cause.level}>
           <span class="mark" aria-hidden="true">{cause.waiting ? '!' : cause.level === 'blocked' ? '✕' : cause.level === 'look' ? '!' : '·'}</span>

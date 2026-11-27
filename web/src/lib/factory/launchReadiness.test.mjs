@@ -268,4 +268,5 @@ test('a crew that was not read reads as not known, and blocks', () => {
   const s = r.launchReadiness(input({ origin: 'unknown-crew', member: { tool: '', model: '', effort: '' }, saved: undefined }))
   assert.equal(s.source, 'unknown'); assert.equal(s.sourceFact.label, 'Crew not known')
   assert.equal(s.sourceFact.state, 'missing'); assert.equal(s.agent.state, 'missing'); assert.equal(s.level, 'blocked')
+  assert.match(r.readinessItems(s)[0].text, /saved Factory crew could not be read/)
 })

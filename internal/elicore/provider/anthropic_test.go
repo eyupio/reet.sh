@@ -276,3 +276,26 @@ func TestAnthropicMarksCacheBreakpointsByDefault(t *testing.T) {
 		t.Errorf("the newest turn is not a cached block: %v", last["content"])
 	}
 }
+
+// An Anthropic provider told how hard to think sends it as output_config.effort
+// on every request, the check included; one told nothing sends no output_config.
+func TestAnthropicSendsTheEffortItWasGiven(t *testing.T) {
+	srv := newAnthropicServer(t)
+	drain(t, NewAnthropic(Config{BaseURL: srv.URL, APIKey: "k", Model: "m", ReasoningEffort: "xhigh"}), hello())
+	if _, err := NewAnthropic(Config{BaseURL: srv.URL, APIKey: "k", Model: "m", ReasoningEffort: "xhigh"}).Check(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	drain(t, NewAnthropic(Config{BaseURL: srv.URL, APIKey: "k", Model: "m"}), hello())
+	reqs := srv.Requests()
+	if len(reqs) != 3 {
+		t.Fatalf("requests = %d", len(reqs))
+	}
+	for _, r := range reqs[:2] {
+		if config, _ := r.Body["output_config"].(map[string]any); config["effort"] != "xhigh" {
+			t.Errorf("the effort was not sent: %v", r.Body["output_config"])
+		}
+	}
+	if _, sent := reqs[2].Body["output_config"]; sent {
+		t.Errorf("an effort nobody set was sent: %v", reqs[2].Body["output_config"])
+	}
+}

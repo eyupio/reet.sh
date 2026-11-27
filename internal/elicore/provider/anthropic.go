@@ -133,6 +133,9 @@ func (p *Anthropic) body(req elicore.Request, maxTokens int) ([]byte, error) {
 	// makes four marks, the most the API takes.
 	cacheMessage(msgs, answered)
 	out := map[string]any{"model": p.model(req.Model), "max_tokens": maxTokens, "messages": msgs, "stream": true}
+	if p.cfg.ReasoningEffort != "" {
+		out["output_config"] = map[string]any{"effort": p.cfg.ReasoningEffort}
+	}
 	system := req.System
 	for _, m := range req.Messages {
 		if m.Role == elicore.RoleSystem {

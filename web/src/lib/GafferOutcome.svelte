@@ -30,7 +30,7 @@
   import TemplatePlan from './factory/TemplatePlan.svelte'
   import Templates from './factory/Templates.svelte'
   import PathwayChoice, { stageLine } from './factory/pathways/PathwayChoice.svelte'
-  import { stageTitle } from './factory/pathways'
+  import { resolvePathwayRuns, stageTitle } from './factory/pathways'
   import { attemptIds, mayHaveArrived } from './factory/delivery'
   import { changesSince, changesWords, conflictWords, mergeLine, refusedGaps, skippedKeys, tierCrew } from './factory/templates'
   import { reveal } from './dialogShell'
@@ -367,13 +367,8 @@
   // With a pathway, what each of its stages runs on, as the controller resolves it (outcomePieces): the stage's own agent
   // with no backups, else its tier's saved crew member with that member's backups, whether or not this machine has them,
   // else (a tier not saved) the outcome's own agent. The crew edited here is not sent.
-  const pathwayRuns = $derived(!pathway ? [] : pathway.stages.map(stage => {
-    if (stage.agent) return { stage, tier: null, saved: false, member: { tool: stage.agent.tool, model: stage.agent.model ?? '', effort: stage.agent.effort ?? '' }, spares: [] }
-    const tier = (stage.tier ?? defaultTier(stage.kind)) as keyof Crew, member = savedCrew?.[tier]
-    if (!member?.tool) return { stage, tier, saved: false, member: { tool, model, effort }, spares: [] }
-    const spares = [member.backup, ...(member.moreBackups ?? [])].flatMap(one => one?.tool ? [{ tool: one.tool, model: one.model ?? '', effort: one.effort ?? '' }] : [])
-    return { stage, tier, saved: true, member: { tool: member.tool, model: member.model ?? '', effort: member.effort ?? '' }, spares }
-  }))
+  const crewKnown = $derived(crewRead === 'saved' || crewRead === 'empty')
+  const pathwayRuns = $derived(!pathway ? [] : resolvePathwayRuns(pathway, savedCrew, { tool, model, effort }, crewKnown))
   // The stages each pipeline sends under standard stages; the start's body is built from these.
   const sentStages = $derived(sessions.map(item => withReportedEfforts(stagePlan(item.stages ?? DEFAULT_STAGES, crewSent, machine?.capabilities?.acpProvider === true, item), machine?.capabilities ? efforts : null)))
   const agentsOf = (plan: { tool: string; backup?: { tool: string }; moreBackups?: { tool: string }[] }[]) => plan.flatMap(one => [one.tool, one.backup?.tool ?? '', ...(one.moreBackups ?? []).map(spare => spare.tool)]).filter(Boolean)
@@ -383,15 +378,18 @@
   const runTools = $derived([...new Set([tool, ...(pathway ? pathwayRuns.flatMap(run => [run.member.tool, ...run.spares.map(one => one.tool)])
     : template && tpl ? [...new Set(tpl.content.pipelines.flatMap(item => item.stages.map(stage => stage.tier)))].flatMap(tier => CREW_TIERS.some(one => one.tier === tier) ? agentsOf([sentFor(tier as 'heavy' | 'standard' | 'light')]) : [])
     : sentStages.flatMap(agentsOf))])])
+  const pathwayReadiness = $derived.by(() => {
+    if (!pathway) return []
+    const now = Date.now(), held = machine ? accounts[machine.agentId] : undefined
+    return pathwayRuns.map(run => launchReadiness({ machine, tools, efforts, models: modelsFor, accounts: held, now, member: run.member, spares: run.spares, saved: run.tier ? savedFor(run.tier) : undefined, edited: run.origin === 'saved-crew' || run.origin === 'pathway', origin: run.origin }))
+  })
   const pathwayLaunch = $derived.by(() => {
     if (!pathway) return null
-    const now = Date.now(), held = machine ? accounts[machine.agentId] : undefined
-    const summary = launchSummary(pathwayRuns.map(run => ({ stage: stageTitle(run.stage), crew: run.tier ? tierLabel(run.tier) : chatToolName(run.member.tool),
-      readiness: launchReadiness({ machine, tools, efforts, models: modelsFor, accounts: held, now, member: run.member, spares: run.spares, saved: run.tier ? savedFor(run.tier) : undefined, edited: run.saved || !run.tier }) })))
+    const summary = launchSummary(pathwayRuns.map((run, at) => ({ stage: stageTitle(run.stage), crew: run.tier ? tierLabel(run.tier) : chatToolName(run.member.tool), readiness: pathwayReadiness[at] })))
     // There is no crew to change here: what holds a stage is fixed where the stage is, in the pathway, the saved crew or on the machine.
     const first = summary.causes.find(cause => cause.level === 'blocked')
-    const away = first && !first.machine ? pathwayRuns.find(run => run.saved && first.stages.includes(stageTitle(run.stage)) && !tools.includes(run.member.tool)) : undefined
-    const blocker = !first ? '' : first.machine ? first.text : away ? missingCrewLine(tierLabel(away.tier!), chatToolName(away.member.tool), pathwayRuns.filter(run => run.tier === away.tier && run.saved).map(run => stageTitle(run.stage)), machine?.host || 'this machine')
+    const away = first && !first.machine ? pathwayRuns.find(run => run.origin === 'saved-crew' && first.stages.includes(stageTitle(run.stage)) && !tools.includes(run.member.tool)) : undefined
+    const blocker = !first ? '' : first.machine ? first.text : away ? missingCrewLine(tierLabel(away.tier!), chatToolName(away.member.tool), pathwayRuns.filter(run => run.tier === away.tier && run.origin === 'saved-crew').map(run => stageTitle(run.stage)), machine?.host || 'this machine')
       : `${first.text} This pathway’s ${inWords(first.stages)} ${first.stages.length === 1 ? 'stage runs' : 'stages run'} on it. Install it there, or change the stage in the pathway.`
     return { ...summary, blocker }
   })
@@ -400,7 +398,8 @@
     const split = stageParts(item, kind), stage = stageLabel(kind)
     return split.length > 1 ? split.map(part => ({ stage, crew: tierLabel(part.tier), readiness: tierReady[part.tier] })) : [{ stage, crew: tierLabel(stageTier(kind, item).tier), readiness: tierReady[stageTier(kind, item).tier] }]
   }))))
-  const approveBlocker = $derived(crewRead === 'reading' ? 'Reading your saved Factory crew…' : (template && blocker) || (pathway ? planBlocker(sessions.map(item => ({ ...item, stages: undefined })), room) : planBlocker(sessions, room) || partsBlocker(sessions)) || launch.blocker || (template && gaps.length && !skipOk ? 'Tick “Start without these skills” to go on, or choose another version.' : '') || (runTools.includes('antigravity') && !trust ? `Google Antigravity starts only in a folder you trust. Tick the folder trust box below, or ${pathway ? 'change the stage in the pathway' : 'choose another agent'}.` : ''))
+  const unknownCrew = $derived(crewRead === 'failed' && pathwayRuns.some(run => run.origin === 'unknown-crew') ? 'Your saved Factory crew could not be read, so reet cannot tell which agent this pathway’s stages run on. Nothing can start until the crew can be read.' : '')
+  const approveBlocker = $derived(crewRead === 'reading' ? 'Reading your saved Factory crew…' : (template && blocker) || (pathway ? planBlocker(sessions.map(item => ({ ...item, stages: undefined })), room) : planBlocker(sessions, room) || partsBlocker(sessions)) || unknownCrew || launch.blocker || (template && gaps.length && !skipOk ? 'Tick “Start without these skills” to go on, or choose another version.' : '') || (runTools.includes('antigravity') && !trust ? `Google Antigravity starts only in a folder you trust. Tick the folder trust box below, or ${pathway ? 'change the stage in the pathway' : 'choose another agent'}.` : ''))
   // A machine that is only locked is waiting, not failing: the hold is said quietly.
   const waitOnly = $derived(!!approveBlocker && approveBlocker === launch.blocker && launch.waiting === launch.blocked)
   // The status by Approve is one element for good, so that a blocker clearing is announced as well as one appearing.
@@ -710,6 +709,15 @@
           {#if pathway}
           {@render stageLine(pathway.name, pathway.stages)}
           <p class="hint">Each pipeline follows this pathway. Its stages, models, skills and prompts come from it.</p>
+          <p class="hint">A stage with its own agent runs on it. Otherwise a stage runs on your saved crew for its tier; the agent chosen here is used only where no crew is saved for that tier.</p>
+          <ul class="pathway-stages" aria-label={`What each stage of pipeline ${index + 1} runs on`}>
+            {#each pathwayRuns as run, at (at)}<li>
+              <span class="pathway-stage"><strong>{stageTitle(run.stage)}</strong><span>{run.tier ? tierLabel(run.tier) : 'Pathway agent'}</span></span>
+              <LaunchReadiness ready={pathwayReadiness[at]} label={`${stageTitle(run.stage)} in pipeline ${index + 1}`}/>
+            </li>{/each}
+          </ul>
+          {#if pathwayRuns.length && pathwayRuns.every(run => run.origin === 'pathway')}<p class="hint">Every stage names its own agent, so no saved crew is used.</p>{/if}
+          {#if CREW_TIERS.some(({ tier }) => editedRoles[tier])}<p class="warning" role="status">The crew you changed before choosing this pathway is not used: a pathway’s tier stages run on the crew saved in Gaffer settings.</p>{/if}
           {:else}
           <div class="stage-pick" role="group" aria-label={`Pipeline ${index + 1} stages`}>
             {#each STAGES as stage (stage.kind)}<button type="button" class="stage-chip" aria-pressed={item.stages?.includes(stage.kind) ?? false} onclick={() => toggleStage(item, stage.kind)}>{stage.label}</button>{/each}
@@ -970,6 +978,8 @@
   .stage-tiers{margin:8px 0 0;display:grid;gap:6px}.stage-tier{display:grid;grid-template-columns:5.5rem 8rem minmax(0,1fr) auto;align-items:center;gap:2px 10px;padding:4px 8px;border:1px solid var(--line-soft);border-radius:8px}
   .stage-tier.changed{border-color:color-mix(in srgb,var(--accent) 45%,var(--line));background:var(--accent-wash)}.stage-name{font-weight:600}.stage-tiers select{min-height:36px;font:inherit;font-size:0.875rem}
   .stage-tier :global(.ready-line){grid-column:1/-1}.stage-splitter{grid-column:3/-1;grid-row:1;justify-self:end}.stage-why{grid-column:1/-1;margin:2px 0 0;font-size:0.875rem;color:var(--ink-soft)}
+  .pathway-stages{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:6px}.pathway-stages li{display:grid;gap:2px;padding:6px 8px;border:1px solid var(--line-soft);border-radius:8px;min-width:0}
+  .pathway-stage{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 8px;min-width:0}.pathway-stage span{font-size:0.875rem;color:var(--muted)}
   .crew-save{margin:12px 0 0;display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;font-size:0.875rem;color:var(--muted)}
   @media(max-width:479px){.crew-row{grid-template-columns:1fr}.crew-slot{line-height:1.4;margin-top:4px}.crew-none,.crew-source{grid-column:1/-1}.stage-tier{grid-template-columns:5rem minmax(0,1fr)}.stage-splitter{grid-column:1/-1;grid-row:auto;justify-self:start;min-height:44px}}@media(pointer:coarse){.stage-chip{min-height:44px}.stage-tiers select{min-height:44px}}
   .approvals{border:0;margin:0;padding:0;display:grid;gap:6px;min-width:0}.approvals legend{font-weight:600;padding:0;margin-bottom:6px}

@@ -243,3 +243,29 @@ test('a locked machine holds a stage as waiting to be unlocked, not as a failure
   assert.match(sum.text, /1 cannot start, 1 waiting to be unlocked/)
   assert.equal(r.readinessItems(r.launchReadiness(input({ machine: machine({ ready: false }) })))[0].waiting, undefined)
 })
+
+test('a pathway stage says its agent comes from the pathway, not the saved crew', () => {
+  const s = r.launchReadiness(input({ origin: 'pathway', saved: { tool: 'codex', model: 'gpt' }, member: { tool: 'claude', model: 'claude-big', effort: 'high' } }))
+  assert.equal(s.source, 'pathway'); assert.equal(s.sourceFact.label, 'From the pathway')
+  assert.match(s.sourceFact.text, /This stage uses its own agent, Claude Code, from the pathway\./)
+  assert.equal(s.level, 'ready')
+})
+
+test('a saved-crew stage keeps that source even when its agent is not on this machine', () => {
+  const s = r.launchReadiness(input({ origin: 'saved-crew', member: { tool: 'cline', model: '' }, saved: { tool: 'cline' } }))
+  assert.equal(s.source, 'saved'); assert.equal(s.sourceFact.label, 'Saved crew')
+  assert.equal(s.agent.state, 'unavailable'); assert.equal(s.level, 'blocked')
+})
+
+test('an outcome stage says it uses the outcome’s agent', () => {
+  const s = r.launchReadiness(input({ origin: 'outcome', saved: { tool: 'codex' } }))
+  assert.equal(s.source, 'outcome'); assert.equal(s.sourceFact.label, 'Outcome’s agent')
+  assert.match(s.sourceFact.text, /uses the outcome’s agent, Claude Code\./)
+  assert.equal(s.level, 'ready')
+})
+
+test('a crew that was not read reads as not known, and blocks', () => {
+  const s = r.launchReadiness(input({ origin: 'unknown-crew', member: { tool: '', model: '', effort: '' }, saved: undefined }))
+  assert.equal(s.source, 'unknown'); assert.equal(s.sourceFact.label, 'Crew not known')
+  assert.equal(s.sourceFact.state, 'missing'); assert.equal(s.agent.state, 'missing'); assert.equal(s.level, 'blocked')
+})

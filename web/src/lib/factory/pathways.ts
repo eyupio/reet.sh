@@ -1,4 +1,4 @@
-import { STAGES, defaultTier, stageLabel } from '../gafferOutcome'
+import { STAGES, defaultTier, stageLabel, type CrewTier } from '../gafferOutcome'
 import type { Pathway, PathwayAgent, PathwaySkill, PathwayStage } from '../api'
 
 // A pathway is a person's saved line of stages. These are the rules the server holds it to (internal/gaffer/pathways.go),
@@ -136,6 +136,44 @@ export const stageTitle = (stage: PathwayStage): string => stage.kind === CUSTOM
 export function stageWho(stage: PathwayStage): string {
   if (stage.agent) return [stage.agent.model || stage.agent.tool, stage.agent.effort].filter(Boolean).join(' · ')
   return `${(stage.tier ?? defaultTier(stage.kind)).toLowerCase()} · crew`
+}
+
+/** Why a stage runs on the agent it does: named by the stage, a tier's saved crew, the outcome's agent, or not known. */
+export type PathwayRunOrigin = 'pathway' | 'saved-crew' | 'outcome' | 'unknown-crew'
+export type PathwayRunMember = { tool: string; model: string; effort: string }
+export type PathwayRun = {
+  stage: PathwayStage
+  /** null when the stage names its own agent. */
+  tier: CrewTier | null
+  origin: PathwayRunOrigin
+  member: PathwayRunMember
+  /** Backups of the saved crew member, in tried order. A stage own agent has none. */
+  spares: PathwayRunMember[]
+}
+export type SavedCrew = Partial<Record<CrewTier, {
+  tool?: string; model?: string; effort?: string; provider?: string
+  backup?: { tool?: string; model?: string; effort?: string }
+  moreBackups?: { tool?: string; model?: string; effort?: string }[]
+}>>
+
+const memberOf = (one: { tool?: string; model?: string; effort?: string }): PathwayRunMember =>
+  ({ tool: one.tool ?? '', model: one.model ?? '', effort: one.effort ?? '' })
+
+/** What each stage runs on as the controller resolves it (outcomePieces): the stage's own agent, else its tier's saved
+ *  crew member with that member's backups, else the outcome's agent. A crew that was not read is not guessed. */
+export function resolvePathwayRuns(
+  pathway: Pathway, savedCrew: SavedCrew | null | undefined,
+  outcome: { tool: string; model: string; effort?: string }, crewKnown = true,
+): PathwayRun[] {
+  return pathway.stages.map(stage => {
+    if (stage.agent) return { stage, tier: null, origin: 'pathway' as const, member: memberOf(stage.agent), spares: [] }
+    const tier = stage.tier ?? defaultTier(stage.kind)
+    if (!crewKnown) return { stage, tier, origin: 'unknown-crew' as const, member: memberOf({}), spares: [] }
+    const member = savedCrew?.[tier]
+    if (!member?.tool) return { stage, tier, origin: 'outcome' as const, member: memberOf(outcome), spares: [] }
+    const spares = [member.backup, ...(member.moreBackups ?? [])].flatMap(one => one?.tool ? [memberOf(one)] : [])
+    return { stage, tier, origin: 'saved-crew' as const, member: memberOf(member), spares }
+  })
 }
 
 const stable = (_: string, v: unknown) => v && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => a < b ? -1 : 1)) : v

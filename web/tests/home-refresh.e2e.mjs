@@ -41,5 +41,28 @@ try {
       await context.close()
     }
   }
-  console.log('Home refresh: the skeleton holds until the first read settles, then real content; a failed first read offers Reload instead of an empty Home.')
+  {
+    let release
+    const healthGate = new Promise(done => (release = done))
+    const { context, page, errors } = await openWorkspace(browser, {
+      width: 1440,
+      status: { user: { id: 2, name: 'Pat', email: 'pat@example.test', role: 'viewer' } },
+      gates: { '/api/v2/machines/health': healthGate },
+    })
+    try {
+      await page.goto(base)
+      await expect(page.locator('[data-loading-page="cards"]')).toBeVisible()
+      await expect(page.getByRole('heading', { name: 'Home', exact: true })).toHaveCount(0)
+      await expect(page.getByText('Your sessions and plans.', { exact: true })).toHaveCount(0)
+      release()
+      await expect(page.locator('[data-loading-page="cards"]')).toHaveCount(0)
+      await expect(page.getByRole('heading', { name: 'Home', exact: true })).toBeVisible()
+      await expect(page.getByText('Your sessions and plans.', { exact: true })).toBeVisible()
+      expect(errors).toEqual([])
+    } finally {
+      release?.()
+      await context.close()
+    }
+  }
+  console.log('Home refresh: the skeleton holds until the first read settles, then real content; a failed first read offers Reload instead of an empty Home. A viewer gets the cards skeleton, then their Home.')
 } finally { await browser.close() }

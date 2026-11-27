@@ -1260,26 +1260,16 @@ try {
   }
  }
 
- // Until a sessions list has been read, no card claims a count: never a false "0 sessions running". The lists that could not
- // be read say so instead of "Reading…".
- if (run('a failed first sessions read shows no count')) {
+ // A first sessions read that fails leaves nothing usable to draw: Home offers Reload instead of a page that would have
+ // to guess its counts. (A later poll's failure keeps what was last read.)
+ if (run('a failed first sessions read offers Reload')) {
   const {context,page,errors,box} = await home()
   box.fail.add('sessions'); box.fail.add('projects')
   await page.goto(base)
-  await expect(page.getByText("Couldn't read everything just now. Home tries again every 15 seconds.",{exact:true})).toBeVisible()
-  await expect(card(page,'studio')).toHaveAccessibleName(/^studio, online, CPU 38%, /)
-  await expect(strip(page)).not.toContainText(/running/)
-  await expect(strip(page).locator('.figure')).toHaveCount(0)
-  await expect(inFlight(page).getByText(/read your sessions/)).toBeVisible()
-  await expect(inFlight(page)).not.toContainText('Reading your sessions')
-  await expect(rail(page).getByText("Couldn't read your projects just now.",{exact:true})).toBeVisible()
-  // Projects read but sessions not: no card says "idle" or how many run; the offline machine is still named.
-  box.fail.delete('projects')
-  await page.reload()
-  await expect(rail(page).getByRole('button',{name:'Store rewrite, studio, main',exact:true})).toBeVisible()
-  await expect(rail(page).getByRole('button',{name:'Notes, desk, machine offline',exact:true})).toBeVisible()
-  await expect(rail(page)).not.toContainText('idle')
-  await expect(rail(page)).not.toContainText('Reading your projects')
+  await expect(page.getByRole('alert')).toBeVisible()
+  await expect(page.getByRole('button',{name:'Reload page'})).toBeVisible()
+  await expect(page.getByText("Couldn't read everything just now. Home tries again every 15 seconds.",{exact:true})).toHaveCount(0)
+  await expect(strip(page)).toHaveCount(0)
   expect(errors).toEqual([])
   await context.close()
  }

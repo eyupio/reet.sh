@@ -562,8 +562,14 @@
     } finally { shellStarting = '' }
   }
 
-  // The redirect note goes into its live region after the page is drawn, so it is announced.
+  // The redirect note goes into its live region after the page is drawn, so it is announced. The region only exists
+  // once Home's first read has settled, so wait for that (and a task, so the observer has seen the region) first.
   let movedShown = $state(false)
+  $effect(() => {
+    if (!moved || movedShown || firstRead !== 'ready') return
+    const timer = setTimeout(() => { movedShown = true }, 0)
+    return () => clearTimeout(timer)
+  })
   onMount(() => {
     try {
       railCollapsed = localStorage.getItem('reet.rail.collapsed') === '1'
@@ -576,7 +582,6 @@
     window.addEventListener('hashchange', launchAtHash)
     const goalsChanged = () => { void load(true) }
     window.addEventListener(GAFFER_GOALS_CHANGED, goalsChanged)
-    if (moved) void tick().then(() => { movedShown = true })
     void load()
     // The profile read gives up after 10 seconds, so the bar never waits on it for good (it then uses each project's own base).
     // Once Home has gone, a late answer changes nothing and the timer is cleared.

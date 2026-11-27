@@ -22,7 +22,7 @@ const source = compile('./launchBar.ts')
   .replaceAll("from './terminal/api'", `from '${terminalApi}'`)
   .replace("from './terminal/launchOptions'", `from '${launchOptions}'`)
   .replace("from './models'", `from '${models}'`)
-const { initialChoice, afterLaunch, baseBranchFor, baseFor, sentence, startable, toCreate, defaultTitle, sendKey, projectSlug, startsFromLatest, lastChoice, withProject, withAgent, withHome, summary, toSelectionRun, startedLine, withSelection, runRefusalText, yoloGates, yoloCanStart, chatEffort } = await import(asURL(source))
+const { initialChoice, afterLaunch, baseBranchFor, baseFor, sentence, startable, toCreate, defaultTitle, sendKey, projectSlug, startsFromLatest, lastChoice, withProject, withAgent, withHome, summary, toSelectionRun, startedLine, withSelection, runRefusalText, yoloGates, yoloCanStart, chatEffort, effortsFor } = await import(asURL(source))
 const { refusalText } = await import(agentLaunch)
 const { CATALOGUE } = await import(catalogue)
 // Every enabled agent now takes YOLO, so the case of an agent with no YOLO option switches it off for one call.
@@ -220,6 +220,10 @@ test('startable names the first reason', () => {
   assert.equal(startable(choice({ agent: 'codex', effort: 'high' }), projects, machines), null)
   assert.equal(startable(choice({ agent: 'opencode', effort: 'high' }), projects, [machine('m-studio', 'studio', { tools: ['opencode'] })]), "That agent doesn't take that option.")
   assert.equal(startable(choice({ effort: 'high' }), projects, machines), null)
+  // A terminal on several machines offers the levels beyond high only when every one of them takes them.
+  const levels = [machine('m-a', 'a', { effortLevels: true }), machine('m-b', 'b', { effortLevels: true }), machine('m-c', 'c', {})]
+  assert.deepEqual(effortsFor(choice({ agent: 'claude' }), ['m-a', 'm-b'], levels), ['', 'low', 'medium', 'high', 'xhigh', 'max'])
+  assert.deepEqual(effortsFor(choice({ agent: 'claude' }), ['m-a', 'm-c'], levels), ['', 'low', 'medium', 'high'])
   // Levels beyond high need a machine with effort-levels-v1, and an agent that takes them.
   assert.equal(startable(choice({ agent: 'claude', effort: 'max' }), projects, machines), 'Update reet on that machine to use that option.')
   assert.equal(startable(choice({ agent: 'claude', effort: 'max' }), projects, [machine('m-studio', 'studio', { effortLevels: true })]), null)

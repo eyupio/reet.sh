@@ -50,7 +50,7 @@ try {
     if(i) expect(target.left,`${width}: header controls never overlap`).toBeGreaterThanOrEqual(values.headerTargets[i-1].right)
    }
    expect(values.footer, 'Home leaves the dock at the bottom without a site footer').toBe(false)
-   expect(values.logo.width).toBeCloseTo(width>=1100?134:120,0)
+   expect(values.logo.width).toBeCloseTo(width>=1100?134:width<=368?88:120,0)
    // The primary tabs live in the top bar at every width; a desktop tab is a 44 px target like the sidebar's rows were.
    if(width>=1100) for(const target of await page.locator('.shell-bar > .top-tabs a, .shell-bar > .top-tabs button').all()) expect((await target.boundingBox()).height).toBeGreaterThanOrEqual(44)
    expect(values.avatar.width).toBe(36)

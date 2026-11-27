@@ -599,6 +599,9 @@ func (s *Store) CreateGafferOutcomeFor(uid int64, o GafferOutcome) (GafferOutcom
  AND id NOT IN(SELECT id FROM gaffer_outcomes WHERE user_id=? ORDER BY created_at DESC,id DESC LIMIT ?)`, uid, uid, MaxGafferOutcomes); err != nil {
 		return o, err
 	}
+	if err = pruneFactoryGoals(tx, uid); err != nil {
+		return o, err
+	}
 	return o, tx.Commit()
 }
 
@@ -794,6 +797,9 @@ func (s *Store) DeleteGafferOutcomeFor(uid int64, id string, revision int64) err
 		return ErrGafferOutcomeActive
 	}
 	if _, err = tx.Exec(`DELETE FROM gaffer_outcomes WHERE user_id=? AND id=?`, uid, id); err != nil {
+		return err
+	}
+	if err = pruneFactoryGoals(tx, uid); err != nil {
 		return err
 	}
 	return tx.Commit()

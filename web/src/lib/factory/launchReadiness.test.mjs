@@ -53,7 +53,7 @@ test('missing, stale, unavailable and default stay distinct for the model', () =
 
 test('an effort the agent does not offer starts on its default, and is unavailable, not missing', () => {
   const s = r.launchReadiness(input({ member: { tool: 'claude', model: 'claude-big', effort: 'max' } }))
-  assert.equal(s.effort.state, 'unavailable'); assert.match(s.effort.text, /Max effort is not offered by Claude Code here, so the stage starts on the agent’s default effort/)
+  assert.equal(s.effort.state, 'unavailable'); assert.match(s.effort.text, /Max effort is not offered by Claude Code here, so the stage starts on the nearest lower level the agent offers, or on its default effort/)
   const unknown = r.launchReadiness(input({ machine: machine({ capabilities: { terminalControl: true, terminalEnabled: true, readiness: 'ready' } }) }))
   assert.equal(unknown.effort.state, 'unavailable'); assert.equal(unknown.checkedAtStart, true)
 })
@@ -188,7 +188,7 @@ test('a backup is compared with the first choice when both have fresh figures', 
 test('an effort the machine does not offer, asked by the saved crew, is not the person’s choice and is not hidden', () => {
   // The dialog clears the effort it cannot send and passes the one that was asked.
   const s = r.launchReadiness(input({ member: { tool: 'claude', model: 'claude-big', effort: 'xhigh' }, saved: { tool: 'claude', model: 'claude-big', effort: 'xhigh' } }))
-  assert.equal(s.source, 'saved'); assert.equal(s.effort.state, 'unavailable'); assert.match(s.effort.text, /Xhigh effort is not offered by Claude Code here, so the stage starts on the agent’s default effort\./)
+  assert.equal(s.source, 'saved'); assert.equal(s.effort.state, 'unavailable'); assert.match(s.effort.text, /Xhigh effort is not offered by Claude Code here, so the stage starts on the nearest lower level the agent offers, or on its default effort\./)
   assert.equal(s.level, 'look'); assert.match(s.issue, /Xhigh effort is not offered/)
   // An agent with no effort setting has no choice to repeat back.
   const none = r.launchReadiness(input({ member: { tool: 'opencode', model: '', effort: '' }, saved: null, edited: false }))

@@ -43,11 +43,11 @@ func stageChoiceCheck(stage store.GafferOutcomeStage, got SessionChoice) (check,
 	if stage.Effort != "" && got.Effort != stage.Effort {
 		say("effort", stage.Effort, got.Effort)
 	}
-	// An effort the agent does not offer was dropped before the start: the
-	// session is on the agent's default, which is what was asked of it then.
+	// An effort the agent does not offer was put aside before the start: the
+	// session is on the level put in its place, which is what was asked then.
 	dropped := ""
-	if stage.Effort == "" && stage.EffortNotOffered != "" {
-		dropped = effortNotOfferedNote(stage.Tool, stage.EffortNotOffered)
+	if stage.EffortNotOffered != "" {
+		dropped = effortNotOfferedNote(stage.Tool, stage.EffortNotOffered, stage.Effort)
 	}
 	if len(differs) == 0 {
 		return "applied", dropped
@@ -59,9 +59,14 @@ func stageChoiceCheck(stage store.GafferOutcomeStage, got SessionChoice) (check,
 }
 
 // effortNotOfferedNote says that the effort chosen for a stage was not
-// offered by its agent, so the session started on the agent's own default.
-func effortNotOfferedNote(tool, effort string) string {
-	return "You chose the effort " + effort + "; " + terminalproto.ToolName(tool) + " does not offer it for this model here, so the session was started on the agent's default effort."
+// offered by its agent, so the session started on instead, the nearest lower
+// level it offers, or on the agent's own default when instead is empty.
+func effortNotOfferedNote(tool, effort, instead string) string {
+	on := "the agent's default effort"
+	if instead != "" {
+		on = instead + ", the nearest level it offers"
+	}
+	return "You chose the effort " + effort + "; " + terminalproto.ToolName(tool) + " does not offer it for this model here, so the session was started on " + on + "."
 }
 
 // checkStageChoice asks the machine what a stage's session is running and
@@ -112,8 +117,8 @@ func (s *Service) checkStageChoice(ctx context.Context, o store.GafferOutcome, k
 			}
 			if err == nil {
 				check, note = stageChoiceCheck(row.Stages[at], got)
-			} else if dropped := row.Stages[at]; dropped.Effort == "" && dropped.EffortNotOffered != "" {
-				note = unread + " " + effortNotOfferedNote(dropped.Tool, dropped.EffortNotOffered)
+			} else if dropped := row.Stages[at]; dropped.EffortNotOffered != "" {
+				note = unread + " " + effortNotOfferedNote(dropped.Tool, dropped.EffortNotOffered, dropped.Effort)
 			}
 			row.Stages[at].AppliedTool, row.Stages[at].AppliedModel, row.Stages[at].AppliedEffort = got.Tool, got.Model, got.Effort
 			row.Stages[at].AppliedAt, row.Stages[at].ChoiceCheck, row.Stages[at].ChoiceNote = time.Now().UnixMilli(), check, note

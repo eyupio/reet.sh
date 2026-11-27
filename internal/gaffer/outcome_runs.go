@@ -1502,9 +1502,15 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 				}
 			}
 			// An effort the machine's last report says the agent does not offer
-			// is not asked for: the stage starts on the agent's default effort.
-			if item.SessionID == "" && item.UnsureRequest == "" && s.effortNotReported(uid, o.AgentID, launch.Tool, launch.Effort) && s.dropStageEffort(o, item.Key, item.Stage, stage.Label(), launch, "", "reported") {
-				launch.Effort, stage.EffortNotOffered = "", launch.Effort
+			// is not asked for: the stage starts on the nearest lower level the
+			// agent lists, or on its default.
+			if item.SessionID == "" && item.UnsureRequest == "" {
+				if notOffered, instead := s.effortNotReported(uid, o.AgentID, launch.Tool, launch.Effort); notOffered && s.dropStageEffort(o, item.Key, item.Stage, stage.Label(), launch, instead, "", "reported") {
+					if stage.EffortNotOffered == "" {
+						stage.EffortNotOffered = launch.Effort
+					}
+					launch.Effort, stage.Effort = instead, instead
+				}
 			}
 			droppedEffort = launch.Effort == "" && stage.EffortNotOffered != ""
 		}
@@ -1629,7 +1635,7 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 			// effort was dropped already: the refusal is then the one recorded
 			// for its old request, answered again.
 			if err != nil && !unknown && staged && (launch.Effort != "" || droppedEffort) && errors.Is(err, ErrEffortNotOffered) && ctx.Err() == nil {
-				if fresh, idErr := newChatID(); idErr == nil && s.dropStageEffort(o, item.Key, item.Stage, item.Stages[item.Stage].Label(), launch, fresh, "refused") {
+				if fresh, idErr := newChatID(); idErr == nil && s.dropStageEffort(o, item.Key, item.Stage, item.Stages[item.Stage].Label(), launch, "", fresh, "refused") {
 					launch.RequestID, launch.Effort = fresh, ""
 					started, workDir, err, unknown = ask(launch.RequestID)
 				}

@@ -198,9 +198,9 @@ try {
       await expect(heavy).toContainText('None of your machines lists this model. If the agent does not offer it, the stage stops when it starts.')
       await expect(field('Heavy backup 2 effort')).toHaveValue('ultra')
       await expect(field('Heavy backup 2 effort').getByRole('option',{name:'Ultra (not offered by your machines)',exact:true})).toHaveCount(1)
-      await expect(heavy).toContainText('If the agent does not offer this effort, the stage starts on the agent’s default effort.')
+      await expect(heavy).toContainText('If the agent does not offer this effort, the stage starts on the nearest lower level the agent offers, or on its default effort.')
       // The hint, the model's note and why an effort cannot be chosen are each tied to their select.
-      await expect(field('Heavy backup 2 effort')).toHaveAccessibleDescription('If the agent does not offer this effort, the stage starts on the agent’s default effort.')
+      await expect(field('Heavy backup 2 effort')).toHaveAccessibleDescription('If the agent does not offer this effort, the stage starts on the nearest lower level the agent offers, or on its default effort.')
       await expect(field('Heavy backup 2 model')).toHaveAccessibleDescription('None of your machines lists this model. If the agent does not offer it, the stage stops when it starts.')
       await expect(field('Heavy backup effort')).toHaveAccessibleDescription('OpenCode has no effort setting')
       // Each agent's models were read once, and only for agents in the crew.
@@ -222,7 +222,7 @@ try {
       // No machine runs Codex, so nothing is known of its efforts: the start levels are offered, with the hint.
       await expect(field('Light effort')).toBeEnabled()
       await expect(field('Light effort').getByRole('option')).toHaveText(['Default effort','Low','Medium','High'])
-      await expect(field('Light effort')).toHaveAccessibleDescription('If the agent does not offer this effort, the stage starts on the agent’s default effort.')
+      await expect(field('Light effort')).toHaveAccessibleDescription('If the agent does not offer this effort, the stage starts on the nearest lower level the agent offers, or on its default effort.')
       await field('Light model').selectOption({label:'Other…'});await light.getByRole('textbox',{name:'Light model name',exact:true}).fill('model-typed')
       // No machine has listed Codex's models, so the typed name is not checked against any.
       await expect(light).toContainText('Your machines have not listed this agent’s models, so this name is not checked.')

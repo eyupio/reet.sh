@@ -16,6 +16,9 @@ var effortRefusal = EffortNotOffered("The agent did not confirm the chosen effor
 
 const highNotOffered = "You chose the effort high; OpenCode does not offer it for this model here, so the session was started on the agent's default effort."
 
+// highAsMedium is the note for a stage put on the nearest lower level offered.
+const highAsMedium = "You chose the effort high; OpenCode does not offer it for this model here, so the session was started on medium, the nearest level it offers."
+
 // highDropped is the activity log's reason, written before the start is answered.
 const highDropped = "OpenCode does not offer it for this model here."
 
@@ -58,20 +61,23 @@ func effortLogged(log *auditLog, how string) bool {
 }
 
 // (a) A stage whose effort the machine's last report shows its agent does not
-// offer starts on the agent's default effort straight away, and says so. A
-// machine that offers it, or does not say, is asked for it as chosen.
+// offer starts straight away on the nearest lower level the agent lists, or on
+// its default when it lists none below, and says so. A machine that offers it,
+// or does not say, is asked for it as chosen.
 func TestAStageStartsWithoutAnEffortItsMachineSaysIsNotOffered(t *testing.T) {
 	for name, c := range map[string]struct {
 		caps    terminalproto.Capabilities
 		dropped bool
+		instead string
 	}{
 		// A machine whose reet takes no start options is too old: its own
 		// refusal, which says to update it, stands.
-		"no start options":     {effortCaps(false, terminalproto.ACPAgentOption{ID: "variant", Category: terminalproto.AgentOptionModelConfig, Values: []string{"fast"}}), false},
-		"no effort option":     {effortCaps(true, terminalproto.ACPAgentOption{ID: "variant", Category: terminalproto.AgentOptionModelConfig, Values: []string{"fast"}}), true},
-		"effort not listed":    {effortCaps(true, terminalproto.ACPAgentOption{ID: "effort", Category: terminalproto.AgentOptionThoughtLevel, Values: []string{"low", "medium"}}), true},
-		"effort listed":        {effortCaps(true, terminalproto.ACPAgentOption{ID: "effort", Category: terminalproto.AgentOptionThoughtLevel, Values: []string{"low", "high"}}), false},
-		"options not reported": {effortCaps(true), false},
+		"no start options":     {effortCaps(false, terminalproto.ACPAgentOption{ID: "variant", Category: terminalproto.AgentOptionModelConfig, Values: []string{"fast"}}), false, ""},
+		"no effort option":     {effortCaps(true, terminalproto.ACPAgentOption{ID: "variant", Category: terminalproto.AgentOptionModelConfig, Values: []string{"fast"}}), true, ""},
+		"effort not listed":    {effortCaps(true, terminalproto.ACPAgentOption{ID: "effort", Category: terminalproto.AgentOptionThoughtLevel, Values: []string{"low", "medium"}}), true, "medium"},
+		"only heavier listed":  {effortCaps(true, terminalproto.ACPAgentOption{ID: "effort", Category: terminalproto.AgentOptionThoughtLevel, Values: []string{"default", "max"}}), true, ""},
+		"effort listed":        {effortCaps(true, terminalproto.ACPAgentOption{ID: "effort", Category: terminalproto.AgentOptionThoughtLevel, Values: []string{"low", "high"}}), false, ""},
+		"options not reported": {effortCaps(true), false, ""},
 	} {
 		t.Run(name, func(t *testing.T) {
 			r := outcomeFixture(t)
@@ -94,10 +100,14 @@ func TestAStageStartsWithoutAnEffortItsMachineSaysIsNotOffered(t *testing.T) {
 				}
 				return
 			}
-			if asked[0].Effort != "" || asked[0].Model != "cheap/coder" || stage.Effort != "" || stage.EffortNotOffered != "high" {
+			if asked[0].Effort != c.instead || asked[0].Model != "cheap/coder" || stage.Effort != c.instead || stage.EffortNotOffered != "high" {
 				t.Fatalf("launch %+v stage %+v", asked[0], stage)
 			}
-			if stage.ChoiceCheck != "applied" || stage.ChoiceNote != highNotOffered {
+			note := highNotOffered
+			if c.instead != "" {
+				note = highAsMedium
+			}
+			if stage.ChoiceCheck != "applied" || stage.ChoiceNote != note {
 				t.Fatalf("choice: %q %q", stage.ChoiceCheck, stage.ChoiceNote)
 			}
 			if !effortLogged(log, "reported") {
@@ -331,13 +341,18 @@ func TestABackupsEffortThatIsNotOfferedIsDroppedAndRecorded(t *testing.T) {
 			stage := r.checked(t, created.ID, 0)
 			asked := r.starter.asked()
 			last := asked[len(asked)-1]
-			if last.Model != "other/coder" || last.Effort != "" || byCaps && len(asked) != 1 || !byCaps && (len(asked) != 2 || asked[0].Effort != "high") {
+			// Reported, it starts on medium, the nearest level listed; refused, on the default.
+			instead, note := "", highNotOffered
+			if byCaps {
+				instead, note = "medium", highAsMedium
+			}
+			if last.Model != "other/coder" || last.Effort != instead || byCaps && len(asked) != 1 || !byCaps && (len(asked) != 2 || asked[0].Effort != "high") {
 				t.Fatalf("launches: %+v", asked)
 			}
-			if stage.Model != "other/coder" || stage.Effort != "" || stage.EffortNotOffered != "high" || stage.First == nil || stage.First.Effort != "low" || stage.Balanced == "" {
+			if stage.Model != "other/coder" || stage.Effort != instead || stage.EffortNotOffered != "high" || stage.First == nil || stage.First.Effort != "low" || stage.Balanced == "" {
 				t.Fatalf("stage: %+v", stage)
 			}
-			if stage.ChoiceCheck != "applied" || stage.ChoiceNote != highNotOffered {
+			if stage.ChoiceCheck != "applied" || stage.ChoiceNote != note {
 				t.Fatalf("choice: %q %q", stage.ChoiceCheck, stage.ChoiceNote)
 			}
 			how := "refused"
@@ -386,10 +401,10 @@ func TestBalancingTreatsADroppedEffortAsTheOneAskedFor(t *testing.T) {
 func TestAnEffortIsKeptWhenTheMachineDoesNotSay(t *testing.T) {
 	thought := terminalproto.ACPAgentOption{ID: "effort", Category: terminalproto.AgentOptionThoughtLevel, Values: []string{"low"}}
 	r := outcomeFixture(t)
-	if r.s.effortNotReported(r.p.UserID, strings.Repeat("9", 48), "opencode", "high") {
+	if n, _ := r.s.effortNotReported(r.p.UserID, strings.Repeat("9", 48), "opencode", "high"); n {
 		t.Error("a machine with nothing stored")
 	}
-	if r.s.effortNotReported(r.p.UserID, r.project.Host, "opencode", "") {
+	if n, _ := r.s.effortNotReported(r.p.UserID, r.project.Host, "opencode", ""); n {
 		t.Error("no effort asked for")
 	}
 	noChats := terminalproto.Capabilities{ProtocolVersion: 1, OS: "linux", OSUser: "test", TerminalEnabled: true, TerminalControl: true, Readiness: terminalproto.Ready}
@@ -406,13 +421,13 @@ func TestAnEffortIsKeptWhenTheMachineDoesNotSay(t *testing.T) {
 		"options not given": {effortCaps(true), "opencode"},
 	} {
 		r.reconnect(t, c.caps)
-		if r.s.effortNotReported(r.p.UserID, r.project.Host, c.tool, "high") {
+		if n, _ := r.s.effortNotReported(r.p.UserID, r.project.Host, c.tool, "high"); n {
 			t.Errorf("%s: the effort was dropped", name)
 		}
 	}
 	r.reconnect(t, effortCaps(true, thought))
-	if !r.s.effortNotReported(r.p.UserID, r.project.Host, "opencode", "high") {
-		t.Error("a listed thought level without this one did not drop it")
+	if n, instead := r.s.effortNotReported(r.p.UserID, r.project.Host, "opencode", "high"); !n || instead != "low" {
+		t.Error("a listed thought level without this one did not drop it for the nearest lower one", n, instead)
 	}
 }
 
@@ -435,7 +450,8 @@ func TestAStageWithADroppedEffortRefusedOnItsOldRequestStartsOnANewOne(t *testin
 	}
 	stage := r.checked(t, created.ID, 0)
 	asked := r.starter.asked()
-	if len(asked) != 2 || asked[0].Effort != "" || asked[1].Effort != "" || asked[0].RequestID == asked[1].RequestID || stage.RequestID != asked[1].RequestID || stage.EffortNotOffered != "high" {
+	// The report puts it on low, the nearest level listed; refused for that too, it starts on the default.
+	if len(asked) != 2 || asked[0].Effort != "low" || asked[1].Effort != "" || asked[0].RequestID == asked[1].RequestID || stage.RequestID != asked[1].RequestID || stage.EffortNotOffered != "high" || stage.Effort != "" {
 		t.Fatalf("launches %+v stage %+v", asked, stage)
 	}
 }
@@ -477,6 +493,24 @@ func TestALateAnswerToTheStartWithoutTheEffortIsTakenUp(t *testing.T) {
 	}
 }
 
+func TestNearestEffortStepsDownOnly(t *testing.T) {
+	for _, c := range []struct {
+		asked   string
+		offered []string
+		want    string
+	}{
+		{"max", []string{"low", "medium", "high"}, "high"},
+		{"high", []string{"low", "xhigh"}, "low"},
+		{"high", []string{"xhigh", "max"}, ""},
+		{"low", []string{"none", "medium"}, ""},
+		{"ultra", []string{"high"}, ""},
+	} {
+		if got := nearestEffort(c.asked, c.offered); got != c.want {
+			t.Errorf("%s from %v: %q, want %q", c.asked, c.offered, got, c.want)
+		}
+	}
+}
+
 func TestStageChoiceCheckSaysWhenTheEffortWasNotOffered(t *testing.T) {
 	stage := store.GafferOutcomeStage{Tool: "opencode", Model: "cheap/coder", EffortNotOffered: "high"}
 	if check, note := stageChoiceCheck(stage, SessionChoice{Tool: "opencode", Model: "cheap/coder", Effort: "medium"}); check != "applied" || note != highNotOffered {
@@ -488,7 +522,12 @@ func TestStageChoiceCheckSaysWhenTheEffortWasNotOffered(t *testing.T) {
 	if check, note := stageChoiceCheck(stage, SessionChoice{Tool: "claude", Model: "cheap/coder"}); check != "mismatch" || !strings.HasSuffix(note, highNotOffered) || !strings.Contains(note, "agent opencode") {
 		t.Fatalf("another agent: %s %q", check, note)
 	}
-	if got := effortNotOfferedNote("claude", "max"); got != "You chose the effort max; Claude Code does not offer it for this model here, so the session was started on the agent's default effort." {
+	if got := effortNotOfferedNote("claude", "max", ""); got != "You chose the effort max; Claude Code does not offer it for this model here, so the session was started on the agent's default effort." {
 		t.Fatal(got)
+	}
+	// Put on the nearest lower level, the session on that level reads as applied.
+	stage.Effort = "medium"
+	if check, note := stageChoiceCheck(stage, SessionChoice{Tool: "opencode", Model: "cheap/coder", Effort: "medium"}); check != "applied" || note != highAsMedium {
+		t.Fatalf("nearest level: %s %q", check, note)
 	}
 }

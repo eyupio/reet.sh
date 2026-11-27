@@ -359,7 +359,7 @@
     const tool = stage?.tool ?? record.tool, model = stage?.model ?? record.model ?? ''
     // A stage's own empty source is Cline's own choice; the outcome's source is only the fallback when a piece has no stage.
     const source = stage ? stage.provider ?? '' : record.provider ?? ''
-    return `${chatToolName(tool)}${model ? ` · ${model}` : ''}${source ? ` · ${sourceLabel(source)}` : ''}${stage?.effort ? ` · ${stage.effort} effort` : ''}${stage?.effortNotOffered && !stage.effort ? ` · agent's default effort (${stage.effortNotOffered} is not offered)` : ''}`
+    return `${chatToolName(tool)}${model ? ` · ${model}` : ''}${source ? ` · ${sourceLabel(source)}` : ''}${stage?.effort ? ` · ${stage.effort} effort` : ''}${stage?.effortNotOffered ? `${stage.effort ? '' : " · agent's default effort"} (${stage.effortNotOffered} is not offered)` : ''}`
   }
 
   // The list: one item per pipeline. A session holding a tool approval makes its pipeline an Approval item, answered

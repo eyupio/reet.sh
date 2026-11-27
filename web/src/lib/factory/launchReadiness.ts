@@ -84,7 +84,7 @@ export const BALANCE_FRESH_MS = 6 * 3_600_000
 export const MODELS_STALE_MS = 24 * 3_600_000
 /** The sentence GafferModelSelect already uses for a model the machine's list does not confirm. */
 export const MODEL_LATER = 'Not checked against this machine. If the agent does not offer this model, the stage stops when it starts; otherwise its Applied line says what it is running on.'
-export const EFFORT_LATER = 'Not checked against this machine. If the agent does not offer this effort, the stage starts on the agent’s default effort; its Applied line says what it is running on.'
+export const EFFORT_LATER = 'Not checked against this machine. If the agent does not offer this effort, the stage starts on the nearest lower level the agent offers, or on its default effort; its Applied line says what it is running on.'
 
 const name = (tool: string) => tool ? agentDisplayName(tool) : 'No agent'
 const fact = (state: FactState, label: string, text = label, flags: Pick<Fact, 'pending' | 'later' | 'quiet'> = {}): Fact => ({ state, label, text, ...flags })
@@ -157,7 +157,7 @@ function effortFact(input: ReadinessInput): Fact {
     return input.efforts(member.tool).length < 2 && machine?.capabilities ? fact('default', 'No effort setting', 'The agent has no effort setting here, so it uses its own.', { quiet: true }) : fact('default', 'Agent’s default effort', 'The agent’s default effort, as you chose.')
   }
   if (!machine?.capabilities?.acpStartOptions) return fact('unavailable', 'Effort not checked', 'This machine has not reported effort levels.', { later: EFFORT_LATER })
-  if (!input.efforts(member.tool).includes(effort)) return fact('unavailable', 'Effort not offered', `${capital(effort)} effort is not offered by ${name(member.tool)} here, so the stage starts on the agent’s default effort.`)
+  if (!input.efforts(member.tool).includes(effort)) return fact('unavailable', 'Effort not offered', `${capital(effort)} effort is not offered by ${name(member.tool)} here, so the stage starts on the nearest lower level the agent offers, or on its default effort.`)
   return fact('ready', `${capital(effort)} effort`, `${capital(effort)} effort is one the machine reports for ${name(member.tool)}.`)
 }
 

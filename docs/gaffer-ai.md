@@ -288,8 +288,10 @@ An effort the agent does not offer does not stop a stage. Machines report
 efforts per agent, not per model, so a level can still be one the chosen model
 lacks; the machine then refuses the start, and the controller starts the stage
 again at once on the agent's default effort. A level the machine's last report
-says the agent lacks is not asked for at all. Either way the stage says so:
-its facts read "agent's default effort (high is not offered)", its **Applied**
+says the agent lacks is not asked for at all: the stage starts on the nearest
+lower level the report lists (max becomes high), or on the agent's default when
+none is lower. Either way the stage says so: its facts read "high effort (max
+is not offered)" or "agent's default effort (max is not offered)", its **Applied**
 line is **Confirmed** with the reason, and the activity log records
 `gaffer-stage-effort-not-offered`. A model the agent does not offer still
 stops the stage.
@@ -483,8 +485,9 @@ finished stage that has been checked when you pick it:
 - **Not as chosen.** The session is on something else, and the line says what
   you chose and what it is on. Nothing is stopped: send the stage back, change
   it in the session's chat, or carry on. It is also in the activity log.
-  A stage started on the agent's default effort because the effort you chose
-  was not offered is not this: it reads **Confirmed**, and says why.
+  A stage started on a lower level or the agent's default effort because the
+  effort you chose was not offered is not this: it reads **Confirmed**, and says
+  why.
 - **Not checked.** The machine could not be asked, and the line says why. This
   is never shown as confirmed.
 
@@ -531,7 +534,7 @@ reason in the controller's own words:
 | --- | --- |
 | `gaffer-stage-handed-over` | A stage ended. `by` is `gaffer` (its review found the stage done), `person` (**Move to next stage**, or MCP) or `chat` (you told Gaffer to continue in the session's chat). |
 | `gaffer-stage-choice-not-applied` | A stage's session was read back to be on another agent, model or effort than you chose. `chosen` and `applied` name both; `reason` says what differs. Nothing is stopped by it. |
-| `gaffer-stage-effort-not-offered` | The effort chosen for a stage (`effort`) is not offered by its agent for the model on that machine, so the stage is started without it, on the agent's default effort. Written before that start is answered; `reason` says why ("OpenCode does not offer it for this model here."). Trying the pipeline again or sending it back asks for the effort again, except while an earlier start of that stage is still unanswered; Gaffer's own decision to run a stage again and the restart on a backup ask again too. |
+| `gaffer-stage-effort-not-offered` | The effort chosen for a stage (`effort`) is not offered by its agent for the model on that machine, so the stage is started without it, on the nearest lower level the agent offers (`instead`) or, with that empty, on the agent's default effort. Written before that start is answered; `reason` says why ("OpenCode does not offer it for this model here."). Trying the pipeline again or sending it back asks for the effort again, except while an earlier start of that stage is still unanswered; Gaffer's own decision to run a stage again and the restart on a backup ask again too. |
 | `gaffer-stage-started` | The controller started the next stage, in a session of its own. |
 | `gaffer-pipeline-waiting-delivery` | The work of a pipeline with acceptance criteria is done and waits for your delivery review. |
 | `gaffer-delivery-criteria` | You edited a pipeline's acceptance criteria. `criteriaRevision` is the revision the edit made. |
@@ -714,7 +717,7 @@ are those of every machine on your account:
   when you have no machines, offers **Default effort**, low, medium and high,
   with the line under it. A saved level none of your machines offers stays,
   marked "(not offered by your machines)", with a line under it: the stage then
-  starts on the agent's default effort.
+  starts on the nearest lower level the agent offers, or on its default.
 
 Changing a row's agent clears its model and effort. When your machines or their
 model lists cannot be read, the form says so in one line and still saves: a

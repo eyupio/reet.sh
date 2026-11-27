@@ -178,6 +178,10 @@ test('a pipeline track shows what is done, in hand, waiting on the person or fai
   const node = o.track({ state: 'following', stage: 1, stages: stages.map((s, i) => i === 1 ? { ...s, ...dropped } : s) })[1]
   assert.deepEqual([node.effort, node.effortNotOffered, node.choice.tone, node.choice.text.startsWith(reason)], ['', 'high', 'good', true])
   assert.equal(o.track({ state: 'following', stage: 1, stages })[1].effortNotOffered, '')
+  // Put on the nearest lower level offered, the stage says so without a note from the controller.
+  const nearer = o.stageChoice({ tool: 'claude', model: 'opus', effort: 'high', effortNotOffered: 'max', choiceCheck: 'applied', appliedModel: 'opus', appliedEffort: 'high' })
+  assert.equal(nearer.tone, 'good')
+  assert.match(nearer.text, /started on high, the nearest level it offers/)
   assert.deepEqual(o.track({ state: 'following' }), [])
 })
 

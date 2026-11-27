@@ -307,7 +307,9 @@ standard, standard to heavy) when your crew chose that stage's agent: it is
 done again by the next tier's agent, model and effort, and its tier reads
 "Moved up from standard because it was sent back." A stage moves up once, never
 above heavy, and only when its first choice is still your crew's for its tier;
-a stage you picked an agent for, or one an outcome's own crew chose, keeps it.
+a stage you picked an agent for, or one an outcome's own crew chose, keeps it,
+and so does one whose next tier's agent could not start under the outcome's
+folder trust or approval mode.
 **Try again** after a failed start does not move it.
 
 A session that is part of a pipeline is marked **Factory · stage n of m** on

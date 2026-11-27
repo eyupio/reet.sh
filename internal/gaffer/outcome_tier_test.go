@@ -13,32 +13,39 @@ func TestRaiseTierMovesACrewStageUpOnce(t *testing.T) {
 		Standard: store.GafferCrewTier{Tool: "opencode", Model: "mid/model"},
 		Heavy:    store.GafferCrewTier{Tool: "claude", Model: "opus", Effort: "high", Backup: &store.GafferStageAgent{Tool: "codex"}},
 	}
-	stage := store.GafferOutcomeStage{Kind: "code", Tier: "standard", Tool: "opencode", Model: "mid/model"}
-	raiseTier(&stage, crew)
+	stage := store.GafferOutcomeStage{Kind: "code", Tier: "standard", FromCrew: true, Tool: "opencode", Model: "mid/model"}
+	raiseTier(&stage, crew, true, false)
 	if stage.Tier != "heavy" || stage.TierFrom != "standard" || stage.Tool != "claude" || stage.Model != "opus" || stage.Effort != "high" || stage.Backup == nil || stage.TierWhy == "" {
 		t.Fatalf("not moved up: %+v", stage)
 	}
 	again := stage
-	raiseTier(&again, crew)
+	raiseTier(&again, crew, true, false)
 	if again.Tier != "heavy" || again.TierFrom != "standard" {
 		t.Fatalf("moved twice: %+v", again)
 	}
 	for name, s := range map[string]store.GafferOutcomeStage{
-		"picked by hand":    {Kind: "code", Tier: "standard", Tool: "codex", Model: "own"},
-		"already heavy":     {Kind: "review", Tier: "heavy", Tool: "claude", Model: "opus", Effort: "high"},
-		"no tier":           {Kind: "code", Tool: "opencode", Model: "mid/model"},
-		"own tier unset":    {Kind: "pr", Tier: "light"},
-		"moved once before": {Kind: "code", Tier: "standard", TierFrom: "light", Tool: "opencode", Model: "mid/model"},
+		"picked by hand":         {Kind: "code", Tier: "standard", Tool: "codex", Model: "own"},
+		"not the account's crew": {Kind: "code", Tier: "standard", Tool: "opencode", Model: "mid/model"},
+		"already heavy":          {Kind: "review", Tier: "heavy", Tool: "claude", Model: "opus", Effort: "high"},
+		"no tier":                {Kind: "code", Tool: "opencode", Model: "mid/model"},
+		"own tier unset":         {Kind: "pr", Tier: "light"},
+		"moved once before":      {Kind: "code", Tier: "standard", FromCrew: true, TierFrom: "light", Tool: "opencode", Model: "mid/model"},
 	} {
 		before := s
-		raiseTier(&s, crew)
+		raiseTier(&s, crew, true, false)
 		if s.Tier != before.Tier || s.Tool != before.Tool || s.TierFrom != before.TierFrom {
 			t.Errorf("%s: moved %+v", name, s)
 		}
 	}
+	// Without folder trust a stage is not moved to Antigravity, which would not start.
+	untrusted := store.GafferOutcomeStage{Kind: "code", Tier: "standard", FromCrew: true, Tool: "opencode", Model: "mid/model"}
+	raiseTier(&untrusted, store.GafferCrew{Standard: crew.Standard, Heavy: store.GafferCrewTier{Tool: "antigravity"}}, false, false)
+	if untrusted.Tier != "standard" || untrusted.Tool != "opencode" {
+		t.Fatalf("moved to an agent the outcome's trust does not allow: %+v", untrusted)
+	}
 	// A stage on its backup is judged by its first choice.
-	onBackup := store.GafferOutcomeStage{Kind: "code", Tier: "standard", Tool: "codex", First: &store.GafferStageAgent{Tool: "opencode", Model: "mid/model"}, Balanced: "plan low"}
-	raiseTier(&onBackup, crew)
+	onBackup := store.GafferOutcomeStage{Kind: "code", Tier: "standard", FromCrew: true, Tool: "codex", First: &store.GafferStageAgent{Tool: "opencode", Model: "mid/model"}, Balanced: "plan low"}
+	raiseTier(&onBackup, crew, true, false)
 	if onBackup.Tier != "heavy" || onBackup.Tool != "claude" || onBackup.First != nil || onBackup.Balanced != "" {
 		t.Fatalf("a stage on its backup was not moved from its first choice: %+v", onBackup)
 	}
@@ -78,5 +85,26 @@ func TestSendingBackMovesTheStageUpATier(t *testing.T) {
 	}
 	if asked := r.starter.asked(); asked[len(asked)-1].Model != "strong/model" {
 		t.Fatalf("the stage done again did not start on the heavier model: %+v", asked[len(asked)-1])
+	}
+}
+
+// Stages an outcome's own crew chose are not marked as the account crew's, so
+// sending them back never moves them, even where the two crews agree.
+func TestAnOutcomesOwnCrewIsNotTheAccounts(t *testing.T) {
+	r := outcomeFixture(t)
+	standard := store.GafferCrewTier{Tool: "opencode", Model: "mid/model"}
+	if _, err := r.st.SetGafferCrewFor(r.p.UserID, store.GafferCrew{Standard: standard}); err != nil {
+		t.Fatal(err)
+	}
+	in := r.in
+	in.Crew = &TemplateCrew{Standard: standard}
+	in.Sessions = []OutcomeSession{{Title: "Export API", Prompt: "Add the CSV export endpoint with tests.", Stages: []OutcomeStageInput{{Kind: "code"}}}}
+	r.s.StartGoalSupervisor()
+	created, err := r.s.CreateOutcome(r.p.UserID, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stage := created.Sessions[0].Stages[0]; stage.FromCrew || stage.Model != "mid/model" {
+		t.Fatalf("a stage of the outcome's own crew reads as the account's: %+v", stage)
 	}
 }

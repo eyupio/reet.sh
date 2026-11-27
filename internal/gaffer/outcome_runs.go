@@ -545,6 +545,14 @@ func (s *Service) CreateOutcome(uid int64, in OutcomeInput) (store.GafferOutcome
 	if err != nil {
 		return o, err
 	}
+	if in.Crew != nil {
+		// Chosen by the outcome's own crew, not the account's: such stages keep their tier when sent back.
+		for i := range sessions {
+			for j := range sessions[i].Stages {
+				sessions[i].Stages[j].FromCrew = false
+			}
+		}
+	}
 	if err = s.goalRoom(uid, len(sessions)); err != nil {
 		return o, err
 	}
@@ -672,6 +680,7 @@ func outcomePieces(items []OutcomeSession, tool, model, provider string, crew st
 			if tier == "" {
 				tier = DefaultStageTier(stage.Kind)
 			}
+			fromCrew := false
 			if stageTool == "" {
 				// The stage names no agent: its tier's does it, from the
 				// person's saved crew. A tier they have not set falls back to
@@ -679,7 +688,7 @@ func outcomePieces(items []OutcomeSession, tool, model, provider string, crew st
 				if member := crew.Tier(tier); member.Tool != "" {
 					stageTool, stageModel, stageEffort, stageProvider = member.Tool, member.Model, member.Effort, member.Provider
 					// The tier's backup comes with it.
-					second, others = member.Backup, member.More
+					second, others, fromCrew = member.Backup, member.More, true
 				} else {
 					stageTool, stageModel = tool, model
 					if stageProvider == "" {
@@ -707,7 +716,7 @@ func outcomePieces(items []OutcomeSession, tool, model, provider string, crew st
 			if err != nil {
 				return nil, err
 			}
-			piece.Stages = append(piece.Stages, store.GafferOutcomeStage{Kind: stage.Kind, Name: stage.Name, Prompt: stage.Prompt, Tool: stageTool, Model: stageModel, Effort: stageEffort, Provider: stageProvider, Backup: backup, More: more, Tier: tier, TierWhy: why, Part: part, Brief: brief, SkillGuidance: stage.Skills, RequestID: id})
+			piece.Stages = append(piece.Stages, store.GafferOutcomeStage{Kind: stage.Kind, Name: stage.Name, Prompt: stage.Prompt, Tool: stageTool, Model: stageModel, Effort: stageEffort, Provider: stageProvider, Backup: backup, More: more, Tier: tier, TierWhy: why, FromCrew: fromCrew, Part: part, Brief: brief, SkillGuidance: stage.Skills, RequestID: id})
 		}
 		if len(piece.Stages) > 0 {
 			piece.Stages[0].RequestID = request

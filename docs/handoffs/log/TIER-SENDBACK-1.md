@@ -13,6 +13,13 @@ What changed.
   (picked by hand, or chosen by an outcome's own crew, which the outcome does not keep), or when the next tier's
   member is the same worker. Both the person's send-back and the delivery review's go through it.
 - `store.GafferOutcomeStage.TierFrom` is new and kept through later send-backs, so a stage moves once.
+- `store.GafferOutcomeStage.FromCrew` is new: `outcomePieces` sets it when the crew chose a stage's worker, and
+  `CreateOutcome` clears it when the outcome was approved with its own crew, so only the account crew's stages move
+  (a review found that matching workers alone could promote a stage an outcome's own crew chose). Stages made before
+  this change have it unset and never move.
+- A promotion is skipped when the next tier's agent or a backup could not start under the outcome's settings:
+  Antigravity without folder trust, or an agent without YOLO on a YOLO outcome, as creating an outcome and changing
+  a stage's worker already check (also from the review).
 - `docs/gaffer-ai.md` says so. The page shows the new tier and its reason through the existing tier fields.
 
 Tests. `raiseTier` on its own (moved once, kept for hand-picked, heavy, untiered, unset tiers, a stage on its backup

@@ -57,6 +57,10 @@ type GafferOutcomeStage struct {
 	// TierFrom is the tier the stage had before it was sent back and moved up
 	// one, which it is only once; empty when it was not moved.
 	TierFrom string `json:"tierFrom,omitempty"`
+	// FromCrew is whether the account's saved crew chose the stage's worker
+	// for its tier, not the person nor an outcome's own crew: only such a
+	// stage moves up a tier when it is sent back.
+	FromCrew bool `json:"fromCrew,omitempty"`
 	// Tool, Model and Effort above are what the person chose. The Applied
 	// fields are what the stage's session was read back to be running, and
 	// when. ChoiceCheck is "applied" (nothing chosen differs), "mismatch"

@@ -54,6 +54,9 @@ type GafferOutcomeStage struct {
 	// TierWhy is Gaffer's reason where the tier is its own assessment.
 	Tier    string `json:"tier,omitempty"`
 	TierWhy string `json:"tierWhy,omitempty"`
+	// TierFrom is the tier the stage had before it was sent back and moved up
+	// one, which it is only once; empty when it was not moved.
+	TierFrom string `json:"tierFrom,omitempty"`
 	// Tool, Model and Effort above are what the person chose. The Applied
 	// fields are what the stage's session was read back to be running, and
 	// when. ChoiceCheck is "applied" (nothing chosen differs), "mismatch"

@@ -167,11 +167,13 @@
   .shell-bar > :global(.top-tabs) { margin-left: 0; }
   .home { display: flex; align-items: center; flex: none; color: inherit; text-decoration: none; }
   .home :global(.logo) { width: 120px; }
-  /* One logo size on every desktop bar, so moving between Home, a supporting page and a session never resizes it. */
+  /* One logo size on every bar, compact or not, so moving between pages never resizes it. A phone too narrow for the
+     full wordmark beside the compact bar's extra More button gets the smaller logo on both bars. */
   @media (min-width: 1100px) {
     .shell-bar { gap: 20px; }
     .home :global(.logo) { width: 134px; }
   }
+  @media (max-width: 367.98px) { .home :global(.logo) { width: 88px; } }
   /* A finger-sized target on touch screens; the bar is taller than this at every width. */
   @media (pointer: coarse) { .home { min-height: 44px; } }
   .grow { flex: 1; min-width: 0; }
@@ -193,7 +195,6 @@
     .shell-bar { height: 56px; padding: 0 16px; gap: 8px; }
     .compact-more { display: grid; }
   }
-  .shell-bar.compact { height: 56px; padding: 0 16px; }
-  /* The terminal's slim bar holds one more button (More) on a phone, so the logo is smaller there to fit 320 px. */
-  @media (max-width: 700px) { .shell-bar.compact { height: 54px; padding: 0 10px; gap: 6px; } .shell-bar.compact .home :global(.logo) { width: 88px; } }
+  /* The compact bar (an open session or desk) keeps this bar's height and padding at every width, so the logo does not
+     move when a page opens there. It differs only by the More button it adds on a phone and the bottom bar it drops. */
 </style>

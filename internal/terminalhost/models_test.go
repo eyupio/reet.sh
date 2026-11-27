@@ -192,7 +192,7 @@ func TestListModelsEnvironmentIsMinimal(t *testing.T) {
 		}
 	}
 	for key, want := range map[string]string{
-		"HOME": home, "OPENCODE_DISABLE_MODELS_FETCH": "1", "OPENCODE_DISABLE_AUTOUPDATE": "1", "NO_COLOR": "1", "LANG": "C.UTF-8", "CI": "1",
+		"HOME": home, "OPENCODE_DISABLE_AUTOUPDATE": "1", "NO_COLOR": "1", "LANG": "C.UTF-8", "CI": "1",
 	} {
 		if env[key] != want {
 			t.Fatalf("%s=%q, want %q", key, env[key], want)

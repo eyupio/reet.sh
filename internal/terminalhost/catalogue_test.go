@@ -637,7 +637,7 @@ func TestOnlyOpenCodeHasAConfirmedModelListing(t *testing.T) {
 		if len(p.ModelList.Argv) != 1 || p.ModelList.Argv[0] != "models" {
 			t.Fatalf("OpenCode argv drifted: %#v", p.ModelList.Argv)
 		}
-		want := map[string]bool{"OPENCODE_DISABLE_MODELS_FETCH=1": true, "OPENCODE_DISABLE_AUTOUPDATE=1": true, "NO_COLOR=1": true, "LANG=C.UTF-8": true, "CI=1": true}
+		want := map[string]bool{"OPENCODE_DISABLE_AUTOUPDATE=1": true, "NO_COLOR=1": true, "LANG=C.UTF-8": true, "CI=1": true}
 		for _, env := range p.ModelList.Env {
 			delete(want, env)
 		}

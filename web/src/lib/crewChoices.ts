@@ -52,7 +52,7 @@ export type EffortChoice = { value: string; label: string }
  *  nothing known the start levels (low, medium and high, as `START_EFFORTS` in terminal/launchOptions.ts) are offered,
  *  since a crew must be settable before a machine connects; the controller starts a stage on the agent's default effort
  *  when its effort is not offered. A saved level no machine offers stays, labelled. `unoffered` asks for the hint that
- *  the stage then starts on the agent's default effort. An agent a machine runs and reports no level for has nothing to
+ *  the stage then starts on the nearest lower level offered, or on the agent's default. An agent a machine runs and reports no level for has nothing to
  *  choose. */
 export function crewEffortChoices({ offered, saved }: { offered: readonly string[] | null | undefined; saved: string }): { options: EffortChoice[]; disabled: boolean; unoffered: boolean } {
   const level = saved.trim()

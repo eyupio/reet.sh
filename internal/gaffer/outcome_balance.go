@@ -140,10 +140,7 @@ func (s *Service) balanceStage(o store.GafferOutcome, stage store.GafferOutcomeS
 	// An effort dropped because the agent does not offer it is still the one
 	// the person asked for: it is what the first choice goes back to, and what
 	// tells a stage that stays where it is from one that moves.
-	asked := stage.Effort
-	if asked == "" {
-		asked = stage.EffortNotOffered
-	}
+	asked := askedEffort(stage)
 	first := store.GafferStageAgent{Tool: stage.Tool, Model: stage.Model, Effort: asked, Provider: stage.Provider}
 	if stage.First != nil {
 		first = *stage.First

@@ -69,7 +69,8 @@ type GafferOutcomeStage struct {
 	// EffortNotOffered is the effort that was chosen for the stage when its
 	// agent turned out not to offer it for the model on that machine: the
 	// machine's report said so, or it refused the start for it. The stage then
-	// started on the agent's default effort and Effort is empty, so a later
+	// started on Effort: the nearest lower level the agent offers, or empty for
+	// the agent's default after a refusal or when none is lower, so a later
 	// start does not ask for it again. Empty when nothing was dropped.
 	EffortNotOffered string `json:"effortNotOffered,omitempty"`
 	// What the stage's working agent reported using, from its own figures: kept

@@ -937,7 +937,7 @@ try {
         try{
           const review=row('review')
           await expect(review).toContainText('Saved crew')
-          await expect(causes.first()).toContainText('Look at · Heavy crew, used by Review. Xhigh effort is not offered by Claude Code here, so the stage starts on the agent’s default effort.')
+          await expect(causes.first()).toContainText('Look at · Heavy crew, used by Review. Xhigh effort is not offered by Claude Code here, so the stage starts on the nearest lower level the agent offers, or on its default effort.')
           await expect(review).not.toContainText('Xhigh')
           await expect(review).not.toContainText('Your choice: Agent’s default effort')
           await expect(review).toContainText('Look at')

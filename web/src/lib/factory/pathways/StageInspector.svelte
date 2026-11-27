@@ -96,7 +96,7 @@
     {#if agent.tool === 'cline'}
       <div class="field wide"><ClineSourceSelect label="Cline billing source" showLabel={false} star={false} value={agent.provider ?? ''} saved={agent.provider ?? ''} onchange={provider => setAgent({ provider })} /></div>
     {/if}
-    {#if effort.unoffered}<p class="note wide">If the agent does not offer this effort, the stage starts on the agent’s default effort.</p>{/if}
+    {#if effort.unoffered}<p class="note wide">If the agent does not offer this effort, the stage starts on the nearest lower level the agent offers, or on its default effort.</p>{/if}
   </div>
 {/snippet}
 

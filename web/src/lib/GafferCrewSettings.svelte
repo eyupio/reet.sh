@@ -102,7 +102,7 @@
     <select aria-label={`${label} effort`} aria-describedby={why} value={row.effort} disabled={busy || effort.disabled} onchange={event => { row.effort = (event.currentTarget as HTMLSelectElement).value }}>
       {#each effort.options as option (option.value)}<option value={option.value}>{option.label}</option>{/each}
     </select>
-    {#if effort.unoffered}<span class="caveat" id={idOf(label, 'effort-hint')}>If the agent does not offer this effort, the stage starts on the agent’s default effort.</span>{/if}
+    {#if effort.unoffered}<span class="caveat" id={idOf(label, 'effort-hint')}>If the agent does not offer this effort, the stage starts on the nearest lower level the agent offers, or on its default effort.</span>{/if}
     {#if effort.disabled}<span class="sr-only" id={idOf(label, 'effort-none')}>{chatToolName(row.tool)} has no effort setting</span>{/if}
   </span>
   {#if row.tool === 'cline'}<div class="source"><ClineSourceSelect label={`${label} Cline billing source`} showLabel={false} star={false} value={row.source ?? ''} saved={row.source ?? ''} disabled={busy} onchange={next => { row.source = next }} /></div>{/if}

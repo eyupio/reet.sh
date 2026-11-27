@@ -823,7 +823,7 @@ func (s *Service) TellPipelineAgent(ctx context.Context, uid int64, id, key, req
 // chosen, including one that was dropped because the agent did not offer it,
 // so a machine that offers it now gets it.
 func askedEffort(stage store.GafferOutcomeStage) string {
-	if stage.Effort == "" {
+	if stage.EffortNotOffered != "" {
 		return stage.EffortNotOffered
 	}
 	return stage.Effort

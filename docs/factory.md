@@ -72,7 +72,7 @@ problem. Things still being read, such as a model list, are shown as being read,
 A model that the machine's list does not have, a list read more than a day ago, a model list or effort levels the machine
 could not give, a missing sign-in and sign-ins the machine could not read are each worded differently, with when the
 list was read. A saved effort that the machine does not offer is shown as the saved crew's, with the note that the stage
-starts on the agent's default effort. Where the model or effort was not checked against the machine, a note says so:
+starts on the nearest lower level the agent offers, or on its default effort. Where the model or effort was not checked against the machine, a note says so:
 an agent that does not offer the model stops the stage when it starts; otherwise the [Applied line](#the-page) on the
 running stage says what it is running on.
 
@@ -177,9 +177,11 @@ Once a stage's session is running, the controller asks the machine what it is on
 **Applied** line: **Confirmed**, **Not as chosen** (naming what differs) or **Not checked**. A finished stage keeps it.
 Nothing is stopped by a difference.
 
-An effort the stage's agent does not offer for its model does not stop the stage: it starts on the agent's default
-effort instead, its facts say "agent's default effort (high is not offered)" and its **Applied** line is **Confirmed**
-with the reason. A model the agent does not offer still stops it. **Try again** and **Send back** ask for the effort
+An effort the stage's agent does not offer for its model does not stop the stage. Where the machine's report lists the
+agent's levels, the stage starts on the nearest lower one (max becomes high when high is the heaviest offered) and its
+facts say "high effort (max is not offered)"; with no lower level listed, or when the agent refuses the level at the
+start, it starts on the agent's default effort and its facts say "agent's default effort (max is not offered)". Either
+way its **Applied** line is **Confirmed** with the reason. A model the agent does not offer still stops it. **Try again** and **Send back** ask for the effort
 again, except while an earlier start of that stage is still unanswered; so do Gaffer's own decision to run a stage again
 and the restart of a stage on its backup.
 
@@ -228,7 +230,7 @@ In Gaffer settings the choices are those of every machine on your account, since
 - **Effort**: every level your machines report for the agent, and **Default effort**. An agent a machine runs that has
   none, such as OpenCode, shows **No effort setting**. An agent none of your machines runs, or any agent when you have
   no machines, offers **Default effort**, low, medium and high. A saved level none of them offers stays, marked "(not
-  offered by your machines)": the stage then starts on the agent's default effort.
+  offered by your machines)": the stage then starts on the nearest lower level the agent offers, or on its default.
 
 Changing a row's agent clears its model and effort. If your machines cannot be read the form says so and still saves.
 

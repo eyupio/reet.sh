@@ -1755,6 +1755,12 @@ func TestAHandoverMayCarryAWholePlan(t *testing.T) {
 	if _, _, err = goalQuestion(elicore.ToolCall{ID: "q1", Name: "ask_user", Arguments: args}); err == nil {
 		t.Fatal("a question to the person is still limited to 2,000 bytes")
 	}
+	// Too long, and ending mid-character: clipped to fit, not refused.
+	long, _ := json.Marshal(map[string]string{"summary": strings.Repeat("é", maxHandoverBytes)})
+	summary, _, err = goalQuestion(elicore.ToolCall{ID: "h2", Name: "hand_over", Arguments: long})
+	if err != nil || len(summary) > maxHandoverBytes || !strings.HasSuffix(summary, "…") || !utf8.ValidString(summary) {
+		t.Fatalf("an over-long handover was not clipped: %d bytes, %v", len(summary), err)
+	}
 }
 
 // Moving a pipeline on stays the person's call while the stage's agent still

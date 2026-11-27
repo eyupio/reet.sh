@@ -10,8 +10,7 @@
   import { defaultLabel, favouriteKey, modelOptions, modelStatus, recentModels, starLabel, type MachineModels, type ModelFavourite } from '../models'
   import { MAX_PROMPT_BYTES, cleanModel, modelSuggestions, notStartedText, refusalText, toolName, validateModel } from '../agentLaunch'
   import { baseKey, baseQuestion, type BaseLaunch } from '../baseGate'
-  import { launchEfforts } from '../terminal/launchOptions'
-  import { afterLaunch, baseFor, chatEffort, defaultTitle, initialChoice, runRefusalText, sentence, startable, startedLine, summary, toCreate, toSelectionRun, withAgent, withHome, withProject, withSelection, sendKey, yoloCanStart, yoloGates,
+  import { afterLaunch, baseFor, chatEffort, defaultTitle, effortsFor, initialChoice, runRefusalText, sentence, startable, startedLine, summary, toCreate, toSelectionRun, withAgent, withHome, withProject, withSelection, sendKey, yoloCanStart, yoloGates,
     type LaunchChoice, type LaunchCreate, type LaunchDefaults, type SelectionRunRequest, type SentencePart } from '../launchBar'
   import { createTerminal, getFolderProject, getSelectionRun, launchProgress, launchUpload, listBranches, machineModels, readiness, refreshMachineModels, refusalSentence, retrySelectionMember, sessionHref, startSelectionRun, TerminalError,
     type BranchesResult, type FolderProject, type TerminalMachine, type TerminalSession } from '../terminal/api'
@@ -624,7 +623,7 @@
       return [{ value: '', label: current ? `the current branch (${current})` : 'the current branch' }, ...listed.map(b => ({ value: b, label: b }))]
     }
     if (slot === 'worktree') return [{ value: 'yes', label: 'a fresh worktree' }, { value: 'no', label: 'the checkout' }]
-    if (slot === 'effort') return launchEfforts(choice.agent, target?.capabilities, choice.chat === true).map(value => ({ value, label: value || 'Agent default' }))
+    if (slot === 'effort') return effortsFor(choice, picked.length > 1 ? picked.map(p => p.host) : [targetId], machines ?? []).map(value => ({ value, label: value || 'Agent default' }))
     return []
   }
   function valueOf(slot: string): string {

@@ -53,9 +53,13 @@ const MAX_SLUG = 40
 
 const agentOf = (id: string) => CATALOGUE.find(agent => agent.id === id)
 const takesEffort = (id: string): boolean => agentOf(id)?.effort === true
-/** The effort values this launch can choose: the agent's own for a terminal, the machine's advertised values for Gaffer. */
-const effortsFor = (choice: LaunchChoice, host: string | undefined, machines: LaunchMachine[]): string[] =>
-  launchEfforts(choice.agent, machines.find(m => m.agentId === host)?.capabilities, choice.chat === true)
+/** The effort values this launch can choose: the machine's advertised values for Gaffer; the agent's own for a terminal,
+ *  with the levels beyond high only when every machine it starts on takes them. */
+export function effortsFor(choice: LaunchChoice, hosts: (string | undefined)[], machines: LaunchMachine[]): string[] {
+  const caps = (host: string | undefined) => machines.find(m => m.agentId === host)?.capabilities
+  if (choice.chat === true) return launchEfforts(choice.agent, caps(hosts[0]), true)
+  return effortChoices(choice.agent, hosts.length > 0 && hosts.every(host => caps(host)?.effortLevels === true))
+}
 /**
  * The effort a choice can carry. A chat sends one only when its own descriptor offers that value, so a project or
  * account default for the agent's terminal thinking (Cline's `--thinking`) is dropped when the same agent runs in
@@ -63,7 +67,7 @@ const effortsFor = (choice: LaunchChoice, host: string | undefined, machines: La
  */
 export function chatEffort(choice: LaunchChoice, host: string | undefined, machines: LaunchMachine[] | undefined): Effort {
   if (choice.chat !== true || !choice.effort) return choice.effort
-  return effortsFor(choice, host, machines ?? []).includes(choice.effort) ? choice.effort : ''
+  return effortsFor(choice, [host], machines ?? []).includes(choice.effort) ? choice.effort : ''
 }
 const chosen = (choice: LaunchChoice, projects: LaunchProject[]): LaunchProject[] =>
   choice.projectIds.map(id => projects.find(p => p.id === id)).filter((p): p is LaunchProject => !!p)
@@ -289,7 +293,7 @@ export function sentence(choice: LaunchChoice, projects: LaunchProject[], machin
       if (picked.length === 1) parts.push({ slot: 'checkout', text: current ? `Works in the checkout on ${current}.` : 'Works in the checkout.' })
     }
   }
-  if (effortsFor(choice, chatHost, machines).length > 1) parts.push(word('·'), word('thinking'), { slot: 'effort', text: choice.effort || 'default' })
+  if (effortsFor(choice, picked.length > 1 ? picked.map(p => p.host) : [chatHost], machines).length > 1) parts.push(word('·'), word('thinking'), { slot: 'effort', text: choice.effort || 'default' })
   return parts
 }
 

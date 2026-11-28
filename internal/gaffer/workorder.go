@@ -14,7 +14,11 @@ const MaxWorkOrderBytes = 64 << 10
 
 const workOrderPrefix = "reet: work-order/"
 
-type WorkOrderMember struct{ Tool, Model, Effort string }
+type WorkOrderMember struct {
+	Tool   string `json:"tool"`
+	Model  string `json:"model,omitempty"`
+	Effort string `json:"effort,omitempty"`
+}
 
 type WorkOrderProblem struct {
 	Line int    `json:"line"` // 1-based; 0 when it is about the whole text
@@ -49,7 +53,8 @@ func WorkOrderLimits() map[string]int {
 // ---, the lines from there to the end of the order, and the first line of
 // stray text before it (-1 for none; a fence around the order is not stray).
 func workOrderBlock(text string) (block []string, offset, stray int, found bool) {
-	lines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
+	text = strings.ReplaceAll(strings.ReplaceAll(strings.TrimPrefix(text, "\ufeff"), "\r\n", "\n"), "\r", "\n")
+	lines := strings.Split(text, "\n")
 	for i := 0; i+1 < len(lines); i++ {
 		if strings.TrimSpace(lines[i]) != "---" || !strings.HasPrefix(strings.TrimSpace(lines[i+1]), workOrderPrefix) {
 			continue
@@ -138,6 +143,14 @@ func ParseWorkOrder(text string) (WorkOrder, []WorkOrderProblem) {
 				continue
 			}
 			seen[key], at[key] = true, i
+			if value == "" && (key == "project" || key == "pathway" || key == "continues") {
+				bad(i, "Give “"+key+"” a value, or remove the line.")
+				continue
+			}
+			if (key == "project" || key == "pathway") && !terminalproto.ValidTitle(value) {
+				bad(i, "“"+key+"” is a name of 1 to "+strconv.Itoa(terminalproto.MaxTitleRunes)+" plain characters. Shorten it.")
+				continue
+			}
 			switch key {
 			case "reet":
 				if value != "work-order/1" {
@@ -186,12 +199,21 @@ func ParseWorkOrder(text string) (WorkOrder, []WorkOrderProblem) {
 	// The body: sections, with fenced code left alone.
 	var pipes []*woPipe
 	var cur *[]woLine
-	inFence, started := false, false
+	started := false
+	var fenceChar byte // the character and length of the open code fence; 0 when none
+	fenceLen, fenceAt := 0, 0
 	for i := end + 1; i < len(block); i++ {
 		line := strings.TrimRight(block[i], " \t")
 		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~") {
-			inFence = !inFence
+		inFence := fenceChar != 0
+		if trimmed != "" && (trimmed[0] == '`' || trimmed[0] == '~') {
+			run := len(trimmed) - len(strings.TrimLeft(trimmed, trimmed[:1]))
+			switch {
+			case !inFence && run >= 3:
+				fenceChar, fenceLen, fenceAt = trimmed[0], run, i
+			case inFence && trimmed[0] == fenceChar && run >= fenceLen && run == len(trimmed):
+				fenceChar = 0
+			}
 		}
 		var last *woPipe
 		if len(pipes) > 0 {
@@ -239,6 +261,9 @@ func ParseWorkOrder(text string) (WorkOrder, []WorkOrderProblem) {
 			continue
 		}
 		*cur = append(*cur, woLine{i, line})
+	}
+	if fenceChar != 0 {
+		bad(fenceAt, "This code block is never closed. Close it with a line of the same fence characters, so the headings after it are read as headings.")
 	}
 	if len(pipes) == 0 && len(problems) == 0 {
 		whole("Add at least one ## Pipeline: <title> section.")
@@ -454,7 +479,7 @@ func workOrderSession(p *woPipe, onPathway bool, bad func(int, string)) OutcomeS
 	}
 	for _, kind := range kinds {
 		if len(split[kind]) == 1 {
-			bad(firstPart[kind], "Split a stage into two to four parts, or give “"+kind+"” no parts.")
+			bad(firstPart[kind], "Split a stage into 2 to "+strconv.Itoa(MaxStageParts)+" parts, or give “"+kind+"” no parts.")
 		}
 		if parts := split[kind]; len(parts) > 0 {
 			session.Stages = append(session.Stages, parts...)

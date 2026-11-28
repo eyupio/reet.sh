@@ -249,8 +249,9 @@
     {:else if loaded}
       <section class="sync-empty" aria-labelledby="machines-empty-title">
         <h3 id="machines-empty-title">No machines connected yet</h3>
-        <p>Connect a machine with the reet CLI. It takes about two minutes: install reet once, save this server's address, then scan. Its skills and install locations appear here.</p>
-        {#if !canWrite}<p class="hint">Ask an owner or editor to connect the first machine.</p>{/if}
+        {#if canAdd}<p>Choose Add a machine. You name it, run one command on it, then make a code for it to enter. It takes about two minutes. Its skills and install locations then appear here.</p>
+        {:else if canWrite}<p>Install reet on the machine, save this server's address, then scan. It takes about two minutes. Its skills and install locations then appear here.</p>
+        {:else}<p>Machines that an owner or editor connects appear here.</p>{/if}
       </section>
     {/if}
     <MachineSetup {terminalAccess} {site} machines={visibleMachines} {profiles} codes={accounts && canWrite} {tokenSetup} {serverBuild} snapshot={syncState} {timeZone} {dateFormat} bind:open={setupOpen} bind:host={setupHost} initialMode={initialSetupMode} onrefresh={() => load(true)} />
@@ -258,10 +259,10 @@
   {#if canWrite && machines.length}
     <details class="advanced-fleet">
       <summary>Advanced machine maintenance</summary>
-      <p class="hint">Duplicate reports, fleet refreshes and server-only heartbeats. Most people will not need these.</p>
+      <p class="hint">Fix a machine that appears twice, re-scan every machine, or review machines that only check in. Most people never need these.</p>
       <details class="maintenance">
         <summary>Manage machine names &amp; duplicate reports</summary>
-        <p class="hint">Hostname and --env names can be reports from one machine. Choose the report to move, then keep an existing name to merge duplicates or enter a new name to rename it. Only combine reports you know are the same machine.</p>
+        <p class="hint">One machine can appear twice, for example under its hostname and under an --env name. Choose the report to move, then enter the name of the machine to merge it into, or a new name to rename it. Only merge reports you know come from the same machine.</p>
         <form class="machine-form" onsubmit={previewMachine}>
           <label>Report to move<select aria-label="Report to move" bind:value={maintenanceFrom} required><option value="">Choose a machine</option>{#each reportedMachines as machine (machine.host)}<option value={machine.host}>{machine.host}</option>{/each}</select></label>
           <label>Preferred machine name<input aria-label="Preferred machine name" data-combo-list="machine-names" bind:value={maintenanceTo} maxlength="200" required placeholder="e.g. PROD_Snicket" /></label>
@@ -271,7 +272,7 @@
       </details>
       <details class="maintenance" ontoggle={(event) => { if (event.currentTarget.open && !fleetSince) fleetSince = Date.now() }}>
         <summary>Full fleet inventory refresh</summary>
-        <p class="hint">Run one command per physical machine, using the name you want to keep. If both a hostname and a friendly name appear, choose the friendly-name command only, or merge them above first. These commands never install or remove skills.</p>
+        <p class="hint">Run each command on its own machine to re-scan its install locations. If a machine appears under both a hostname and a friendly name, use the friendly name's command only, or merge them above first. These commands never install or remove skills.</p>
         <button class="btn quiet" onclick={() => (fleetSince = Date.now())}>Start a new refresh check</button>
         {#each machines as machine (machine.host)}
           <div class="fleet-command">
@@ -280,12 +281,12 @@
             <div class="command"><pre>{refreshCommand(machine.host)}</pre><CopyButton text={refreshCommand(machine.host)} label="Copy refresh" ariaLabel={`Copy refresh for ${machine.host}`} /></div>
           </div>
         {/each}
-        <p class="hint">Connected machines refresh inventory automatically. To check immediately, run the commands above, then refresh status.</p>
+        <p class="hint">Connected machines refresh on their own. To check now, run the commands above, then choose Refresh status.</p>
       </details>
       {#if serverMachines.length}
         <details class="maintenance">
           <summary>Server-only reports ({serverMachines.length})</summary>
-          <p class="hint">These machines have reported a heartbeat but no agent inventory. Container restarts may create new host IDs.</p>
+          <p class="hint">These machines have checked in but have not reported any agents. A container that restarts can appear again under a new ID.</p>
           <ul>{#each serverMachines as machine (machine.host)}{#each machine.groups as heartbeat (heartbeat.id)}<li><strong>{machine.host}</strong><p class="hint">{heartbeatStatus(heartbeat)} · <span title={when(heartbeat.scannedAt || heartbeat.lastSeen)}>{humanWhen(heartbeat.scannedAt || heartbeat.lastSeen)}</span></p>{#if canWrite}<button class="btn quiet" onclick={() => (machineChange = { from: machine.host })} disabled={busy}>Forget machine {machine.host}</button>{/if}</li>{/each}{/each}</ul>
         </details>
       {/if}

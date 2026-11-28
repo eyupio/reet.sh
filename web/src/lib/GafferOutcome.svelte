@@ -86,7 +86,7 @@
   let order = $state<{ text: string; notes: string[]; crew?: WorkOrder['crew'] } | null>(null), reading = $state(false)
   let orderProblems = $state<{ line: number; text: string }[]>([]), problemList = $state<HTMLElement>()
   let orderFrom = $state<Record<CrewTier, boolean>>({ heavy: false, standard: false, light: false })
-  let copied = $state('')
+  let copied = $state(''), copiedTimer: ReturnType<typeof setTimeout> | undefined
   // Where a plan has got to, as the controller reports it, and how long it has been. A failed plan keeps its step, so the
   // list shows which one failed.
   const PLAN_STEPS: GafferPlanPhase[] = ['sending', 'writing', 'checking']
@@ -283,7 +283,7 @@
   }
   function useSavedCrew() { if (order) order.crew = undefined; startCrew() }
   // A work order left behind (another objective, a template) takes its crew suggestion with it.
-  function dropOrder() { const had = !!order?.crew; order = null; orderProblems = []; if (had) startCrew() }
+  function dropOrder() { const had = !!order?.crew || CREW_TIERS.some(({ tier }) => orderFrom[tier]); order = null; orderProblems = []; if (had) startCrew() }
   // A tier's backups as the saved crew holds them: the first, then any further ones, each with its Cline source.
   const sentSpare = (one: Spare) => ({ tool: one.tool, model: one.model.trim(), effort: one.effort, ...(one.tool === 'cline' && one.source ? { provider: one.source } : {}) })
   function spareFields(tier: 'light' | 'standard' | 'heavy') {
@@ -527,6 +527,12 @@
     if (reading || cloning || orderBlocker) return
     reading = true; orderProblems = []; planError = ''
     const text = objective
+    // The server's own limit (gaffer.MaxWorkOrderBytes), said here rather than sent.
+    if (new TextEncoder().encode(text).length > 65536) {
+      orderProblems = [{ line: 0, text: 'The work order is over 64 KB. Shorten the briefs.' }]
+      reading = false; await tick(); problemList?.focus()
+      return
+    }
     try {
       const answer = await checkWorkOrder(text, life.signal)
       if (answer.problems.length || !answer.order) {
@@ -537,8 +543,11 @@
       const read = answer.order
       // Task 7 continues a running outcome from here.
       if (read.continues) { planError = 'This work order adds to an outcome that is already running. That is not available here yet.'; return }
+      if (!answer.projectId && github && !(await ensureProject())) return
+      // Nothing is changed until every check has passed. Each read starts from the saved crew, so an earlier work
+      // order's suggestion never outlives it. (The server refuses crew with a pathway, so the two never arrive together.)
+      dropOrder()
       if (answer.projectId) projectId = answer.projectId
-      if (github && !(await ensureProject())) return
       order = { text, notes: answer.notes, crew: read.crew }
       objective = read.objective
       suggestion = undefined; pathwayId = answer.pathwayId; pathwayTouched = !!answer.pathwayId
@@ -554,7 +563,7 @@
   async function copyOutsidePrompt() {
     const text = outsideAgentPrompt(location.origin, { project: project?.name, pathways: pathways.filter(p => p.enabled).map(p => p.name), savedTiers: savedSettings.map(row => row.tier) })
     copied = (await copyText(text)) ? 'Copied.' : 'Could not copy. Try again.'
-    setTimeout(() => { copied = '' }, 3000)
+    clearTimeout(copiedTimer); copiedTimer = setTimeout(() => { copied = '' }, 3000)
   }
   // A reply is sent back to Gaffer with the proposal it answers, and the revised plan replaces the rows. The person's
   // words stay in the review as part of the exchange; nothing is saved or started until the existing approve action.
@@ -685,7 +694,7 @@
     catch (e) { if (!life.signal.aborted) watchError = e instanceof Error ? e.message : 'The outcome was not stopped.' }
     finally { busy = false }
   }
-  onMount(() => () => clearInterval(watching))
+  onMount(() => () => { clearInterval(watching); clearTimeout(copiedTimer) })
 </script>
 
 <WorkspaceDialog title="New Factory outcome" {onclose}>

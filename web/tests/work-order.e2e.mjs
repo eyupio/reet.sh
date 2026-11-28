@@ -38,6 +38,7 @@ function fixture({machines=everyAgent,reportsProject=true}={}){
       const {text}=r.postDataJSON();box.checks.push(text)
       const empty={order:null,problems:[],projectId:'',pathwayId:'',notes:[]}
       if(text.includes('yolo: true'))return{...empty,problems:[{line:4,text:'The header has no “yolo” key. Use reet, objective, project, crew, pathway or continues.'}]}
+      if(text.includes('crew: light=claude'))return{...empty,order:{...order,crew:{light:{tool:'claude'}}},projectId:'p-reports'}
       if(text.includes('continues:'))return{...empty,order:{...order,objective:'',continues:oid}}
       return reportsProject?{...empty,order,projectId:'p-reports'}:{...empty,order,notes:['No project of yours is called “reports-api”. Choose a project when you approve it.']}
     },
@@ -135,6 +136,63 @@ try{
     }finally{await w.context.close()}
   }
   console.log('ok - a work order opens the plan review, at 390 px and desktop, light and dark')
+
+  // A second work order starts from the saved crew again: the first one's suggestion goes with it, on screen and in
+  // what is sent. Editing the text back to a plain objective drops the work order and its suggestion too.
+  {
+    const {f,w,dialog}=await open(1440,'light')
+    try{
+      await paste(dialog,example)
+      await dialog.getByRole('button',{name:'Read the work order',exact:true}).click()
+      await expect(dialog.locator('.crew-row[aria-label="Heavy crew"]')).toContainText('Suggested by the work order')
+      await dialog.getByRole('button',{name:'Back',exact:true}).click()
+      await paste(dialog,example.replace('crew: heavy=claude/opus/high, standard=codex','crew: light=claude'))
+      await dialog.getByRole('button',{name:'Read the work order',exact:true}).click()
+      await expect(dialog.getByRole('list',{name:'Planned sessions',exact:true})).toBeVisible()
+      await expect(dialog.locator('.crew-row[aria-label="Heavy crew"]')).not.toContainText('Suggested by the work order')
+      await expect(dialog.locator('.crew-row[aria-label="Standard crew"]')).not.toContainText('Suggested by the work order')
+      await expect(dialog.locator('.crew-row[aria-label="Light crew"]')).toContainText('Suggested by the work order')
+      await expect(dialog.locator('.stage-tier[data-stage=plan] .ready-line')).toContainText('OpenCode · Agent’s default model · Saved crew')
+      await dialog.getByRole('button',{name:'Approve and start 1 pipeline',exact:true}).click()
+      await expect.poll(()=>f.box.approved.length).toBe(1)
+      const stages=stagesOf(f.box.approved[0])
+      expect(stages.map(s=>[s.kind,s.tool])).toEqual([['plan','opencode'],['code','opencode'],['code','opencode'],['review','opencode'],['test','opencode'],['pr','claude']])
+      // The saved Heavy backup is back with the saved crew.
+      expect(stages[0].backup?.tool).toBe('claude')
+      expect(w.errors).toEqual([])
+    }finally{await w.context.close()}
+    console.log('ok - a second work order starts from the saved crew')
+  }
+  {
+    const {f,w,dialog}=await open(1440,'light')
+    try{
+      await paste(dialog,example)
+      await dialog.getByRole('button',{name:'Read the work order',exact:true}).click()
+      await dialog.getByRole('button',{name:'Back',exact:true}).click()
+      await paste(dialog,'Ship CSV export for billing.')
+      await expect(dialog.getByText('This is a work order.',{exact:true})).toHaveCount(0)
+      await dialog.getByRole('button',{name:'Write the plan myself',exact:true}).click()
+      await expect(dialog.getByRole('list',{name:'Planned sessions',exact:true})).toBeVisible()
+      await expect(dialog.getByText('Suggested by the work order',{exact:true})).toHaveCount(0)
+      await expect(dialog.getByRole('list',{name:'Notes on the work order',exact:true})).toHaveCount(0)
+      await expect(dialog.getByRole('textbox',{name:'Pipeline 1 title',exact:true})).toHaveValue('')
+      await expect(dialog.locator('.stage-tier[data-stage=review] .ready-line')).toContainText('OpenCode · Agent’s default model · Saved crew')
+      expect(f.box.checks.length).toBe(1)
+      expect(w.errors).toEqual([])
+    }finally{await w.context.close()}
+    console.log('ok - a plain objective drops the work order')
+  }
+  // A paste over the server's limit is refused here, without sending it.
+  {
+    const {f,w,dialog}=await open(390,'light')
+    try{
+      await paste(dialog,example+'\n'+'€'.repeat(22000))
+      await dialog.getByRole('button',{name:'Read the work order',exact:true}).click()
+      await expect(dialog.getByRole('list',{name:'Problems in the work order',exact:true})).toHaveText('The work order is over 64 KB. Shorten the briefs.')
+      expect(f.box.checks).toEqual([])
+    }finally{await w.context.close()}
+    console.log('ok - an oversized paste is not sent')
+  }
 
   // A suggested agent the machine lacks: its stages cannot start, Approve says why, and a project the server could not
   // match is a note above the pipelines.

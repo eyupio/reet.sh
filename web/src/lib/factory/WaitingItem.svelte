@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { short, type NeedChoice } from '../gafferOutcome'
+  import { agentActivity, short, type NeedChoice } from '../gafferOutcome'
   import type { NeedCard } from '../home'
   import Approval from '../shell/Approval.svelte'
   import StagePipeline from './StagePipeline.svelte'
@@ -11,7 +11,8 @@
   // narrower than ROW_MIN of its own width is drawn as a card.
   // The page passes the hash-link `id` (and any other attributes) in `rest`.
   // With `detailsHref`, Details is a link to that address (Home); without it, a button that calls `ondetails` (the Factory).
-  let { item, layout, pipeline, selected = false, busy = false, permission, sessionId = '', usable, onchoose, ondetails, detailsHref = '', onanswered, ...rest }: {
+  // With `sessionHref`, a card that waits on the person also links to the stage's session, so what the agent did can be read before choosing.
+  let { item, layout, pipeline, selected = false, busy = false, permission, sessionId = '', sessionHref = '', usable, onchoose, ondetails, detailsHref = '', onanswered, ...rest }: {
     item: FactoryItem
     layout: 'card' | 'row' | 'compact'
     pipeline: 'labelled' | 'circles' | 'dots'
@@ -19,6 +20,7 @@
     busy?: boolean
     permission?: NonNullable<NeedCard['approval']>
     sessionId?: string
+    sessionHref?: string
     usable: (choice: NeedChoice) => boolean
     onchoose: (choice: NeedChoice) => void
     ondetails: () => void
@@ -40,7 +42,11 @@
   // A worker that ran out of its plan has two ways on: the filled backup, and any other model. Both are offered here, so
   // neither needs the detail. With no backup the other model is the filled button already.
   const recover = $derived(!item.archived && filled?.id !== 'replace-worker' ? item.need?.choices.find(choice => choice.id === 'replace-worker' && usable(choice)) : undefined)
-  const tone = $derived(item.kind === 'failed' ? 'bad' : item.section === 'waiting' ? 'you' : item.kind === 'running' ? 'good' : 'plain')
+  // The session is a link on the card, not a button: it is a place to go. When opening it is the filled choice, that button does it.
+  const session = $derived(!item.archived && sessionHref ? item.need?.choices.find(choice => choice.id === 'open' && !choice.primary && usable(choice)) : undefined)
+  const tone = $derived(item.kind === 'failed' || (item.section === 'waiting' && item.need?.problem) ? 'bad' : item.section === 'waiting' ? 'you' : item.kind === 'running' ? 'good' : 'plain')
+  // What the stage's agent is doing, so the person can judge before opening its session.
+  const activity = $derived.by(() => { const text = item.agent ? agentActivity(item.agent, Date.now()).text : ''; return text ? `Agent: ${text[0].toLowerCase()}${text.slice(1)}` : '' })
   const detailsLabel = $derived(`Details and other actions for ${item.title}`)
 
   const ROW_MIN = 720
@@ -60,7 +66,9 @@
 
 {#snippet why()}
   {#if advised}<p class="why"><strong>Gaffer recommends: {advised.label.replace(/…$/, '')}.</strong> {advised.why}</p>
+  {:else if item.need?.problem}<p class="why problem"><span class="mark" aria-hidden="true">!</span><span>{item.why}</span></p>
   {:else if item.why}<p class="why">{item.why}</p>{/if}
+  {#if activity}<p class="activity">{activity}</p>{/if}
 {/snippet}
 {#snippet approval()}
   <Approval {sessionId} approval={permission!} {onanswered} />
@@ -78,8 +86,8 @@
   {#if recover}<span class="pair"><button type="button" class="btn" disabled={busy} aria-busy={busy ? 'true' : undefined} onclick={() => onchoose(recover)}>{recover.label}</button>{@render more()}</span>{:else}{@render more()}{/if}
 {/snippet}
 {#snippet more()}
-  {#if detailsHref}<a class="btn" href={detailsHref} aria-label={detailsLabel}><span class="long">Details and other actions</span><span class="short" aria-hidden="true">Details</span></a>
-  {:else}<button type="button" class="btn" aria-label={detailsLabel} onclick={ondetails}><span class="long">Details and other actions</span><span class="short" aria-hidden="true">Details</span></button>{/if}
+  {#if detailsHref}<a class="btn quiet" href={detailsHref} aria-label={detailsLabel}>Details</a>
+  {:else}<button type="button" class="btn quiet" aria-label={detailsLabel} onclick={ondetails}>Details</button>{/if}
 {/snippet}
 {#snippet card(size: 'labelled' | 'circles' | 'dots')}
   <article class="item card" {...rest}>
@@ -88,7 +96,7 @@
     {@render why()}
     <!-- An approval's command and its Allow and Deny sit above the row of buttons, so Details never squeezes them. -->
     {#if item.kind === 'approval' && permission && !item.archived}{@render approval()}{/if}
-    <div class="buttons" data-floating-clearance="avoid">{@render buttons(false)}</div>
+    <div class="buttons" data-floating-clearance="avoid">{@render buttons(false)}{#if session}<a class="btn quiet" href={sessionHref} aria-label={`${session.label} for ${item.title}`}>{session.label}</a>{/if}</div>
   </article>
 {/snippet}
 
@@ -147,8 +155,12 @@
   .chip.bad{border-color:var(--bad);color:var(--bad)}
   .title{min-width:0;margin:0;font:inherit;font-weight:700;overflow-wrap:anywhere}
   .objective,.why{min-width:0;margin:0;color:var(--muted);font-size:0.875rem;line-height:1.4;overflow-wrap:anywhere}
-  .objective{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;overflow:hidden}
+  .objective{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:1;line-clamp:1;overflow:hidden}
   .why{color:var(--ink)}
+  /* A need that came from something going wrong: a full border and a tint, led by the product's own ! mark. */
+  .why.problem{display:flex;gap:10px;align-items:baseline;padding:10px 12px;border:1px solid color-mix(in srgb,var(--bad) 50%,var(--line));border-radius:8px;background:color-mix(in srgb,var(--bad) 8%,var(--card))}
+  .mark{flex:none;font-weight:700;color:var(--bad)}
+  .activity{min-width:0;margin:0;color:var(--muted);font-size:0.875rem;line-height:1.4}
   .buttons{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px}
   .buttons .btn{min-height:44px;max-width:100%}
   a.btn{display:inline-flex;align-items:center;text-decoration:none}
@@ -156,9 +168,7 @@
   .lead{display:grid;gap:2px;min-width:0}
   .rec{font-size:0.875rem;font-weight:600;color:var(--accent-text);line-height:1.3}
   .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
-  .short{display:none}
-  /* A row's buttons column holds the filled button and Details side by side, so Details is its short name there. */
-  .row .long{display:none}.row .short{display:inline}
-  @media (max-width:560px){.long{display:none}.short{display:inline}}
+  /* Details and Open the session are ways to look, not the next step: plain underlined text beside the one filled button. */
+  .buttons .btn.quiet{padding-inline:10px;color:var(--ink);text-decoration:underline;text-underline-offset:3px}
   @media (pointer: coarse){.item.compact{min-height:44px}}
 </style>

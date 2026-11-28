@@ -110,8 +110,10 @@ the list shows its status, its title, the outcome it is for and its stages.
   Design, Code done · next Test".
 - On a tablet or phone an item that waits for you also says why, or what Gaffer recommends and why. It has one filled
   button for what it most likely needs, such as **Have Gaffer look again**, **Approve the merge** or **Try again**, and
-  an approval has **Allow once** and **Deny**. **Details and other actions** (**Details** on a phone) opens the
-  pipeline.
+  an approval has **Allow once** and **Deny**. **Details** opens the pipeline with its other actions, and **Open the
+  session** goes straight to the stage's session to read what its agent did; both are plain underlined links beside the
+  filled button. A stage whose agent reports what it is doing says so ("Agent: working · last active 2 min ago"). When
+  Gaffer's own review failed, the chip says **Review failed** and the reason sits in a red-tinted panel marked with !.
 
 On a wide screen the first pipeline waiting for you is open beside the list when the page opens, or else the first
 one working. The detail has the outcome, the pipeline's title and status, **Open session** and the outcome's menu

@@ -614,7 +614,7 @@
 {#snippet waitingEntry(entry: WaitingEntry)}
   {#if entry.source === 'factory'}{@const pair = pairs.get(entry.id)}{#if pair}
     <WaitingItem item={entry.item} layout={narrow ? 'card' : 'row'} pipeline={narrow ? (phone ? 'circles' : 'labelled') : 'dots'} {busy}
-      permission={entry.approval} sessionId={pair.piece.sessionId ?? ''} usable={choice => usable(choice, pair.piece)}
+      permission={entry.approval} sessionId={pair.piece.sessionId ?? ''} sessionHref={pair.piece.sessionId ? sessionHref({ agentId: pair.record.agentId, id: pair.piece.sessionId }) : ''} usable={choice => usable(choice, pair.piece)}
       onchoose={choice => choice.id === 'review' ? location.assign(deliveryHref(pair.record.id, pair.piece.key)) : choices?.choose(choice, pair.record, pair.piece)} detailsHref={pipelineHref(entry.item)} ondetails={() => location.assign(pipelineHref(entry.item))} onanswered={answered}/>
   {/if}
   {:else if entry.source === 'session'}<SessionWaitingItem card={entry.card} desk={entry.desk?.name} layout={narrow ? 'card' : 'row'} onseen={markSeen} onanswered={answered}/>

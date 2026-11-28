@@ -369,8 +369,11 @@ test('a pipeline that needs the person says why and offers what they can do, the
   const ids = need => need.choices.map(choice => choice.id)
   const waiting = o.needsYou({ state: 'needs_user', note: 'n', waitingOnWorker: true }, undefined, false)
   assert.deepEqual(ids(waiting), ['answer']); assert.match(waiting.why, /waiting for your answer/)
-  const failed = o.needsYou({ state: 'needs_user', note: 'Gaffer’s review did not complete (failed): overloaded.', reviewFailed: true }, undefined, false)
-  assert.deepEqual(ids(failed), ['retry', 'tell', 'move', 'restart']); assert.match(failed.why, /overloaded/)
+  const failed = o.needsYou({ state: 'needs_user', note: 'Gaffer’s review did not complete (failed): Overloaded. It will not be repeated automatically; resume the goal to try again.', reviewFailed: true }, undefined, false)
+  assert.deepEqual(ids(failed), ['retry', 'tell', 'move', 'restart', 'open']); assert.equal(failed.problem, true)
+  // The card says what went wrong and that nothing retries by itself, without the note's own "resume the goal".
+  assert.equal(failed.why, 'Gaffer’s review of this stage did not finish: Overloaded. It will not run again by itself.')
+  assert.equal(o.needsYou({ state: 'needs_user', note: 'The Gaffer review was interrupted, cancelled or failed. It will not be repeated automatically.', reviewFailed: true }, undefined, false).why, 'The Gaffer review was interrupted, cancelled or failed. It will not be repeated automatically.')
   assert.deepEqual(ids(o.needsYou({ state: 'limit', note: 'The review budget is used.' }, undefined, false)), ['budget', 'move'])
   const idle = o.needsYou({ state: 'needs_user', note: 'long note', noStep: true }, undefined, true)
   assert.deepEqual(ids(idle), ['again', 'tell', 'move', 'restart', 'open']); assert.equal(idle.choices[2].label, 'Finish this stage'); assert.match(idle.why, /chose no next step/)

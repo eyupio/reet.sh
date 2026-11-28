@@ -14,6 +14,8 @@ export type FactoryItem = {
   section: FactorySection; kind: ItemKind; chip: string
   why: string
   need?: Need
+  /** What the stage's agent reports of itself, for a decision: the card says what it is doing before the person opens the session. */
+  agent?: { agentState?: string; agentActiveAt?: number; agentHeldSince?: number }
   since: number
   nodes: TrackNode[]; at: number
   archived: boolean
@@ -27,7 +29,7 @@ export type ListRecord = {
     stage?: number; updatedAt: number; note?: string
     /** What the outcome list carries of a pipeline's delivery review, enough to say its status without reading the machine. */
     criteria?: readonly unknown[]; deliveries?: readonly { decision: string }[]
-    stages?: { kind: string; part?: string; tool: string; model?: string; effort?: string; effortNotOffered?: string; provider?: string; tier?: string; tierWhy?: string; balanced?: string; nextUsageBackup?: string; appliedModel?: string; agentState?: string; appliedEffort?: string; choiceCheck?: string; choiceNote?: string; state: string; summary?: string; closedBy?: string }[]
+    stages?: { kind: string; part?: string; tool: string; model?: string; effort?: string; effortNotOffered?: string; provider?: string; tier?: string; tierWhy?: string; balanced?: string; nextUsageBackup?: string; appliedModel?: string; agentState?: string; appliedEffort?: string; agentActiveAt?: number; agentHeldSince?: number; choiceCheck?: string; choiceNote?: string; state: string; summary?: string; closedBy?: string }[]
   }[]
 }
 /** The parts of a goal overview the list reads. A `GafferGoalOverview` is one. */
@@ -65,9 +67,10 @@ export function factoryItems(records: ListRecord[], goals: ReadonlyMap<string, L
         : piece.note ?? ''
       items.push({
         id: `${record.id}.${piece.key}`, sessionId: piece.sessionId ?? '', outcomeId: record.id, key: piece.key, title: piece.title, objective: record.objective, projectId: record.projectId,
-        index: index + 1, of: record.sessions.length, section: SECTIONS[kind], kind, chip: decision?.kind === 'usage_limit' ? 'Usage limit' : CHIPS[kind],
+        index: index + 1, of: record.sessions.length, section: SECTIONS[kind], kind, chip: decision?.kind === 'usage_limit' ? 'Usage limit' : decision?.need.problem ? 'Review failed' : CHIPS[kind],
         why,
         ...(decision ? { need: decision.need } : {}),
+        ...(kind === 'decision' && (inHand?.agentState || inHand?.agentActiveAt) ? { agent: { agentState: inHand.agentState, agentActiveAt: inHand.agentActiveAt, agentHeldSince: inHand.agentHeldSince } } : {}),
         since: goal?.goal.updatedAt || piece.updatedAt,
         nodes: track(piece), at: stages.length ? Math.min(piece.stage ?? 0, stages.length - 1) : -1,
         archived: !!record.archivedAt,

@@ -480,8 +480,8 @@ try {
   await page.getByRole('menuitem', { name: 'All desks' }).click()
   await expect(page).toHaveURL(/\/desks$/)
   await expect(page.getByRole('link', { name: 'prod deploy' })).toBeVisible()
-  await expect(page.locator('.card').filter({ hasText: 'prod deploy' })).toContainText('3 tabs · 3 panes')
-  await expect(page.locator('.card').filter({ hasText: 'prod deploy' })).toContainText('3 shells live')
+  await expect(page.locator('.row').filter({ hasText: 'prod deploy' })).toContainText('3 tabs · 3 panes')
+  await expect(page.locator('.row').filter({ hasText: 'prod deploy' })).toContainText('3 shells live')
   if (shots) await page.screenshot({ path: `${shots}/desks-list-light.png` })
   // A desk that has gone is forgotten: /desks shows the list.
   await page.evaluate(() => localStorage.setItem('reet.desks.last.1', 'desk-gone'))
@@ -512,7 +512,7 @@ try {
   // The list's card menu offers the same; choosing it opens the desk in its own browser tab, and a reload keeps it there.
   await page.evaluate(() => localStorage.removeItem('reet.desks.last.1'))
   await page.goto(`${base}/desks`)
-  const card = page.locator('.card').filter({ hasText: 'zoomies dev' })
+  const card = page.locator('.row').filter({ hasText: 'zoomies dev' })
   await card.getByRole('button', { name: 'Actions for zoomies dev' }).click()
   const cardItem = page.getByRole('menu', { name: 'Actions for zoomies dev' }).getByRole('menuitem', { name: 'Move to its own tab' })
   await expect(cardItem).toHaveAttribute('href', '/desks/desk-dev')
@@ -1763,7 +1763,7 @@ try {
     await expect(page.getByRole('status').filter({ hasText: 'Sorted.' })).toHaveText('Sorted. “prod deploy template” is saved as a template.')
     expect(posts).toEqual([{ name: 'prod deploy template', colour: 'red', from: 'desk-prod', template: true }])
     // A template is not a desk card: it is under Templates, and offered under From a template.
-    await expect(page.locator('.card:not(.tpl)').getByRole('link', { name: 'prod deploy template' })).toHaveCount(0)
+    await expect(page.locator('.row:not(.tpl)').getByRole('link', { name: 'prod deploy template' })).toHaveCount(0)
     await expect(page.getByRole('region', { name: 'Templates' }).getByRole('link', { name: 'prod deploy template' })).toBeVisible()
     await page.getByRole('button', { name: 'From a template ▾' }).click()
     await page.getByRole('menu', { name: 'From a template' }).getByRole('menuitem', { name: 'prod deploy template' }).click()
@@ -2560,9 +2560,9 @@ try {
     const group = page.getByRole('region', { name: 'Templates' })
     await expect(group.getByRole('heading', { name: 'Templates', level: 2 })).toBeVisible()
     await expect(group.getByRole('link')).toHaveText(['deploy template'])
-    await expect(group.locator('.card .meta')).toContainText('1 tab · 2 panes')
+    await expect(group.locator('.row .meta')).toContainText('1 tab · 2 panes')
     // Not among the desks.
-    await expect(page.locator('.card:not(.tpl)').getByRole('link', { name: 'deploy template' })).toHaveCount(0)
+    await expect(page.locator('.row:not(.tpl)').getByRole('link', { name: 'deploy template' })).toHaveCount(0)
     await group.getByRole('button', { name: 'Actions for deploy template' }).click()
     const menu = page.getByRole('menu', { name: 'Actions for deploy template' })
     await expect(menu.getByRole('menuitem')).toHaveText(['Open', 'New desk from this template', 'Rename', 'Delete'])
@@ -2706,7 +2706,7 @@ try {
     await page.goto(`${base}/desks`)
     await page.evaluate(() => localStorage.removeItem('reet.desks.last.1'))
     await page.goto(`${base}/desks`)
-    const card = name => page.locator('.card').filter({ has: page.getByRole('link', { name, exact: true }) })
+    const card = name => page.locator('.row').filter({ has: page.getByRole('link', { name, exact: true }) })
     await expect(card('prod deploy').locator('.pill')).toHaveText(['2 shells live', '1 shell to reopen'])
     // The split desk's nine-pane tab was never started: nothing there is to reopen.
     await expect(card('split desk').locator('.pill')).toHaveText(['7 shells live'])

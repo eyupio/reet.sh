@@ -30,6 +30,8 @@ func (s *server) registerGafferOutcomeRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v2/gaffer/outcomes", access(s.gafferOutcomes))
 	mux.HandleFunc("POST /api/v2/gaffer/outcomes", access(s.gafferOutcomeCreate))
 	mux.HandleFunc("GET /api/v2/gaffer/outcomes/{id}", access(s.gafferOutcome))
+	mux.HandleFunc("POST /api/v2/gaffer/work-orders/check", access(s.gafferWorkOrderCheck))
+	mux.HandleFunc("GET /api/v2/gaffer/outcomes/{id}/work-report", access(s.gafferWorkReport))
 	mux.HandleFunc("GET /api/v2/gaffer/outcomes/{id}/history", access(s.gafferOutcomeHistory))
 	mux.HandleFunc("POST /api/v2/gaffer/outcomes/{id}/stop", access(s.gafferOutcomeStop))
 	mux.HandleFunc("POST /api/v2/gaffer/outcomes/{id}/stop-following", access(s.gafferOutcomeStopFollowing))

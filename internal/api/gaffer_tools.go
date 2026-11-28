@@ -49,7 +49,7 @@ func gafferToolOffered(name string) bool { return !mcpWorkerTool(name) && !mcpCo
 // Factory control is marked too, as when it answered with the outcome in full,
 // though it now answers in short: a change after one still waits for the person.
 func gafferToolReturnsSessionText(name string) bool {
-	return mcpFactoryTool(name) && name != "reet_list_factory" && name != "reet_list_factory_projects" && name != "reet_list_pathways"
+	return mcpFactoryTool(name) && name != "reet_list_factory" && name != "reet_list_factory_projects" && name != "reet_list_pathways" && name != "reet_check_work_order"
 }
 
 // gafferToolReturnsOthersText reports whether a tool's answer can carry words

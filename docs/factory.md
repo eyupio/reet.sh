@@ -81,6 +81,108 @@ is not connected, and the reason is beside the button, with the crews to change 
 the reason clears, the same place says **Nothing is holding the plan now.** While a stage cannot start the machine list
 is read every ten seconds, so Approve clears when the machine comes back.
 
+## Work orders from another agent
+
+A **work order** is a plan written in reet's own format by an agent outside reet. Use one when you have already worked
+out the plan with that agent, in your editor or another chat, and do not want to describe it again to Gaffer. The work
+order names the objective, the pipelines, their stages and the acceptance criteria. reet reads it, shows it as the plan
+review, and starts nothing until you approve.
+
+### Getting an agent to write one
+
+In **New Factory outcome**, choose **Copy prompt for an outside agent** and paste it to the agent. The prompt holds:
+
+- one line that runs `npx skills use` for this controller's `factory-contract` skill, which tells the agent the format;
+- a short **Context** block: the name of the project chosen in the dialog, the names of your [pathways](#pathways) that
+  are on, and which tiers have a saved crew.
+
+Nothing else about your account is in it. Names only: no pathway prompts, no model names, no keys.
+
+### Pasting it
+
+Paste the work order the agent gives you into the outcome box. The dialog says **This is a work order**, and
+**Read the work order** replaces **Ask Gaffer for a plan**. Reading one makes no model request.
+
+A work order with problems is not started. The problems are listed, each as `Line n: …` with what to change, and you
+can fix the text or ask the agent to. A clean one opens the plan review filled in: the pipelines, their stages, tiers
+and parts, the acceptance criteria, and the project if the work order names one you have. A pathway it names must be
+one of yours that is switched on; if it is not, that is a problem like any other, and the problem lists the pathways
+that are on. Then review and approve as for any plan.
+
+If the work order suggests a crew, the stages show **Suggested by the work order**. It is for this outcome only.
+**Use my saved crew** puts yours back. Your saved crew is never changed, and **Launch readiness** still says what the
+machine cannot run.
+
+### What stays yours
+
+reet never takes these from a work order. They are set in the dialog, by you:
+
+- YOLO
+- folder trust
+- a merge that happens by itself
+- Gaffer taking the decisions
+- the review limits
+
+### Giving the work back to your agent
+
+In an outcome's **⋯** menu, **Copy for your agent** copies a **work report**: the outcome's state, each pipeline stage by
+stage, the handover notes the stages left, and the acceptance criteria as last recorded. Give it to your agent so it
+knows where things stand. A criterion reads `unverified` when work has started again since it was reviewed. That is not
+a failure; the [delivery review](#delivery-review) is the live view.
+
+### Continuing an outcome
+
+Your agent can answer a work report with another work order, one that names the outcome. Paste it into **New Factory
+outcome** and reet opens the plan review as **Add to “<objective>”**. **Approve and add** adds the pipelines to the
+running outcome. A work order cannot change the outcome's crew or settings.
+
+A connected agent can do the same over MCP; see [Read and steer the Factory](mcp.md#read-and-steer-the-factory).
+
+### The format
+
+The agent reads the full contract from the skill at `/eyupio/factory-contract` on your controller. This is a worked
+example:
+
+```markdown
+---
+reet: work-order/1
+objective: Add CSV export to the reports page
+project: reports-api
+crew: heavy=claude/opus/high, standard=codex
+---
+
+## Pipeline: Export endpoint
+
+stages: plan, code, review, test, pr
+tiers: code=heavy, review=standard
+
+Add GET /reports/{id}/export.csv … (the brief: self-contained prose, any Markdown,
+up to the first ### heading)
+
+### Part: code / Streaming writer
+tier: heavy
+
+Write rows as they are read, never the whole file in memory.
+
+### Part: code / Endpoint and auth
+
+Wire the handler and reuse the report's read permission.
+
+### Criteria
+
+- An export of 10,000 rows finishes in under 5 seconds
+- A reader of another team's report is refused
+```
+
+| Header key | Meaning |
+| --- | --- |
+| `reet` | Required. `work-order/1`. |
+| `objective` | Required, unless `continues` is given. The outcome in plain text. |
+| `project` | Optional. A project's name. No match is not an error: you choose the project. |
+| `crew` | Optional. A suggested agent, model and effort per tier. |
+| `pathway` | Optional. The exact name of one of your pathways. |
+| `continues` | Optional. The id of a running outcome, from its work report. |
+
 ## The page
 
 What needs you from the Factory is also in [Home](session-board.md)'s **Waiting for you** list, mixed with your
@@ -518,15 +620,17 @@ that is on, and a suggestion that does not match one is dropped.
 
 ## From an AI client
 
-A connected AI client can read and steer the Factory through [MCP](mcp.md#read-and-steer-the-factory). The four
+A connected AI client can read and steer the Factory through [MCP](mcp.md#read-and-steer-the-factory). The six
 reads need a writer account; the rest also need a management connection.
 
 - `reet_list_factory` lists the outcomes as short rows, with each pipeline's state and the stage in hand, a page at a time.
 - `reet_get_factory_outcome` reads one outcome in full, or one of its pipelines; a management connection also receives handovers and Gaffer's report.
 - `reet_list_factory_projects` lists the projects an outcome can run in.
 - `reet_list_pathways` lists your pathways that are on, by name, description and stage names, never their prompts.
-- `reet_start_outcome` starts an outcome in a project, with ordinary approvals; it can start every pipeline on a pathway you name.
-- `reet_add_pipelines` adds up to five pipelines to an outcome, on a pathway if you name one.
+- `reet_check_work_order` reads a work order and says what it would start, starting nothing.
+- `reet_get_work_report` reads an outcome as a work report; a management connection also receives handovers.
+- `reet_start_outcome` starts an outcome in a project, with ordinary approvals; it can start every pipeline on a pathway you name, or from a work order.
+- `reet_add_pipelines` adds up to five pipelines to an outcome, on a pathway if you name one, or from a work order that continues the outcome.
 - `reet_move_pipeline_on` closes the stage in hand, which you name as the outcome lists it, and starts the next.
 - `reet_tell_pipeline_agent` queues your instruction for the working agent of the stage in hand.
 - `reet_send_pipeline_back` has the stage in hand, or an earlier one, named as the outcome lists it, done again with your reason.

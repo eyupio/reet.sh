@@ -31,5 +31,17 @@ func builtinSkill(username, slug string) (store.HostedSkill, bool) {
 			}
 		}
 	}
-	return store.HostedSkill{Slug: slug, Description: desc, Content: content, Published: true}, true
+	// Every other file in the skill's directory is a topic the skill links to.
+	var files map[string][]byte
+	if entries, err := builtinSkills.ReadDir("builtin_skills/" + slug); err == nil {
+		for _, e := range entries {
+			if topic, err := builtinSkills.ReadFile("builtin_skills/" + slug + "/" + e.Name()); err == nil && !e.IsDir() && e.Name() != "SKILL.md" {
+				if files == nil {
+					files = map[string][]byte{}
+				}
+				files[e.Name()] = topic
+			}
+		}
+	}
+	return store.HostedSkill{Slug: slug, Description: desc, Content: content, Files: files, Published: true}, true
 }

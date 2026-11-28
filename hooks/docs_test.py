@@ -135,7 +135,15 @@ class BuiltinSkills(unittest.TestCase):
         content = "---\nname: reet-demo\ndescription: Shows: a thing.\n---\n\n# Body\n"
         source.write_text(content, encoding="utf-8")
         skills = docs.builtin_skills({"config_file_path": str(repo / "mkdocs.yml")})
-        self.assertEqual(skills, [("reet-demo", "Shows: a thing.", content)])
+        topic = repo / "internal/api/builtin_skills/factory-demo/work.md"
+        topic.parent.mkdir(parents=True)
+        (topic.parent / "SKILL.md").write_text("---\nname: factory-demo\ndescription: Topics.\n---\n", encoding="utf-8")
+        topic.write_text("# Work\n", encoding="utf-8")
+        (topic.parent / ".hidden.md").write_text("not served\n", encoding="utf-8")
+        (topic.parent / "_draft.md").write_text("not served\n", encoding="utf-8")
+        skills = docs.builtin_skills({"config_file_path": str(repo / "mkdocs.yml")})
+        self.assertEqual(skills[1], ("reet-demo", "Shows: a thing.", content, {}))
+        self.assertEqual(skills[0][3], {"work.md": "# Work\n"})
 
         site = repo / "site"
         docs.write_skills(str(site), skills)
@@ -146,7 +154,11 @@ class BuiltinSkills(unittest.TestCase):
             json.loads((home / ".well-known/agent-skills/index.json").read_text(encoding="utf-8")),
             {"skills": [{"name": "reet-demo", "description": "Shows: a thing.", "files": ["SKILL.md"]}]},
         )
-        page = docs.skill_page("https://reet.sh/", *skills[0])
+        # Topic files are served beside SKILL.md and listed, as the binary does (internal/api/hosted.go).
+        known = site / "eyupio/factory-demo/.well-known/agent-skills"
+        self.assertEqual((known / "factory-demo/work.md").read_text(encoding="utf-8"), "# Work\n")
+        self.assertEqual(json.loads((known / "index.json").read_text(encoding="utf-8"))["skills"][0]["files"], ["SKILL.md", "work.md"])
+        page = docs.skill_page("https://reet.sh/", *skills[1][:3])
         self.assertIn("add https://reet.sh/eyupio/reet-demo\n", page)
         # The skill's own headings stay inside the fence, so the page keeps one h1.
         self.assertIn("~~~~~~~~text\n" + content.rstrip("\n") + "\n~~~~~~~~\n", page)

@@ -900,6 +900,107 @@
     }
   },
   {
+    "name": "reet_check_work_order",
+    "title": "Check a work order",
+    "description": "Read a work order and say what it would start, without starting anything: ok, problems (each with the line it is about, always an array), plan (each pipeline with its stages, tiers and how many criteria it has) and, when the order suggests a crew, a note that over MCP the saved crew decides. It also names the project and pathway the order asks for, where it finds them. Not available to a read-only account. Does not change anything. The format is in the factory-contract skill, served at /eyupio/factory-contract on this controller. Returns {data: object} as structured content and text.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "work_order": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 65536,
+          "description": "The whole text of the work order."
+        },
+        "response_format": {
+          "default": "json",
+          "description": "JSON or a Markdown JSON code block.",
+          "type": "string",
+          "enum": [
+            "json",
+            "markdown"
+          ]
+        }
+      },
+      "required": [
+        "work_order"
+      ],
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "data": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": {}
+        }
+      },
+      "required": [
+        "data"
+      ],
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true
+    }
+  },
+  {
+    "name": "reet_get_work_report",
+    "title": "Read an outcome as a work report",
+    "description": "Read one outcome as a work report: Markdown with its state, each pipeline’s stages and where they stand, for an outside agent to read. A connection with management scope also receives each finished stage’s handover note, derived from session text; other connections receive no handovers. Does not change anything. Returns {data: object} as structured content and text.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "outcome_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{32}$",
+          "description": "Exact outcome id from reet_list_factory."
+        },
+        "response_format": {
+          "default": "json",
+          "description": "JSON or a Markdown JSON code block.",
+          "type": "string",
+          "enum": [
+            "json",
+            "markdown"
+          ]
+        }
+      },
+      "required": [
+        "outcome_id"
+      ],
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "data": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": {}
+        }
+      },
+      "required": [
+        "data"
+      ],
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true
+    }
+  },
+  {
     "name": "reet_list_factory_projects",
     "title": "List projects an outcome can run in",
     "description": "List the user’s projects with their id, name, machine and whether they are git repositories, to choose project_id for reet_start_outcome. Not available to a read-only account. Does not change anything. Returns {data: object} as structured content and text.",
@@ -944,15 +1045,15 @@
   {
     "name": "reet_start_outcome",
     "title": "Start a Factory outcome",
-    "description": "Requires management scope and a writer account. Approve an outcome on the user’s behalf: the controller starts each pipeline’s first stage as an agent session on the project’s machine and Gaffer follows it stage by stage. This starts real agents that run commands and may use the user’s agent and Gaffer credits. Sessions always start with ordinary approvals, never YOLO, with no folder trust, and every pipeline stops at Ready to merge and waits for the user. With pathway, each stage runs on the agent the pathway gives it or on its tier’s saved crew, and a pathway that can run on an agent needing folder trust is refused here. Use only when the user asked you to start exactly this work, with confirm=true. Returns {data: object} as structured content and text.",
+    "description": "Requires management scope and a writer account. Approve an outcome on the user’s behalf: the controller starts each pipeline’s first stage as an agent session on the project’s machine and Gaffer follows it stage by stage. This starts real agents that run commands and may use the user’s agent and Gaffer credits. Sessions always start with ordinary approvals, never YOLO, with no folder trust, and every pipeline stops at Ready to merge and waits for the user. With pathway, each stage runs on the agent the pathway gives it or on its tier’s saved crew, and a pathway that can run on an agent needing folder trust is refused here. Give either objective and pipelines, or a work_order, which brings its own objective, pathway and pipelines with their criteria; its crew line is ignored. Use only when the user asked you to start exactly this work, with confirm=true. Returns {data: object} as structured content and text.",
     "inputSchema": {
       "type": "object",
       "properties": {
         "objective": {
+          "description": "What the user wants done, in their words. Required unless work_order is given.",
           "type": "string",
           "minLength": 1,
-          "maxLength": 4000,
-          "description": "What the user wants done, in their words."
+          "maxLength": 4000
         },
         "project_id": {
           "type": "string",
@@ -977,6 +1078,7 @@
           "maxLength": 200
         },
         "pipelines": {
+          "description": "One to five pipelines. Required unless work_order is given.",
           "minItems": 1,
           "maxItems": 5,
           "type": "array",
@@ -1099,6 +1201,12 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 60
+        },
+        "work_order": {
+          "description": "A work order: the whole text of one, as another agent wrote it, with its reet: work-order/1 header. Give it instead of objective, pipelines and pathway (they must then be absent); reet_check_work_order reads it first. Its crew line is ignored: the saved crew decides. The format is in the factory-contract skill, served at /eyupio/factory-contract on this controller.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 65536
         },
         "request_id": {
           "description": "Optional stable request ID, 32 lowercase hex characters. Keep it when retrying a call that was not answered: the same ID answers the outcome it already started instead of starting another.",
@@ -1131,10 +1239,8 @@
         }
       },
       "required": [
-        "objective",
         "project_id",
         "agent",
-        "pipelines",
         "confirm"
       ],
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -1165,7 +1271,7 @@
   {
     "name": "reet_add_pipelines",
     "title": "Add pipelines to an outcome",
-    "description": "Requires management scope and a writer account. Add up to five pipelines to an existing outcome; the controller starts them with the outcome’s agent. With pathway, each stage runs on the agent the pathway gives it or on its tier’s saved crew, and on an outcome approved without folder trust a pathway that can run on an agent needing it is refused. An outcome holds at most ten pipelines. Added pipelines never merge by themselves. Refused for an outcome that runs on YOLO: pipelines join one on the Factory page only. This starts real agents. Use only when the user asked for exactly these, with confirm=true. Returns {data: object} as structured content and text.",
+    "description": "Requires management scope and a writer account. Add up to five pipelines to an existing outcome; the controller starts them with the outcome’s agent. With pathway, each stage runs on the agent the pathway gives it or on its tier’s saved crew, and on an outcome approved without folder trust a pathway that can run on an agent needing it is refused. An outcome holds at most ten pipelines. Added pipelines never merge by themselves. Refused for an outcome that runs on YOLO: pipelines join one on the Factory page only. Give either pipelines or a work_order that continues this outcome (its continues line is this outcome_id). This starts real agents. Use only when the user asked for exactly these, with confirm=true. Returns {data: object} as structured content and text.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1175,6 +1281,7 @@
           "description": "Exact outcome id from reet_list_factory."
         },
         "pipelines": {
+          "description": "One to five pipelines. Required unless work_order is given.",
           "minItems": 1,
           "maxItems": 5,
           "type": "array",
@@ -1298,6 +1405,12 @@
           "minLength": 1,
           "maxLength": 60
         },
+        "work_order": {
+          "description": "A work order: the whole text of one, as another agent wrote it, with its reet: work-order/1 header. Give it instead of objective, pipelines and pathway (they must then be absent); reet_check_work_order reads it first. Its crew line is ignored: the saved crew decides. The format is in the factory-contract skill, served at /eyupio/factory-contract on this controller.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 65536
+        },
         "confirm": {
           "type": "boolean",
           "description": "Must be true, and only when the user asked for exactly this change."
@@ -1314,7 +1427,6 @@
       },
       "required": [
         "outcome_id",
-        "pipelines",
         "confirm"
       ],
       "$schema": "https://json-schema.org/draft/2020-12/schema",

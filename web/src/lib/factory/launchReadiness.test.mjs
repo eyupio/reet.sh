@@ -101,6 +101,12 @@ test('each source of the agent', () => {
   assert.equal(fallback.sourceFact.text, 'Cline from your saved crew is not on workshop, so this tier uses the outcome’s agent, Claude Code.')
   assert.equal(fallback.level, 'look')
   assert.equal(s({ edited: false, saved: undefined }).sourceFact.state, 'ready')
+  // A work order's suggestion is its own source, even where it matches the saved crew; an agent it names that the machine
+  // lacks still cannot start.
+  const order = s({ suggested: true })
+  assert.equal(order.source, 'order'); assert.equal(order.sourceFact.label, 'Suggested by the work order')
+  const away = s({ suggested: true, member: { tool: 'cline', model: '', effort: '' } })
+  assert.equal(away.source, 'order'); assert.equal(away.level, 'blocked')
 })
 
 test('every backup is listed in order with its own eligibility', () => {

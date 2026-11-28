@@ -169,8 +169,8 @@ background supervision or grant themselves that authority.
 
 ## Read and steer the Factory
 
-Four tools read the Factory for any connection on a writer account. Two are described here. The other two, `reet_list_factory_projects` and
-`reet_list_pathways`, are described below the controls:
+Six tools read the Factory for any connection on a writer account. Two are described here. The other four, `reet_list_factory_projects`,
+`reet_list_pathways`, `reet_check_work_order` and `reet_get_work_report`, are described below the controls:
 
 - `reet_list_factory` lists the outcomes, newest first, as short rows: `id`,
   `state`, `objective` (clipped to 200 characters), `project` and, for each
@@ -225,8 +225,8 @@ Ten more are the person's own controls and need management scope:
 | `reet_report_outcome` | One request to the Gaffer provider for a report; may use its credits. |
 | `reet_tell_pipeline_agent` | Queues your instruction for the working agent of a pipeline's stage in hand. Takes a stable `request_id`. `applied` is false when nothing was queued (the agent is waiting on an approval, say); trying again takes a new `request_id`. |
 | `reet_send_pipeline_back` | Has the stage in hand, or an earlier one, done again with your reason. Needs `confirm: true`. `stage` is the stage's name as the outcome lists it; a name the pipeline does not have is refused with the names it does. |
-| `reet_start_outcome` | Starts an outcome in a project: real agent sessions, with ordinary approvals. Needs `confirm: true`. A pipeline's `tiers` says how demanding a stage is (`light`, `standard` or `heavy`), which picks the agent and backup from the user's saved crew; `balance_below` sets when a backup takes over. A pipeline's `parts` splits a stage into two to four named parts, each with a brief and, if it differs, a tier. `pathway` (a pathway's id or its exact name, in any letter case, from `reet_list_pathways`) starts every pipeline on that saved pathway's stages instead; it is refused, with nothing started, if a pipeline also gives `stages`, `tiers` or `parts`, or if no pathway of that name is switched on (the refusal lists the ones that are). It cannot name an agent for a stage or give Gaffer the outcome's decisions. Pass a stable `request_id` to make a retry safe: asked again under the same one, it answers the outcome already started with `applied: false`. |
-| `reet_add_pipelines` | Adds up to five pipelines to an outcome. Needs `confirm: true`. Takes `pathway` as `reet_start_outcome` does, with the same refusals. |
+| `reet_start_outcome` | Starts an outcome in a project: real agent sessions, with ordinary approvals. Needs `confirm: true`. A pipeline's `tiers` says how demanding a stage is (`light`, `standard` or `heavy`), which picks the agent and backup from the user's saved crew; `balance_below` sets when a backup takes over. A pipeline's `parts` splits a stage into two to four named parts, each with a brief and, if it differs, a tier. `pathway` (a pathway's id or its exact name, in any letter case, from `reet_list_pathways`) starts every pipeline on that saved pathway's stages instead; it is refused, with nothing started, if a pipeline also gives `stages`, `tiers` or `parts`, or if no pathway of that name is switched on (the refusal lists the ones that are). It cannot name an agent for a stage or give Gaffer the outcome's decisions. Pass a stable `request_id` to make a retry safe: asked again under the same one, it answers the outcome already started with `applied: false`. Takes `work_order`, the text of a work order, in place of `objective`, `pipelines` and `pathway` (a work order and those arguments together are refused, and nothing is started): its objective, pathway and pipelines, with their acceptance criteria, are used, its `project`, if it names one, must be the project of `project_id`, in any letter case, and a `continues` line is refused (use `reet_add_pipelines`). Its `crew` line is ignored: the saved crew decides. Every other rule here holds unchanged. |
+| `reet_add_pipelines` | Adds up to five pipelines to an outcome. Needs `confirm: true`. Takes `pathway` as `reet_start_outcome` does, with the same refusals. Takes `work_order` in place of `pipelines`, as `reet_start_outcome` does; its `continues` line must be this `outcome_id`. |
 
 `reet_list_factory_projects` (a read) lists the projects an outcome can run in.
 
@@ -234,6 +234,15 @@ Ten more are the person's own controls and need management scope:
 `description`, `stages` (their names, in order) and `problems`, the sentences that would refuse a start on it, empty when
 none. A pathway that is switched off is not listed. A stage's own prompt, model and skills are not included. The
 answer is paged like the other lists: `limit` and `offset`, with the rows in `items`.
+
+`reet_check_work_order` (a read) takes `work_order`, the text of a work order, and says what it would start without starting
+anything: `ok`, `problems` (always an array; each has a `line`, 0 when it is about the whole text), `plan` (each pipeline's
+`title`, its `stages` with `kind`, `name`, and `part` and `tier` where given, and its number of `criteria`; a pipeline on a
+pathway lists the pathway's stages by name) and, when the order suggests a crew, a `note`: over MCP the saved crew
+decides. It also gives `project_id` and `pathway_id` where it finds the project and pathway the order names.
+
+`reet_get_work_report` (a read) takes `outcome_id` and answers `report`: the outcome as a Markdown work report for an outside
+agent. Only a connection with management scope receives each finished stage's handover; other connections receive none.
 
 Each control answers with the outcome in short, as `reet_list_factory` gives it, with `applied` and a `note`. Call `reet_get_factory_outcome` for every stage.
 
@@ -270,11 +279,11 @@ already consented OAuth grant. Clients with other OAuth grant types, private
 client secrets or client-ID metadata documents must use the supported public
 dynamic-registration flow or manual bearer authentication.
 
-The 50 tool definitions are shared with the optional stdio package. For accounts
-with write access, read-only connections discover eighteen tools and management
-connections fifty, including the two separately granted context reads,
-three management-only worker messaging tools and the fourteen Factory tools
-(four reads and ten management-only controls).
+The 52 tool definitions are shared with the optional stdio package. For accounts
+with write access, read-only connections discover twenty tools and management
+connections fifty-two, including the two separately granted context reads,
+three management-only worker messaging tools and the sixteen Factory tools
+(six reads and ten management-only controls).
 Viewer accounts retain ten read tools.
 Collections support bounded pages and filters. Responses are capped at 25,000
 characters; use smaller pages or more specific filters for large shelves.

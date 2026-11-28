@@ -50,6 +50,8 @@ func (s *server) registerGafferOutcomeRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /api/v2/gaffer/outcomes/{id}/sessions/{key}/delivery/criteria", access(s.gafferDeliveryCriteria))
 	mux.HandleFunc("POST /api/v2/gaffer/outcomes/{id}/sessions/{key}/delivery/evidence", access(s.gafferDeliveryEvidence))
 	mux.HandleFunc("POST /api/v2/gaffer/outcomes/{id}/sessions/{key}/delivery/decision", access(s.gafferDeliveryDecision))
+	mux.HandleFunc("POST /api/v2/gaffer/work-orders/check", access(s.gafferWorkOrderCheck))
+	mux.HandleFunc("GET /api/v2/gaffer/outcomes/{id}/work-report", access(s.gafferWorkReport))
 }
 
 func gafferOutcomeError(w http.ResponseWriter, err error) {

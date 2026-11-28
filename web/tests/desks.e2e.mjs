@@ -447,7 +447,7 @@ try {
 
   // ── empty list offers New desk ──
   await expect(page.getByRole('heading', { name: 'Desks', level: 1 })).toBeVisible()
-  await expect(page.getByText('Saved sets of terminals. Each one comes back as you left it.')).toBeVisible()
+  await expect(page.getByText('A desk is a saved set of terminals. Open one to carry on where you left it.')).toBeVisible()
   await expect(page.getByText('No desks yet.')).toBeVisible()
   await expect(page.getByText('A desk keeps a set of terminals together: their tabs, their folders and their history.')).toBeVisible()
   await expect(page.getByRole('button', { name: 'From a template ▾' })).toBeDisabled()
@@ -481,7 +481,7 @@ try {
   await expect(page).toHaveURL(/\/desks$/)
   await expect(page.getByRole('link', { name: 'prod deploy' })).toBeVisible()
   await expect(page.locator('.card').filter({ hasText: 'prod deploy' })).toContainText('3 tabs · 3 panes')
-  await expect(page.locator('.card').filter({ hasText: 'prod deploy' })).toContainText('3 live')
+  await expect(page.locator('.card').filter({ hasText: 'prod deploy' })).toContainText('3 shells live')
   if (shots) await page.screenshot({ path: `${shots}/desks-list-light.png` })
   // A desk that has gone is forgotten: /desks shows the list.
   await page.evaluate(() => localStorage.setItem('reet.desks.last.1', 'desk-gone'))
@@ -2707,9 +2707,9 @@ try {
     await page.evaluate(() => localStorage.removeItem('reet.desks.last.1'))
     await page.goto(`${base}/desks`)
     const card = name => page.locator('.card').filter({ has: page.getByRole('link', { name, exact: true }) })
-    await expect(card('prod deploy').locator('.pill')).toHaveText(['2 live', '1 to reopen'])
+    await expect(card('prod deploy').locator('.pill')).toHaveText(['2 shells live', '1 shell to reopen'])
     // The split desk's nine-pane tab was never started: nothing there is to reopen.
-    await expect(card('split desk').locator('.pill')).toHaveText(['7 live'])
+    await expect(card('split desk').locator('.pill')).toHaveText(['7 shells live'])
     console.log('ok - a desk card counts only shells that ended or were lost as to reopen')
   }
 

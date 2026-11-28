@@ -60,7 +60,7 @@
   <header class="head">
     <div>
       <h1 id="desks-title">Desks</h1>
-      <p class="lede">Saved sets of terminals. Each one comes back as you left it.</p>
+      <p class="lede">A desk is a saved set of terminals. Open one to carry on where you left it.</p>
     </div>
     <div class="actions">
       <button type="button" class="btn" aria-haspopup="menu" aria-expanded={menu?.kind === 'templates'} disabled={busy || templates.length === 0}
@@ -72,7 +72,7 @@
   {#if cards.length === 0 && !failed}
     <div class="empty">
       <h2>No desks yet.</h2>
-      <p>A desk keeps a set of terminals together: their tabs, their folders and their history.</p>
+      <p>A desk keeps a set of terminals together: their tabs, their folders and their history. Start one, then add a tab for each shell.</p>
       <button type="button" class="btn primary" disabled={busy} onclick={onnew}>New desk</button>
     </div>
   {:else}
@@ -92,21 +92,22 @@
           </div>
           {#if c.waiting || c.live || c.reopen}
             <div class="pills">
-              {#if c.waiting}<span class="pill w">{c.waiting} need{c.waiting === 1 ? 's' : ''} you</span>{/if}
-              {#if c.live}<span class="pill">{c.live} live</span>{/if}
-              {#if c.reopen}<span class="pill">{c.reopen} to reopen</span>{/if}
+              {#if c.waiting}<span class="pill w">{plural(c.waiting, 'shell')} {c.waiting === 1 ? 'needs' : 'need'} you</span>{/if}
+              {#if c.live}<span class="pill">{plural(c.live, 'shell')} live</span>{/if}
+              {#if c.reopen}<span class="pill">{plural(c.reopen, 'shell')} to reopen</span>{/if}
             </div>
           {/if}
         </li>
       {/each}
       <li class="card new">
-        <button type="button" disabled={busy} onclick={onnew}><b>New desk</b><span>{templates.length ? `Start empty, or from “${templates[0].name}”.` : 'Start empty, then add a tab for each shell.'}</span></button>
+        <button type="button" disabled={busy} onclick={onnew}><b>New desk</b><span>Starts empty. Add a tab for each shell.</span></button>
       </li>
     </ul>
   {/if}
   {#if templates.length}
     <section class="group" aria-labelledby="desk-templates-title">
       <h2 id="desk-templates-title">Templates</h2>
+      <p class="hint">Start a new desk from one of these. The template itself is not changed.</p>
       <ul class="cards">
         {#each templates as d (d.id)}
           <li class="card tpl" style={`--pc:${d.colour ? projectColourHex(d.colour) : 'var(--line-strong)'}`}>
@@ -185,6 +186,7 @@
   .card.new b { color: var(--ink); }
   .group { margin-top: 32px; }
   .group h2 { margin: 0; font: 600 1.25rem/1.2 var(--serif); letter-spacing: -0.01em; }
+  .group .hint { margin: 4px 0 0; color: var(--muted); }
   .group .cards { margin-top: 14px; }
   @media (max-width: 760px) { .desk-list { padding: 24px 16px 40px; } h1 { font-size: 1.75rem; } }
   @media (pointer: coarse) { .more { width: 44px; height: 44px; } .t a { line-height: 44px; } }

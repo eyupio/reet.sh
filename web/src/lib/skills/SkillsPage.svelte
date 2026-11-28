@@ -72,10 +72,10 @@
   })
 
   const lede = $derived((page.machines === 0
-    ? 'Everything Active goes on each machine you connect. Archive a skill to keep it here and off your machines. Delete it to be rid of it.'
+    ? 'Everything Active goes on each machine you connect. Archive a skill to keep it here and off your machines. Delete it to remove it from reet.'
     : page.machines === 1
-      ? 'Everything Active is on your machine. Archive a skill to take it off and keep it here. Delete it to be rid of it.'
-      : `Everything Active is on all ${page.machines} of your machines. Archive a skill to take it off them and keep it here. Delete it to be rid of it.`)
+      ? 'Everything Active is on your machine. Archive a skill to take it off and keep it here. Delete it to remove it from reet.'
+      : `Everything Active is on all ${page.machines} of your machines. Archive a skill to take it off them and keep it here. Delete it to remove it from reet.`)
     + (paused ? ` ${paused.slice(0, -1)}, so reet leaves ${(page.work.paused ?? 0) > 1 ? 'their' : 'its'} skills as they are.` : ''))
 
   const newHosts = $derived([...new Set(page.newOnMachines.flatMap(n => n.copies.map(c => c.host)))])
@@ -94,7 +94,9 @@
   const emptyText = $derived(page.filtering
     ? page.q.trim() ? `Nowt matches “${page.q.trim()}”.` : 'Nowt matches these filters.'
     : page.tab === 'archived' ? 'Nowt archived. Archive a skill to take it off your machines and keep it here.'
-    : canWrite ? 'Nowt active. Paste a skill link above to get cracking.' : 'Nowt active yet.')
+    : !canWrite ? 'Nowt active yet. This account can view skills but not add them.'
+    : page.counts.archived ? 'Nowt active. Everything is in Archived. Restore a skill to make it Active again, or paste a link above to add one.'
+    : 'Nowt active. Paste a skill link above to get cracking.')
 
   const read = (status: Tab, quiet = false) => page.read(status, quiet)
   const write = <T,>(fn: () => Promise<T>) => page.write(fn)
@@ -588,7 +590,7 @@
   {#if canWrite}
     <form class="add" onsubmit={add} aria-busy={adding}>
       <label class="vh" for="add-skill">Add a skill</label>
-      <input id="add-skill" bind:this={addEl} bind:value={addInput} type="text" autocomplete="off" placeholder="Paste a skills.sh link or an npx skills add command"
+      <input id="add-skill" bind:this={addEl} bind:value={addInput} type="text" autocomplete="off" placeholder="Paste a skills.sh link or npx command"
         aria-invalid={addError ? 'true' : undefined} aria-describedby={addError ? 'add-skill-error' : undefined} />
       <button type="submit" class="btn primary" disabled={adding || !addInput.trim()} aria-busy={adding}>{adding ? 'Adding…' : 'Add'}</button>
       <a class="btn" href="/hosting">Write a skill</a>
@@ -603,7 +605,7 @@
       <svg class="mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 7.5v5.5M12 16.5v.01"></path></svg>
       <div class="new-copy">
         <strong>{newTitle}</strong>
-        <span>{page.newOnMachines.map(n => n.name).join(', ')}. {newHosts.length === 1 ? `They stay on ${newHosts[0]} only until you decide.` : 'They stay where they are until you decide.'}</span>
+        <span>{page.newOnMachines.map(n => n.name).join(', ')}. {newHosts.length === 1 ? `They stay on ${newHosts[0]} only until you keep or archive them.` : 'They stay where they are until you keep or archive them.'}</span>
       </div>
       <button type="button" class="btn primary" bind:this={reviewEl} onclick={() => (reviewOpen = true)}>Review</button>
     </section>

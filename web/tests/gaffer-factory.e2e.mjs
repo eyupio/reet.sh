@@ -583,10 +583,10 @@ try {
       expect(await report.locator('.report-clamp').evaluate(el=>el.getBoundingClientRect().height)).toBeLessThan(180)
       await report.getByRole('button',{name:'Read all of it',exact:true}).click()
       await expect(report.getByRole('button',{name:'Show less',exact:true})).toBeVisible()
-      // Archive and Delete are both in the outcome's menu; the account's default comes first, and Delete is marked.
+      // Copy for your agent leads the outcome's menu. Archive and Delete follow; the account's default comes first, and Delete is marked.
       const menu=card.getByRole('button',{name:'More for this outcome',exact:true})
       await menu.click()
-      await expect(card.locator('.menu ul button')).toHaveText(mode==='archive'?['Archive','Delete']:['Delete','Archive'])
+      await expect(card.locator('.menu ul button')).toHaveText(mode==='archive'?['Copy for your agent','Archive','Delete']:['Copy for your agent','Delete','Archive'])
       await expect(card.getByRole('button',{name:'Delete',exact:true})).toHaveClass(/danger/)
       // Archive keeps the record: it leaves the floor and the counts, comes back on request, and can be restored.
       await card.getByRole('button',{name:'Archive',exact:true}).click()

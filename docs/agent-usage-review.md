@@ -123,7 +123,7 @@ that can mislead; **S4** historical noise, or a setup heavier than the work need
    their own words. They agree today, so the risk is not a current contradiction but six edits for the next change and
    drift between them.
 
-8. **`handoff.md` is cited 99 times across 42 Markdown files, and most citations no longer resolve.** The file is now
+8. **`handoff.md` is cited 105 times across 42 Markdown files, and most citations no longer resolve.** The file is now
    14 lines. Examples with line or section references: `docs/research/paste-research.md:108-110`
    (`handoff.md:70`, `:62-64, 101`, `:104-106`), `docs/research/reference-tool-frontend-research.md:9, 94, 175`
    (`handoff.md:39-50`, `:50`), `docs/structured-chat-plan.md:11`, `docs/roadmap.md:9`,
@@ -144,7 +144,7 @@ that can mislead; **S4** historical noise, or a setup heavier than the work need
 10. **There are two historical archives with overlapping scopes and different conventions.**
     `docs/handoffs/archive.md:1-3` holds every entry from before the one-file layout, up to 24 November 2026.
     `handoff-history.md:1-7` is a second archive from 23 October 2026, 281,734 bytes at the repository root. It is
-    outside `docs_dir: docs` (`mkdocs.yml:26`), so it is not published, but it is linked from
+    outside `docs_dir: docs` (`mkdocs.yml:22`), so it is not published, but it is linked from
     `docs/handoffs/archive.md:1238, 3792, 4624, 4628, 4630, 4727, 4759` and from research notes. It tells readers to
     consult `handoff.md` for current state (`:6`) and references files removed in the docs tidy-up (`:3`, `:17`,
     `:1524`).
@@ -163,7 +163,7 @@ that can mislead; **S4** historical noise, or a setup heavier than the work need
     The 36 feature files outside `log/` and `archive.md` share one directory, from live continuation notes (`real-agent-checks.md`,
     `seo-follow-up.md`, `gaffer-continuation.md`, `gaffer-resume.md`) to closed design records. There is no index or
     status line, so a reader cannot tell which file still binds them. `docs/ui-verification.md` compounds this with
-    nine references to sections of `handoff.md` that no longer exist.
+    eight references to `handoff.md` that no longer resolve.
 
 14. **The real-agent probe scripts are not discoverable from the contribution guide.** Ten `scripts/probe-*.py` and
     `scripts/check-claude-credentials.py` start real agent CLIs (`cline --acp`, Codex adapters, Claude adapters) against
@@ -236,10 +236,10 @@ can skip them:
 
 - Every citation was read at this revision, and line numbers come from `nl -ba` on the file named.
 - Counts: 51 files in `docs/handoffs/log/`; 36 feature files in `docs/handoffs/` plus `archive.md`; 28 plans and 42
-  specs; 99 references
-  to `handoff.md` in 42 Markdown files; 10 `scripts/probe-*.py` scripts plus `scripts/check-claude-credentials.py`.
+  specs; 105 references to `handoff.md` in 42 Markdown files (this review, `archive.md` and `handoff-history.md`
+  excluded); 10 `scripts/probe-*.py` scripts plus `scripts/check-claude-credentials.py`.
 - `handoff-history.md` was confirmed absent from the built site because it sits outside `docs_dir: docs`
-  (`mkdocs.yml:26`), not because of an exclusion rule.
+  (`mkdocs.yml:22`), not because of an exclusion rule.
 - Not verified: organisation-level rulesets and branch protection, so the claim that a conflicted pull request runs
   "only CodeQL" (`AGENTS.md:32-33`) cannot be checked from this repository; and whether maintainers still consider the
   real-agent checks and probe scripts current after the latest adapter changes.

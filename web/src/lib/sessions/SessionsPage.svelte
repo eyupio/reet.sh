@@ -12,7 +12,7 @@
   import { HELD_SENTENCE, STOPPED_LINE, heldWork, sessionStatus, statusLabel, stoppedWaiting } from '../sessionStatus'
   import { PROJECT_COLOURS, projectColourHex } from '../projectColour'
   import { getDesk, listDesks } from '../desks/api'
-  import { agentChoicesOf, deskPlaces, sessionColourOf, filterSessions, filtersOn, offlineSentence, rowMeta, searchSessions, sessionGroups, tabFromMenu, type DeskPlace, type MachineName, type SessionFilter, type SessionSort } from '../sessions'
+  import { agentChoicesOf, deskPlaces, sessionColourOf, filterSessions, filtersOn, offlineSentence, rowMeta, searchSessions, sessionGroups, stateBucket, tabFromMenu, type DeskPlace, type MachineName, type SessionFilter, type SessionSort, type StateFilter } from '../sessions'
   import { folderProjectList, listProjectGroups, machineHealth, sessionHref, terminalMachines, terminalSessions, TerminalError,
     type FolderProject, type MachineHealth, type ProjectGroup, type TerminalMachine, type TerminalSession } from '../terminal/api'
   import SessionActions from './SessionActions.svelte'
@@ -132,6 +132,29 @@
   const groups = $derived(sessionGroups(shown, projects ?? [], machines, groupBy, offline, sort, order))
   const agents = $derived(agentChoicesOf(listed))
   const on = $derived(filtersOn(filter))
+  // The filter panel's own count: the state is chosen with the chips above the list, not in the panel.
+  const panelOn = $derived(filtersOn({ ...filter, state: '' }))
+  const moreOn = $derived([filter.colour, filter.yoloOnly, filter.worktreeOnly].filter(Boolean).length)
+  // The state chips: Needs you is always there; the others only while there is something in them (or one is chosen). Their
+  // counts follow the search and the filters in the panel, so a chip says what it would show.
+  const STATE_CHIPS: { value: StateFilter | ''; label: string; status: string }[] = [
+    { value: '', label: 'All', status: '' }, { value: 'needs', label: 'Needs you', status: 'waiting' }, { value: 'running', label: 'Running', status: 'working' },
+    { value: 'finished', label: 'Finished', status: 'finished' }, { value: 'ended', label: 'Ended', status: 'ended' }]
+  const inState = $derived(filterSessions(searchSessions(listed, projects ?? [], machines, query), { ...filter, state: '' }, needing, colourOf))
+  const chipCount = $derived.by(() => {
+    const count = { '': inState.length, needs: 0, running: 0, finished: 0, ended: 0 }
+    for (const s of inState) { if (needing.has(s.id)) count.needs++; count[stateBucket(s)]++ }
+    return count
+  })
+  const chips = $derived(STATE_CHIPS.filter(c => !c.value || c.value === 'needs' || chipCount[c.value] > 0 || filter.state === c.value))
+  // The one line under the title: what is waiting and what is running, across every session this page lists.
+  const needCount = $derived(listed.filter(s => needing.has(s.id)).length)
+  const runCount = $derived(listed.filter(s => stateBucket(s) === 'running').length)
+  // The projects fold away under the sessions; with no session to look at they stay open, as the page's next step.
+  let projectsOpen = $state(false)
+  const projectsForced = $derived(sessions !== undefined && listed.length === 0)
+  const projectsShown = $derived(projectsOpen || projectsForced)
+  const projectsName = $derived(projects ? `Projects · ${projects.length}` : 'Projects')
   const running = $derived.by(() => { const m = new Map<string, number>(); for (const s of listed) if (s.projectId && (s.state === 'running' || s.state === 'creating')) m.set(s.projectId, (m.get(s.projectId) ?? 0) + 1); return m })
   const worktrees = $derived(projectWorktrees(listed))
   // Whether each machine reports now (the rail's state words); a machine without a report is not called offline.
@@ -270,35 +293,56 @@
     {#if !firstRun}<a class="new" href="/#launch" aria-label="New session">New</a>{/if}
   </header>
 
+  {#if listed.length > 0}
+    <!-- Not a live region: the page reads again every 15 seconds. -->
+    <p class="summary">
+      {#if needCount}<span data-status="waiting">{needCount} {needCount === 1 ? 'needs' : 'need'} you</span>{/if}
+      {#if needCount && runCount}<span class="dim" aria-hidden="true">·</span><span class="vh">, </span>{/if}
+      {#if runCount}<span data-status="working">{runCount} running</span>{/if}
+      {#if !needCount && !runCount}Nothing is running or waiting.{/if}
+    </p>
+  {/if}
+
   <div class="tools">
     <label class="search">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" /></svg>
       <input type="search" bind:value={query} placeholder="Search sessions" aria-label="Search sessions" autocomplete="off" />
     </label>
+    {#if listed.length > 0}
+      <div class="chips" role="group" aria-label="Show">
+        {#each chips as c (c.value)}
+          <button type="button" class="chip" data-status={c.status || undefined} aria-label={`${c.label}, ${chipCount[c.value || '']}`} aria-pressed={filter.state === c.value || (!c.value && !filter.state)} onclick={() => (filter.state = c.value)}>{c.label}<span class="n">{chipCount[c.value || '']}</span></button>
+        {/each}
+      </div>
+    {/if}
     <div class="view-row">
       <div class="group-by" role="radiogroup" aria-label="Group by">
         {#each GROUP_CHOICES as { value, label } (value)}
           <label class:on={groupBy === value}><input type="radio" name="sessions-group" {value} checked={groupBy === value} onchange={() => chooseGroup(value)} />{label}</label>
         {/each}
       </div>
-      <button type="button" class="filters-toggle" aria-label={on ? `Filters & sort, ${on} on` : 'Filters & sort'} aria-expanded={filtersOpen} aria-controls="sessions-filters" onclick={() => (filtersOpen = !filtersOpen)}>
+      <button type="button" class="filters-toggle" aria-label={panelOn ? `Filters & sort, ${panelOn} on` : 'Filters & sort'} aria-expanded={filtersOpen} aria-controls="sessions-filters" onclick={() => (filtersOpen = !filtersOpen)}>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 6h16M7 12h10M10 18h4" /></svg>
         <span class="filters-label">Filters &amp; sort</span>
-        {#if on}<span class="on-count">{on}</span>{/if}
+        {#if panelOn}<span class="on-count">{panelOn}</span>{/if}
       </button>
     </div>
     {#if filtersOpen}
       <div class="filters-panel" id="sessions-filters">
         <div class="filter-grid">
-          <label>State<select aria-label="State" bind:value={filter.state}><option value="">Any state</option><option value="needs">Needs you</option><option value="running">Running</option><option value="finished">Finished</option><option value="ended">Ended</option></select></label>
           <label>Agent<select aria-label="Agent" bind:value={filter.agent}><option value="">Any agent</option>{#each agents as a (a.value)}<option value={a.value}>{a.label}</option>{/each}</select></label>
           <label>Machine<select aria-label="Machine" bind:value={filter.machine}><option value="">Any machine</option>{#each machines as m (m.agentId)}<option value={m.agentId}>{m.host}</option>{/each}</select></label>
-          <label>Colour<select aria-label="Colour" bind:value={filter.colour}><option value="">Any colour</option>{#each PROJECT_COLOURS.filter(c => c.id) as c (c.id)}<option value={c.id}>{c.name}</option>{/each}<option value="none">No colour</option></select></label>
           <label>Sort<select aria-label="Sort" bind:value={sort}><option value="recent">Recently changed</option><option value="name">Name</option><option value="custom">Custom order</option></select></label>
-          <label class="check"><input type="checkbox" bind:checked={filter.yoloOnly} />YOLO only</label>
-          <label class="check"><input type="checkbox" bind:checked={filter.worktreeOnly} />Worktree only</label>
           <button type="button" class="clear" disabled={on === 0} onclick={clearFilters}>Clear filters</button>
         </div>
+        <details class="more-filters">
+          <summary>More filters{#if moreOn}<span class="on-count">{moreOn}</span>{/if}</summary>
+          <div class="filter-grid">
+            <label>Colour<select aria-label="Colour" bind:value={filter.colour}><option value="">Any colour</option>{#each PROJECT_COLOURS.filter(c => c.id) as c (c.id)}<option value={c.id}>{c.name}</option>{/each}<option value="none">No colour</option></select></label>
+            <label class="check"><input type="checkbox" bind:checked={filter.yoloOnly} />YOLO only</label>
+            <label class="check"><input type="checkbox" bind:checked={filter.worktreeOnly} />Worktree only</label>
+          </div>
+        </details>
       </div>
     {/if}
   </div>
@@ -318,13 +362,13 @@
   {#if denied}
     <p class="none" role="alert">Your account no longer has terminal access. Sign in again or ask the owner to check your permissions. Existing sessions were not ended.</p>
   {:else if terminals !== undefined && terminals.length === 0 && (sessions ?? []).length === 0}
-    <div class="first-machine"><h2>Connect your first machine</h2><p>Enroll a machine and enable terminal access locally to start sessions here.</p><a class="btn primary" href={machinesAt('add-machine')}>Connect a machine</a></div>
+    <div class="first-machine"><h2>Connect your first machine</h2><p>Connect a machine, then turn on terminal access on that machine. Its sessions are listed here.</p><a class="btn primary" href={machinesAt('add-machine')}>Connect a machine</a></div>
   {:else if sessions !== undefined}
     {#if listed.length === 0}
-      {#if (sessions ?? []).length === 0}<div class="first-machine"><h2>No sessions yet</h2><p>Start an agent or a terminal on one of your machines.</p><a class="btn primary" href="/#launch" aria-label="New session">Start a session</a></div>
-      {:else}<p class="none">Every session here is on a desk. Open Desks to see them.</p>{/if}
+      {#if (sessions ?? []).length === 0}<div class="first-machine"><h2>No sessions yet</h2><p>Start an agent or a terminal on one of your machines and it will be listed here.</p><a class="btn primary" href="/#launch" aria-label="New session">Start a session</a></div>
+      {:else}<p class="none">All your sessions are on desks. Open Desks to see them; any that need you will be listed here too.</p>{/if}
     {:else if groups.length === 0}
-      <p class="none">{filter.state === 'needs' ? 'Nothing marks a session as needing you yet, so none is listed here.' : on > 0 && !query.trim() ? 'No sessions match these filters.' : 'No sessions match.'}</p>
+      <p class="none">{filter.state === 'needs' ? 'No session needs you right now.' : on > 0 && !query.trim() ? 'No sessions match these filters.' : 'No sessions match.'}</p>
     {:else}
       <div class="groups">
         {#each groups as g (g.key)}
@@ -382,12 +426,16 @@
   {#if !narrow}
     <section class="projects" aria-labelledby="sessions-projects">
       <div class="projects-head">
-        <h2 id="sessions-projects">{projects ? `Projects · ${projects.length}` : 'Projects'}</h2>
+        <h2 id="sessions-projects">
+          {#if projectsForced}{projectsName}
+          {:else}<button type="button" class="fold" aria-expanded={projectsOpen} aria-controls="sessions-project-body" onclick={() => (projectsOpen = !projectsOpen)}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 6l6 6-6 6" /></svg>{projectsName}</button>{/if}
+        </h2>
         <button type="button" class="add" onclick={event => void projectHost?.openAdd(event.currentTarget)}>Add a project</button>
       </div>
-      {#if projectsFailed}<p class="none">Couldn't read your projects just now.</p>
-      {:else if projects !== undefined && projects.length === 0}<p class="none">Add a project to start an agent in one of your folders.</p>
-      {:else if projects}
+      <div id="sessions-project-body">
+      {#if projectsShown && projectsFailed}<p class="none">Couldn't read your projects just now.</p>
+      {:else if projectsShown && projects !== undefined && projects.length === 0}<p class="none">Add a project to start an agent in one of your folders.</p>
+      {:else if projectsShown && projects}
         <ul class="project-list">
           {#each projects as p (p.id)}
             <li><a class="project-card" href={`/?project=${encodeURIComponent(p.id)}`} aria-label={projectLabel(p)} style={`--project-colour:${projectColourHex(p.colour)}`}
@@ -397,6 +445,7 @@
           {/each}
         </ul>
       {/if}
+      </div>
     </section>
   {/if}
 </div>
@@ -448,6 +497,25 @@
   .filters-toggle[aria-expanded='true'] { border-color: var(--accent); color: var(--ink); }
   .filters-toggle svg { width: 16px; height: 16px; flex: none; }
   .on-count { min-width: 18px; height: 18px; padding: 0 4px; display: grid; place-items: center; border-radius: 6px; background: var(--accent); color: var(--accent-ink); font-size: 14px; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; box-sizing: border-box; }
+  .summary { margin: -4px 0 0; font-size: 15px; color: var(--muted); }
+  .summary [data-status] { font-weight: 600; color: var(--status-text); }
+  .summary .dim { margin: 0 6px; }
+  .chips { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
+  .chip { flex: none; display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 14px; border: 1px solid var(--line); border-radius: 999px; background: var(--card); color: var(--ink-soft); font: 500 14px var(--sans); cursor: pointer; }
+  .chip:hover { background: var(--tint); }
+  .chip .n { font-variant-numeric: tabular-nums; color: var(--muted); }
+  .chip[aria-pressed='true'] { border-color: var(--accent); background: var(--line-soft); color: var(--ink); font-weight: 600; }
+  .chip[data-status][aria-pressed='true'] { border-color: var(--status-edge); background: var(--status-wash); color: var(--status-text); }
+  .chip[data-status][aria-pressed='true'] .n { color: inherit; }
+  .chip:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
+  .more-filters { border-top: 1px solid var(--line-soft); }
+  .more-filters summary { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 12px; color: var(--ink-soft); font-size: 14px; cursor: pointer; }
+  .more-filters summary:focus-visible { outline: 2px solid var(--accent-text); outline-offset: -2px; }
+  .fold { display: inline-flex; align-items: center; gap: 4px; min-height: 44px; margin-left: -6px; padding: 0 6px; border: 0; border-radius: 8px; background: none; color: inherit; font: inherit; letter-spacing: inherit; cursor: pointer; }
+  .fold:hover { color: var(--ink); }
+  .fold:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 0; }
+  .fold svg { width: 14px; height: 14px; flex: none; }
+  .fold[aria-expanded='true'] svg { transform: rotate(90deg); }
   .filters-panel { border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
   .filter-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; padding: 12px; align-items: end; }
   .filter-grid label { display: grid; gap: 4px; font-size: 14px; color: var(--muted); min-width: 0; }

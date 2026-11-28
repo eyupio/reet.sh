@@ -170,6 +170,12 @@ try {
   // Projects · N, with Add a project and a card per project that opens it on Home.
   await expect(page.getByText('Projects · 3',{exact:true})).toBeVisible()
   await expect(page.getByRole('button',{name:'Add a project'})).toBeVisible()
+  // The project cards fold away under the sessions and open with the heading.
+  const fold = page.getByRole('button',{name:'Projects · 3'})
+  await expect(fold).toHaveAttribute('aria-expanded','false')
+  await expect(page.getByRole('link',{name:/^reet,/})).toHaveCount(0)
+  await fold.click()
+  await expect(fold).toHaveAttribute('aria-expanded','true')
   await expect(page.getByRole('link',{name:/^reet,/})).toHaveAttribute('href','/?project=p1')
   await page.getByRole('button',{name:'Add a project'}).click()
   await expect(page.getByRole('dialog',{name:/Add a project/})).toBeVisible()
@@ -286,21 +292,24 @@ try {
   const {context,page,errors} = await open()
   await page.goto(`${base}/sessions?view=list`)
   await page.getByRole('button',{name:/Filters & sort/}).click()
-  await filters(page).getByLabel('State',{exact:true}).selectOption('running')
+  await page.getByRole('button',{name:/^Running, /}).click()
   await expect.poll(() => titles(page)).toEqual(['Review code','Add browse-v1 protocol','Refactor the store layer','Speed up the runner pool'])
   await filters(page).getByLabel('Agent',{exact:true}).selectOption('claude')
   await expect.poll(() => titles(page)).toEqual(['Add browse-v1 protocol','Refactor the store layer','Speed up the runner pool'])
   await filters(page).getByLabel('Machine',{exact:true}).selectOption('a1')
   await expect.poll(() => titles(page)).toEqual(['Add browse-v1 protocol','Refactor the store layer'])
+  await filters(page).getByText('More filters').click()
   await filters(page).getByLabel('YOLO only',{exact:true}).check()
   await expect(rows(page)).toHaveCount(0)
   await expect(page.getByText('No sessions match these filters.',{exact:true})).toBeVisible()
   await filters(page).getByLabel('YOLO only',{exact:true}).uncheck()
   await filters(page).getByLabel('Worktree only',{exact:true}).check()
   await expect.poll(() => titles(page)).toEqual(['Add browse-v1 protocol','Refactor the store layer'])
-  await expect(page.getByRole('button',{name:/Filters & sort/})).toContainText('4')
+  // The count is the panel's own: the state is chosen with the chips, not in the panel.
+  await expect(page.getByRole('button',{name:/Filters & sort/})).toContainText('3')
   await page.getByRole('button',{name:'Clear filters'}).click()
   await expect(rows(page)).toHaveCount(6)
+  await expect(page.getByRole('button',{name:/^All, 6/})).toHaveAttribute('aria-pressed','true')
   // Sort: newest change, name, or the custom order the sessions panel saved in this browser.
   await filters(page).getByLabel('Sort',{exact:true}).selectOption('name')
   expect((await titles(page)).slice(1,4)).toEqual(['Add browse-v1 protocol','Docs pass','Refactor the store layer'])
@@ -366,9 +375,37 @@ try {
   await context.close()
  }
 
+ if (run('summary line and state chips')) {
+  const {context,page,errors} = await open()
+  await page.goto(`${base}/sessions?view=list`)
+  // One line says what is waiting and what is running; nothing here needs the person.
+  await expect(page.locator('main .summary')).toHaveText('4 running')
+  // Needs you is always offered; the other chips only while there is something in them, each with its count.
+  const chip = name => page.getByRole('button',{name:new RegExp(`^${name}, `)})
+  await expect(page.locator('main .chip')).toHaveText(['All6','Needs you0','Running4','Finished1','Ended1'])
+  await expect(chip('All')).toHaveAttribute('aria-pressed','true')
+  await chip('Finished').click()
+  await expect.poll(() => titles(page)).toEqual(['Docs pass'])
+  await expect(chip('Finished')).toHaveAttribute('aria-pressed','true')
+  await expect(chip('All')).toHaveAttribute('aria-pressed','false')
+  // The chips do not touch the panel's count; All shows everything again.
+  await expect(page.getByRole('button',{name:'Filters & sort'})).toBeVisible()
+  await chip('All').click()
+  await expect(rows(page)).toHaveCount(6)
+  // The panel keeps Agent, Machine and Sort; Colour and the two checkboxes are under More filters.
+  await page.getByRole('button',{name:/Filters & sort/}).click()
+  await expect(filters(page).getByLabel('State',{exact:true})).toHaveCount(0)
+  await expect(filters(page).getByLabel('Colour',{exact:true})).toBeHidden()
+  await filters(page).getByText('More filters').click()
+  await expect(filters(page).getByLabel('Colour',{exact:true})).toBeVisible()
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
  if (run('project cards have a right-click menu')) {
   const {context,page,errors} = await open()
   await page.goto(`${base}/sessions?view=list`)
+  await page.getByRole('button',{name:'Projects · 3'}).click()
   const card = page.getByRole('link',{name:/^reet,/})
   await card.click({button:'right'})
   const menu = page.getByRole('menu',{name:'Actions for reet'})
@@ -490,6 +527,7 @@ try {
   expect(await strip('Review code')).toBe('rgb(161, 126, 209)')
   expect(await strip('Shell')).toBe('rgba(0, 0, 0, 0)')
   await page.getByRole('button',{name:/Filters & sort/}).click()
+  await filters(page).getByText('More filters').click()
   await filters(page).getByLabel('Colour',{exact:true}).selectOption('red')
   await expect.poll(() => titles(page)).toEqual(['Docs pass'])
   await filters(page).getByLabel('Colour',{exact:true}).selectOption('none')
@@ -827,9 +865,8 @@ try {
   await expect(page.getByText('Checking…',{exact:true})).toBeHidden()
   expect(Math.abs(await rowTop() - before), 'rows still after checking').toBeLessThanOrEqual(1)
   // Needs you: nothing raises it yet, and the page says so.
-  await page.getByRole('button',{name:/Filters & sort/}).click()
-  await filters(page).getByLabel('State',{exact:true}).selectOption('needs')
-  await expect(page.getByText('Nothing marks a session as needing you yet, so none is listed here.',{exact:true})).toBeVisible()
+  await page.getByRole('button',{name:/^Needs you, 0/}).click()
+  await expect(page.getByText('No session needs you right now.',{exact:true})).toBeVisible()
   expect(errors).toEqual([])
   await context.close()
  }

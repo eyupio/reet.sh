@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/eyupio/reet.sh/internal/gaffer"
@@ -17,7 +18,7 @@ import (
 // page makes, so the same rules hold: nothing here starts an outcome, answers
 // an approval, runs a command or merges anything itself.
 
-var mcpFactoryReads = map[string]bool{"reet_list_factory": true, "reet_get_factory_outcome": true, "reet_list_factory_projects": true, "reet_list_pathways": true}
+var mcpFactoryReads = map[string]bool{"reet_list_factory": true, "reet_get_factory_outcome": true, "reet_list_factory_projects": true, "reet_list_pathways": true, "reet_check_work_order": true, "reet_get_work_report": true}
 var mcpFactoryWrites = map[string]bool{
 	"reet_move_pipeline_on": true, "reet_retry_pipeline": true, "reet_set_pipeline_merge": true,
 	"reet_approve_pipeline_merge": true, "reet_stop_outcome": true, "reet_report_outcome": true,
@@ -117,6 +118,89 @@ func mcpPipelines(raw any, onPathway bool) ([]gaffer.OutcomeSession, error) {
 		out = append(out, piece)
 	}
 	return out, nil
+}
+
+// errWorkOrderConflict is the refusal when work_order is given together with
+// any of the arguments it replaces.
+var errWorkOrderConflict = errors.New("Give a work order or these arguments, not both. Nothing was started.")
+
+// mcpWorkOrderProblems joins a work order's line-numbered problems into one
+// message: every other refusal in this file is a plain sentence, so a
+// parser's structured list is read out as lines rather than returned as JSON.
+func mcpWorkOrderProblems(problems []gaffer.WorkOrderProblem) error {
+	lines := make([]string, len(problems))
+	for i, p := range problems {
+		if p.Line > 0 {
+			lines[i] = "line " + strconv.Itoa(p.Line) + ": " + p.Text
+		} else {
+			lines[i] = p.Text
+		}
+	}
+	return errors.New("The work order was refused, so nothing was started:\n" + strings.Join(lines, "\n"))
+}
+
+// mcpPipelinesOrWorkOrder resolves reet_start_outcome's and
+// reet_add_pipelines' pipelines, objective and pathway either from their own
+// arguments, as before, or from a pasted work order. continuing is "" for
+// reet_start_outcome, which refuses a work order that continues anything,
+// naming reet_add_pipelines instead; for reet_add_pipelines it is the
+// outcome_id pipelines are being added to, which a work order's own
+// continues must then equal.
+func (s *server) mcpPipelinesOrWorkOrder(uid int64, args map[string]any, str func(string) string, continuing string) (pipelines []gaffer.OutcomeSession, objective, pathway string, err error) {
+	wo := str("work_order")
+	if wo == "" {
+		pipelines, err = mcpPipelines(args["pipelines"], str("pathway") != "")
+		return pipelines, str("objective"), str("pathway"), err
+	}
+	order, problems := gaffer.ParseWorkOrder(wo)
+	if problems != nil {
+		return nil, "", "", mcpWorkOrderProblems(problems)
+	}
+	if _, ok := args["pipelines"]; ok {
+		return nil, "", "", errWorkOrderConflict
+	}
+	if _, ok := args["objective"]; ok {
+		return nil, "", "", errWorkOrderConflict
+	}
+	if _, ok := args["pathway"]; ok {
+		return nil, "", "", errWorkOrderConflict
+	}
+	if continuing == "" {
+		if order.Continues != "" {
+			return nil, "", "", errors.New("A work order whose header carries continues is for reet_add_pipelines, not reet_start_outcome. Nothing was started.")
+		}
+	} else if order.Continues != continuing {
+		return nil, "", "", errors.New("This work order's continues must equal the outcome id it is adding pipelines to. Nothing was added.")
+	}
+	if order.Project != "" {
+		if project, perr := s.st.FolderProjectFor(uid, str("project_id")); perr == nil && !strings.EqualFold(project.Name, order.Project) {
+			return nil, "", "", errors.New("The work order's project, \"" + order.Project + "\", is not project_id's project, \"" + project.Name + "\". Nothing was started.")
+		}
+	}
+	return order.Sessions, order.Objective, order.Pathway, nil
+}
+
+// mcpWorkOrderPlan is a parsed work order's pipelines, named the way
+// reet_get_factory_outcome names a pipeline's stages and tiers: kind, tier
+// and, for a split stage, part. It carries no agent, model or crew: over MCP
+// those are never the work order's to set.
+func mcpWorkOrderPlan(order gaffer.WorkOrder) map[string]any {
+	sessions := []map[string]any{}
+	for _, piece := range order.Sessions {
+		stages := []map[string]any{}
+		for _, stage := range piece.Stages {
+			item := map[string]any{"kind": stage.Kind}
+			if stage.Tier != "" {
+				item["tier"] = stage.Tier
+			}
+			if stage.Part != "" {
+				item["part"] = stage.Part
+			}
+			stages = append(stages, item)
+		}
+		sessions = append(sessions, map[string]any{"title": piece.Title, "stages": stages})
+	}
+	return map[string]any{"sessions": sessions}
 }
 
 func mcpFactoryTool(name string) bool { return mcpFactoryReads[name] || mcpFactoryWrites[name] }
@@ -410,6 +494,22 @@ func (s *server) runMCPFactory(ctx context.Context, access mcpAccess, name strin
 		// Fifty pathways of twelve named stages do not fit one answer, so they are paged.
 		return mcpPage(out, args, nil)
 	}
+	// The dry run behind reet_start_outcome and reet_add_pipelines' own
+	// work_order argument: it starts nothing and asks no model anything.
+	if name == "reet_check_work_order" {
+		order, problems := gaffer.ParseWorkOrder(str("work_order"))
+		out := map[string]any{"ok": problems == nil}
+		if problems != nil {
+			out["problems"] = problems
+			return out, nil
+		}
+		out["problems"] = []gaffer.WorkOrderProblem{}
+		out["plan"] = mcpWorkOrderPlan(order)
+		if len(order.Crew) > 0 {
+			out["note"] = "The crew suggestion applies only when a person pastes the work order. Over MCP the saved crew decides."
+		}
+		return out, nil
+	}
 	id, key := str("outcome_id"), str("pipeline")
 	if name == "reet_get_factory_outcome" {
 		o, err := s.gafferProviders.Outcome(uid, id)
@@ -424,6 +524,16 @@ func (s *server) runMCPFactory(ctx context.Context, access mcpAccess, name strin
 			}
 		}
 		return map[string]any{"outcome": s.mcpOutcome(uid, o, full)}, nil
+	}
+	// The mirror of reet_get_factory_outcome, in the work order's own
+	// Markdown shape: handovers go only to a management connection, the same
+	// rule reet_get_factory_outcome follows.
+	if name == "reet_get_work_report" {
+		o, err := s.gafferProviders.Outcome(uid, id)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"outcome_id": id, "report": gaffer.WorkReport(o, full)}, nil
 	}
 	confirmed := args["confirm"] == true
 	needsConfirm := name == "reet_tell_pipeline_agent" || name == "reet_start_outcome" || name == "reet_add_pipelines" || name == "reet_send_pipeline_back" || name == "reet_move_pipeline_on" || name == "reet_approve_pipeline_merge" || name == "reet_stop_outcome"
@@ -497,7 +607,7 @@ func (s *server) runMCPFactory(ctx context.Context, access mcpAccess, name strin
 	applied := true
 	switch name {
 	case "reet_start_outcome":
-		pipelines, perr := mcpPipelines(args["pipelines"], str("pathway") != "")
+		pipelines, objective, pathwayArg, perr := s.mcpPipelinesOrWorkOrder(uid, args, str, "")
 		if perr != nil {
 			return nil, perr
 		}
@@ -531,21 +641,21 @@ func (s *server) runMCPFactory(ctx context.Context, access mcpAccess, name strin
 				return nil, errors.New("balance_below is a whole number from 5 to 90.")
 			}
 		}
-		pathway, perr := s.mcpUsePathway(uid, str("pathway"), pipelines)
+		pathway, perr := s.mcpUsePathway(uid, pathwayArg, pipelines)
 		if perr != nil {
 			return nil, perr
 		}
-		o, err = s.gafferProviders.CreateOutcome(uid, gaffer.OutcomeInput{Objective: str("objective"), ProjectID: str("project_id"), Tool: str("agent"), Model: str("model"), Sessions: pipelines, BalanceBelow: balanceBelow, MaxReviews: 12, Hours: 24, Confirmed: true, AutoReport: args["reports_by_itself"] == true, RequestID: str("request_id")})
+		o, err = s.gafferProviders.CreateOutcome(uid, gaffer.OutcomeInput{Objective: objective, ProjectID: str("project_id"), Tool: str("agent"), Model: str("model"), Sessions: pipelines, BalanceBelow: balanceBelow, MaxReviews: 12, Hours: 24, Confirmed: true, AutoReport: args["reports_by_itself"] == true, RequestID: str("request_id")})
 		id = o.ID
 		if err == nil {
 			s.recordPathwaySkills(uid, pathway, o, len(pipelines))
 		}
 	case "reet_add_pipelines":
-		pipelines, perr := mcpPipelines(args["pipelines"], str("pathway") != "")
+		pipelines, _, pathwayArg, perr := s.mcpPipelinesOrWorkOrder(uid, args, str, id)
 		if perr != nil {
 			return nil, perr
 		}
-		pathway, perr := s.mcpUsePathway(uid, str("pathway"), pipelines)
+		pathway, perr := s.mcpUsePathway(uid, pathwayArg, pipelines)
 		if perr != nil {
 			return nil, perr
 		}

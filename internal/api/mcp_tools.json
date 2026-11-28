@@ -480,6 +480,107 @@
     }
   },
   {
+    "name": "reet_check_work_order",
+    "title": "Check a work order before starting it",
+    "description": "Parse a work order and report its plan, without starting anything or asking any model: {ok, problems, plan}. plan names each pipeline’s stages and tiers the way reet_get_factory_outcome does. problems are line-numbered reasons it was refused; plan is only given when there are none. Use it before reet_start_outcome or reet_add_pipelines to catch a problem early. A crew suggestion in the work order is never applied here; the answer’s note says so. Open to the same connections the other Factory reads are. Does not change anything. Returns {data: object} as structured content and text.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "work_order": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 70000,
+          "description": "A work order: the versioned \"reet: work-order/1\" text format (a plain key: value header, then \"## Pipeline:\" sections), the same text a person can paste into the Factory page or an outside agent can read back as a work report. See the reet-integration skill. An alternative to pipelines, objective and pathway together: give one or the other, never both. A crew suggestion in its header is not applied over MCP; the saved crew decides."
+        },
+        "response_format": {
+          "default": "json",
+          "description": "JSON or a Markdown JSON code block.",
+          "type": "string",
+          "enum": [
+            "json",
+            "markdown"
+          ]
+        }
+      },
+      "required": [
+        "work_order"
+      ],
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "data": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": {}
+        }
+      },
+      "required": [
+        "data"
+      ],
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true
+    }
+  },
+  {
+    "name": "reet_get_work_report",
+    "title": "Read an outcome as a work report",
+    "description": "The mirror of a work order: one outcome written back out in the same text format, to copy to an outside agent or read directly. A management connection also receives each finished stage’s handover note, derived from session text; other connections receive states only, the same rule reet_get_factory_outcome follows. Its closing paragraph says how to add more work: answer with a work order whose header carries continues. Open to the same connections the other Factory reads are. Does not change anything. Returns {data: object} as structured content and text.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "outcome_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{32}$",
+          "description": "Exact outcome id from reet_list_factory."
+        },
+        "response_format": {
+          "default": "json",
+          "description": "JSON or a Markdown JSON code block.",
+          "type": "string",
+          "enum": [
+            "json",
+            "markdown"
+          ]
+        }
+      },
+      "required": [
+        "outcome_id"
+      ],
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "data": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": {}
+        }
+      },
+      "required": [
+        "data"
+      ],
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true
+    }
+  },
+  {
     "name": "reet_move_pipeline_on",
     "title": "Move a pipeline to its next stage",
     "description": "Requires management scope and a writer account. On the user’s word, close the stage in hand of one pipeline as it stands and have the controller start its next stage, without waiting for Gaffer’s review to find it done. Refused while Gaffer is reviewing that stage or when the pipeline has no stage in hand. It does not merge, approve or run anything. Pass stage, the stage you read as in hand. It is required, so a pipeline that has moved since is not moved again. Use only when the user asked to continue, skip or accept that stage. Returns {data: object} as structured content and text.",
@@ -944,15 +1045,15 @@
   {
     "name": "reet_start_outcome",
     "title": "Start a Factory outcome",
-    "description": "Requires management scope and a writer account. Approve an outcome on the user’s behalf: the controller starts each pipeline’s first stage as an agent session on the project’s machine and Gaffer follows it stage by stage. This starts real agents that run commands and may use the user’s agent and Gaffer credits. Sessions always start with ordinary approvals, never YOLO, with no folder trust, and every pipeline stops at Ready to merge and waits for the user. With pathway, each stage runs on the agent the pathway gives it or on its tier’s saved crew, and a pathway that can run on an agent needing folder trust is refused here. Use only when the user asked you to start exactly this work, with confirm=true. Returns {data: object} as structured content and text.",
+    "description": "Requires management scope and a writer account. Approve an outcome on the user’s behalf: the controller starts each pipeline’s first stage as an agent session on the project’s machine and Gaffer follows it stage by stage. This starts real agents that run commands and may use the user’s agent and Gaffer credits. Sessions always start with ordinary approvals, never YOLO, with no folder trust, and every pipeline stops at Ready to merge and waits for the user. With pathway, each stage runs on the agent the pathway gives it or on its tier’s saved crew, and a pathway that can run on an agent needing folder trust is refused here. work_order is an alternative to objective, pipelines and pathway together: give one or the other. With it, those three must be left out, and a header project, when given, must name project_id’s own project (in any letter case) or the call is refused; a header continues is refused, naming reet_add_pipelines. Use only when the user asked you to start exactly this work, with confirm=true. Returns {data: object} as structured content and text.",
     "inputSchema": {
       "type": "object",
       "properties": {
         "objective": {
+          "description": "What the user wants done, in their words. Leave out when work_order is given.",
           "type": "string",
           "minLength": 1,
-          "maxLength": 4000,
-          "description": "What the user wants done, in their words."
+          "maxLength": 4000
         },
         "project_id": {
           "type": "string",
@@ -977,6 +1078,7 @@
           "maxLength": 200
         },
         "pipelines": {
+          "description": "The pipelines to start. Leave out when work_order is given.",
           "minItems": 1,
           "maxItems": 5,
           "type": "array",
@@ -1099,6 +1201,12 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 60
+        },
+        "work_order": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 70000,
+          "description": "A work order: the versioned \"reet: work-order/1\" text format (a plain key: value header, then \"## Pipeline:\" sections), the same text a person can paste into the Factory page or an outside agent can read back as a work report. See the reet-integration skill. An alternative to pipelines, objective and pathway together: give one or the other, never both. A crew suggestion in its header is not applied over MCP; the saved crew decides."
         },
         "request_id": {
           "description": "Optional stable request ID, 32 lowercase hex characters. Keep it when retrying a call that was not answered: the same ID answers the outcome it already started instead of starting another.",
@@ -1131,10 +1239,8 @@
         }
       },
       "required": [
-        "objective",
         "project_id",
         "agent",
-        "pipelines",
         "confirm"
       ],
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -1165,7 +1271,7 @@
   {
     "name": "reet_add_pipelines",
     "title": "Add pipelines to an outcome",
-    "description": "Requires management scope and a writer account. Add up to five pipelines to an existing outcome; the controller starts them with the outcome’s agent. With pathway, each stage runs on the agent the pathway gives it or on its tier’s saved crew, and on an outcome approved without folder trust a pathway that can run on an agent needing it is refused. An outcome holds at most ten pipelines. Added pipelines never merge by themselves. Refused for an outcome that runs on YOLO: pipelines join one on the Factory page only. This starts real agents. Use only when the user asked for exactly these, with confirm=true. Returns {data: object} as structured content and text.",
+    "description": "Requires management scope and a writer account. Add up to five pipelines to an existing outcome; the controller starts them with the outcome’s agent. With pathway, each stage runs on the agent the pathway gives it or on its tier’s saved crew, and on an outcome approved without folder trust a pathway that can run on an agent needing it is refused. An outcome holds at most ten pipelines. Added pipelines never merge by themselves. Refused for an outcome that runs on YOLO: pipelines join one on the Factory page only. work_order is an alternative to pipelines and pathway together: give one or the other. With it, those two must be left out, and its header’s continues must equal outcome_id. This starts real agents. Use only when the user asked for exactly these, with confirm=true. Returns {data: object} as structured content and text.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1175,6 +1281,7 @@
           "description": "Exact outcome id from reet_list_factory."
         },
         "pipelines": {
+          "description": "The pipelines to add. Leave out when work_order is given.",
           "minItems": 1,
           "maxItems": 5,
           "type": "array",
@@ -1298,6 +1405,12 @@
           "minLength": 1,
           "maxLength": 60
         },
+        "work_order": {
+          "description": "A work order whose header carries continues: outcome_id. An alternative to pipelines and pathway: give one or the other.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 70000
+        },
         "confirm": {
           "type": "boolean",
           "description": "Must be true, and only when the user asked for exactly this change."
@@ -1314,7 +1427,6 @@
       },
       "required": [
         "outcome_id",
-        "pipelines",
         "confirm"
       ],
       "$schema": "https://json-schema.org/draft/2020-12/schema",

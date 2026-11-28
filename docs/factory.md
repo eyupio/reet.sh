@@ -518,15 +518,17 @@ that is on, and a suggestion that does not match one is dropped.
 
 ## From an AI client
 
-A connected AI client can read and steer the Factory through [MCP](mcp.md#read-and-steer-the-factory). The four
+A connected AI client can read and steer the Factory through [MCP](mcp.md#read-and-steer-the-factory). The six
 reads need a writer account; the rest also need a management connection.
 
 - `reet_list_factory` lists the outcomes as short rows, with each pipeline's state and the stage in hand, a page at a time.
 - `reet_get_factory_outcome` reads one outcome in full, or one of its pipelines; a management connection also receives handovers and Gaffer's report.
 - `reet_list_factory_projects` lists the projects an outcome can run in.
 - `reet_list_pathways` lists your pathways that are on, by name, description and stage names, never their prompts.
-- `reet_start_outcome` starts an outcome in a project, with ordinary approvals; it can start every pipeline on a pathway you name.
-- `reet_add_pipelines` adds up to five pipelines to an outcome, on a pathway if you name one.
+- `reet_check_work_order` parses a work order and reports its plan and problems, without starting anything.
+- `reet_get_work_report` reads an outcome as a work report; a management connection also receives handovers.
+- `reet_start_outcome` starts an outcome in a project, with ordinary approvals; it can start every pipeline on a pathway you name, or take a work order instead of naming pipelines, objective and pathway yourself.
+- `reet_add_pipelines` adds up to five pipelines to an outcome, on a pathway if you name one, or from a work order whose `continues` names the outcome.
 - `reet_move_pipeline_on` closes the stage in hand, which you name as the outcome lists it, and starts the next.
 - `reet_tell_pipeline_agent` queues your instruction for the working agent of the stage in hand.
 - `reet_send_pipeline_back` has the stage in hand, or an earlier one, named as the outcome lists it, done again with your reason.

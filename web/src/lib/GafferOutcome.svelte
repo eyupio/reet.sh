@@ -4,7 +4,8 @@
   // controller start each session through the ordinary launch and put it in Gaffer's care. This dialog only watches:
   // the work carries on if it is closed. Nothing starts on the model's say-so: a proposed session is text until Approve.
   import { onMount, tick, untrack } from 'svelte'
-  import { ApiError, createGafferOutcome, diffGafferTemplate, getGafferCrew, getGafferTemplate, launchGafferTemplate, type Template, type TemplateDiff, type TemplateLaunchInput, type GafferOutcomeInput, saveGafferCrew, type GafferCrew, getGafferOutcome, getGafferSettings, getProfile, getYoloSetting, listGafferPathways, listModelFavourites, planGafferOutcome, type GafferOutcomePlan, type Pathway, type GafferPlanPhase, stopGafferOutcome, type GafferOutcome, type GafferProvider, type YoloSetting } from './api'
+  import { ApiError, checkWorkOrder, createGafferOutcome, diffGafferTemplate, getGafferCrew, getGafferTemplate, launchGafferTemplate, type Template, type TemplateDiff, type TemplateLaunchInput, type GafferOutcomeInput, saveGafferCrew, type GafferCrew, getGafferOutcome, getGafferSettings, getProfile, getYoloSetting, listGafferPathways, listModelFavourites, planGafferOutcome, type GafferOutcomePlan, type Pathway, type GafferPlanPhase, stopGafferOutcome, type GafferOutcome, type GafferProvider, type YoloSetting } from './api'
+  import CopyButton from './CopyButton.svelte'
   import { chatToolName, launchUpload, listFolderProjects, machineAccounts, machineModels, structuredAgent, terminalMachines, type FolderProject, type TerminalMachine } from './terminal/api'
   import { imageFiles } from './terminal/upload'
   import ImageAttachment from './ImageAttachment.svelte'
@@ -23,7 +24,7 @@
   import WorkspaceDialog from './terminal/WorkspaceDialog.svelte'
   import { readFloorDefaults, writeFloorDefaults } from './gafferFloor'
   import { BUILT_IN_GOAL_PROMPTS } from './gafferPrompts'
-  import { CREW_TIERS, DEFAULT_STAGES, defaultTier, MAX_OUTCOME_REPLY_BYTES, MAX_OUTCOME_SESSIONS, STAGES, carryCriteria, cleanCriteria, cleanPrompt, objectiveBlocker, orderStages, outcomeSummary, planBlocker, previousPlan, replyBlocker, stagePlan, stageLabel, stageTier, tierLabel, planRatings, withTier, startingProgress, wholeBetween, withReportedEfforts, type Crew, type PlanSession, type PlanTurn, BALANCE_LOW_PERCENT, BALANCE_MIN_PERCENT, BALANCE_MAX_PERCENT, balancePercent, stageParts, withPart, withoutParts, withNewPart, partsBlocker, stageTakesParts, MAX_BACKUPS, savedCrewRows } from './gafferOutcome'
+  import { CREW_TIERS, DEFAULT_STAGES, defaultTier, MAX_OUTCOME_REPLY_BYTES, MAX_OUTCOME_SESSIONS, STAGES, carryCriteria, cleanCriteria, cleanPrompt, objectiveBlocker, orderStages, outcomeSummary, planBlocker, previousPlan, replyBlocker, stagePlan, stageLabel, stageTier, tierLabel, planRatings, withTier, startingProgress, wholeBetween, withReportedEfforts, type Crew, type CrewTier, type PlanSession, type PlanTurn, BALANCE_LOW_PERCENT, BALANCE_MIN_PERCENT, BALANCE_MAX_PERCENT, balancePercent, stageParts, withPart, withoutParts, withNewPart, partsBlocker, stageTakesParts, MAX_BACKUPS, savedCrewRows, isWorkOrder, workOrderSessions, workOrderCrew, outsideAgentPrompt, type WorkOrderProblem } from './gafferOutcome'
   import StageParts from './factory/StageParts.svelte'
   import LaunchReadiness from './factory/LaunchReadiness.svelte'
   import TemplateChanges from './factory/TemplateChanges.svelte'
@@ -98,6 +99,10 @@
   let planning = $state(false), planError = $state(''), summary = $state(''), sessions = $state<PlanSession[]>([])
   // The reply a person sends to a proposal, and the exchange it belongs to. A declined proposal starts nothing.
   let reply = $state(''), planThread = $state<PlanTurn[]>([]), declined = $state(false), declining = $state(false)
+  // A pasted work order: whether the objective looks like one, the problems its check found, and its notes, said above
+  // the pipelines once the paste is read. workOrderEl is the problem list, focused so the person lands on it.
+  const isWO = $derived(isWorkOrder(objective))
+  let workOrderProblems = $state<WorkOrderProblem[]>([]), workOrderNotes = $state<string[]>([]), workOrderEl = $state<HTMLElement>()
   const replyProblem = $derived(replyBlocker(reply))
   let maxReviews = $state(12), hours = $state(24)
   // The pathway every pipeline follows, or '' for the stages chosen here. A failed read offers none, and the dialog is as it was.
@@ -230,14 +235,29 @@
   // The tiers whose first choice the person changed here, so each can be put back as the dialog started it.
   let editedRoles = $state<Partial<Record<keyof Crew, boolean>>>({})
   const savedHere = (tier: keyof Crew) => { const member = savedCrew?.[tier]; return !!member?.tool && tools.includes(member.tool) }
+  // The tiers a pasted work order suggested its own agent for, so each stage line and the crew editor can say so.
+  let workOrderSuggested = $state<Partial<Record<CrewTier, boolean>>>({})
+  const anySuggested = $derived(CREW_TIERS.some(({ tier }) => workOrderSuggested[tier]))
+  // Restores every tier to the saved crew, backups included, undoing what a work order suggested.
+  function useSavedCrew() { for (const { tier } of CREW_TIERS) applySavedTier(tier) }
   // A tier's first choice as the dialog starts it: the saved crew's where this machine can run it, else the outcome's own agent.
+  // Explicitly setting a tier this way is never the work order's own suggestion any more.
   function startTier(tier: keyof Crew) {
     const member = savedCrew?.[tier], useSaved = savedHere(tier)
-    chosenRoles[tier] = useSaved; editedRoles[tier] = false; droppedEffort[tier] = ''
+    chosenRoles[tier] = useSaved; editedRoles[tier] = false; droppedEffort[tier] = ''; workOrderSuggested[tier] = false
     crew[tier] = useSaved
       ? { tool: member!.tool!, model: member!.model ?? '', effort: member!.effort ?? '', source: member!.provider ?? '' }
       : { tool, model, effort, source: chosenSource }
     crewSourceExplicit[tier] = useSaved && !!member!.provider
+  }
+  // The tier's first choice and its backups exactly as the saved crew gives them for this machine, falling back to
+  // no backup when it cannot run them. Shared by the dialog's own start (the mount effect below) and "Use my saved crew".
+  function applySavedTier(tier: keyof Crew) {
+    startTier(tier)
+    const member = savedCrew?.[tier]
+    const spares = [member?.backup, ...(member?.moreBackups ?? [])].flatMap(one => one?.tool && tools.includes(one.tool) ? [{ tool: one.tool, model: one.model ?? '', effort: one.effort ?? '', source: one.provider ?? '' }] : [])
+    backups[tier] = spares[0] ?? { tool: '', model: '', effort: '' }
+    more[tier] = spares.slice(1, MAX_BACKUPS)
   }
   // The saved default for who decides is where this dialog starts; the person still chooses for this outcome.
   onMount(() => { void getGafferCrew(life.signal).then(answer => { if (life.signal.aborted) return; if (answer.saved) { savedCrew = answer.crew; crewRead = 'saved'; if (answer.crew.gafferDecides) automation = true } else crewRead = 'empty' }).catch(() => { if (!life.signal.aborted) crewRead = 'failed' }) })
@@ -246,13 +266,7 @@
     if (!host || !available.includes(tool) || crewRead === 'reading' || crewMachine === host) return
     crewMachine = host
     untrack(() => {
-      for (const { tier } of CREW_TIERS) {
-        const member = saved?.[tier]
-        startTier(tier)
-        const spares = [member?.backup, ...(member?.moreBackups ?? [])].flatMap(one => one?.tool && available.includes(one.tool) ? [{ tool: one.tool, model: one.model ?? '', effort: one.effort ?? '', source: one.provider ?? '' }] : [])
-        backups[tier] = spares[0] ?? { tool: '', model: '', effort: '' }
-        more[tier] = spares.slice(1, MAX_BACKUPS)
-      }
+      for (const { tier } of CREW_TIERS) applySavedTier(tier)
       if (saved?.balanceBelow) balanceBelow = balancePercent(saved.balanceBelow)
       crewNote = CREW_TIERS.some(({ tier }) => chosenRoles[tier]) ? 'Started from your saved crew.' : ''
     })
@@ -314,7 +328,7 @@
   const efforts = (id: string) => reportedEfforts(id, machine?.capabilities)
   // The effort a crew role asked for (saved, or typed) and the machine does not report: it is cleared above, and kept here so the plan can say so.
   let droppedEffort = $state<Record<string, string>>({})
-  const edit = (tier: 'heavy' | 'standard' | 'light') => { chosenRoles[tier] = true; editedRoles[tier] = true; droppedEffort[tier] = '' }
+  const edit = (tier: 'heavy' | 'standard' | 'light') => { chosenRoles[tier] = true; editedRoles[tier] = true; droppedEffort[tier] = ''; workOrderSuggested[tier] = false }
   // A chosen level the agent no longer reports (another project's machine, or a crew role's own agent) goes back to the
   // agent's default, so what is shown is what the outcome will start with.
   // Nothing is cleared while the machine's capabilities are not known: a guess would only lose the person's choice.
@@ -361,7 +375,7 @@
     return Object.fromEntries(CREW_TIERS.map(({ tier }) => {
       const one = sentFor(tier), asked = one.effort || (chosenRoles[tier] ? droppedEffort[tier] : '') || ''
       const spares = [one.backup, ...(one.moreBackups ?? [])].flatMap(spare => spare ? [{ tool: spare.tool, model: spare.model ?? '', effort: spare.effort ?? '' }] : [])
-      return [tier, launchReadiness({ machine, tools, efforts, models: modelsFor, accounts: machine ? accounts[machine.agentId] : undefined, now, member: { tool: one.tool, model: one.model, effort: asked }, spares, saved: savedFor(tier), edited: !!chosenRoles[tier] })]
+      return [tier, launchReadiness({ machine, tools, efforts, models: modelsFor, accounts: machine ? accounts[machine.agentId] : undefined, now, member: { tool: one.tool, model: one.model, effort: asked }, spares, saved: savedFor(tier), edited: !!chosenRoles[tier], suggested: !!workOrderSuggested[tier] })]
     })) as Record<'heavy' | 'standard' | 'light', ReturnType<typeof launchReadiness>>
   })
   // With a pathway, what each of its stages runs on, as the controller resolves it (outcomePieces): the stage's own agent
@@ -465,7 +479,7 @@
     }
   }
   function pickCrewSource(role: keyof Crew, next: string) {
-    chosenRoles[role] = true; editedRoles[role] = true
+    chosenRoles[role] = true; editedRoles[role] = true; workOrderSuggested[role] = false
     crew[role] = { ...crew[role], source: next }
     crewSourceExplicit[role] = true
   }
@@ -489,6 +503,42 @@
     if (cloning || blocker) return
     if (!(await ensureProject())) return
     summary = ''; sessions = [{ key: key(), title: '', prompt: '', stages: [...DEFAULT_STAGES] }]; planError = ''; reply = ''; planThread = []; declined = false; followPlan(); step = 'plan'
+  }
+  // A pasted work order asks nothing of a model: it is checked against this account's own projects, pathways and
+  // outcomes, then opens the plan review already filled in. It needs no provider and no project chosen beforehand,
+  // since the order can name its own.
+  async function readWorkOrder() {
+    if (planning) return
+    planning = true; planError = ''; workOrderProblems = []; workOrderNotes = []
+    try {
+      const res = await checkWorkOrder(objective, life.signal)
+      if (res.problems.length || !res.order) {
+        workOrderProblems = res.problems
+        await tick()
+        workOrderEl?.focus()
+        return
+      }
+      const order = res.order
+      objective = order.objective
+      if (res.projectId) projectId = res.projectId
+      if (res.pathwayId) { pathwayId = res.pathwayId; pathwayTouched = true }
+      workOrderNotes = res.notes
+      summary = ''; reply = ''; planThread = []; declined = false
+      sessions = workOrderSessions(order)
+      if (order.crew) {
+        const { crew: next, from } = workOrderCrew(crewSent, order.crew, tools)
+        workOrderSuggested = from
+        for (const tier of ['heavy', 'standard', 'light'] as CrewTier[]) {
+          const member = next[tier]
+          crew[tier] = { tool: member.tool, model: member.model, effort: member.effort ?? '', source: member.source ?? '' }
+          backups[tier] = member.backup ? { tool: member.backup.tool, model: member.backup.model, effort: member.backup.effort ?? '', source: member.backup.source } : { tool: '', model: '', effort: '' }
+          more[tier] = (member.more ?? []).map(one => ({ tool: one.tool, model: one.model, effort: one.effort ?? '', source: one.source }))
+          if (from[tier]) { chosenRoles[tier] = true; editedRoles[tier] = true }
+        }
+      }
+      step = 'plan'
+    } catch (e) { if (!life.signal.aborted) planError = e instanceof Error ? e.message : 'The work order could not be checked.' }
+    finally { planning = false }
   }
   // A reply is sent back to Gaffer with the proposal it answers, and the revised plan replaces the rows. The person's
   // words stay in the review as part of the exchange; nothing is saved or started until the existing approve action.
@@ -629,17 +679,18 @@
     </ol>
     {#if step === 'objective'}
       <p>Describe the result you want. Gaffer can draft the plan for your approval. Once you start it, track the work in Factory.</p>
-      <p><button class="link" type="button" onclick={() => { pickingId = ''; picking = true }}>Start from a template</button></p>
+      <p><button class="link" type="button" onclick={() => { pickingId = ''; picking = true }}>Start from a template</button> <CopyButton compact text={outsideAgentPrompt(location.origin, { project: project?.name, pathways: pathways.map(item => item.name), savedTiers: savedCrewRows(savedCrew).map(row => row.tier) })} label="Copy prompt for an outside agent" copiedLabel="Copied"/></p>
       {#if loading}<p role="status">Reading your projects…</p>
       {:else if loadError}<p class="warning" role="alert">{loadError}</p>
       {:else}
-        <form onsubmit={event => { event.preventDefault(); void ask() }}>
+        <form onsubmit={event => { event.preventDefault(); if (isWO) void readWorkOrder(); else void ask() }}>
           <label for={`${formId}-objective`}>Outcome</label>
           <textarea id={`${formId}-objective`} bind:value={objective} rows="4" maxlength="4000" placeholder="Ship CSV export for billing: an API endpoint, a button on the billing page, and tests." disabled={planning} onpaste={pasted}></textarea>
+          {#if isWO}<p class="hint"><strong>This is a work order.</strong> Reading it checks it against your own projects, pathways and outcomes; nothing is sent to a model.</p>{/if}
           <ImageAttachment bind:files={images} max={MAX_ATTACHMENTS} label="Attach an image to the outcome" disabled={planning} busy={imageUploading} error={imageError} />
           {@render where()}
-          {@render savedCrewBlock()}
-          {@render crewDetails()}
+          {#if !isWO}{@render savedCrewBlock()}{@render crewDetails()}{/if}
+          {#if isWO && workOrderProblems.length}<ul class="warning work-order-problems" role="alert" tabindex="-1" bind:this={workOrderEl}>{#each workOrderProblems as problem (problem.line + problem.text)}<li>Line {problem.line}: {problem.text}</li>{/each}</ul>{/if}
           {#if github}
             <div class="repo-field">
               <label for={`${formId}-gh-repo`}>Repository</label>
@@ -651,11 +702,14 @@
           {#if cloneLine}<p class="hint" role="status">{cloneLine}</p>{/if}
           {#if !projects.length && !github}<p class="hint">No projects yet. Choose <strong>A repository from GitHub…</strong> above, or <a href="/">add a project on Home</a>, so sessions have a folder to work in.</p>{/if}
           {#if project && !project.isRepo}<p class="hint">This folder is not a git repository, so several sessions would share the same files. One session is safest.</p>{/if}
-          {#if provider}<p class="hint">Gaffer plans with {provider.name} · {provider.model || 'model not chosen'}. It is sent only what you type here and the project’s name, and may use provider credits.</p>{/if}
-          {#if blocker}<p class={provider&&!objective.trim()?'hint':'warning'} role="status">{blocker}{#if !provider}{' '}<a href="/account/gaffer">Open Gaffer settings</a>{/if}</p>{/if}
+          {#if !isWO && provider}<p class="hint">Gaffer plans with {provider.name} · {provider.model || 'model not chosen'}. It is sent only what you type here and the project’s name, and may use provider credits.</p>{/if}
+          {#if !isWO && blocker}<p class={provider&&!objective.trim()?'hint':'warning'} role="status">{blocker}{#if !provider}{' '}<a href="/account/gaffer">Open Gaffer settings</a>{/if}</p>{/if}
           {@render planProgress()}
           {#if planError}<p class="warning" role="alert">{planError}</p>{/if}
-          <div class="actions"><button class="btn primary" type="submit" disabled={planning || cloning || !!blocker}>{cloning ? 'Cloning…' : planning ? 'Gaffer is planning…' : 'Ask Gaffer for a plan'}</button><button class="btn quiet" type="button" disabled={planning || cloning || !!blocker} onclick={() => void writeOwn()}>Write the plan myself</button></div>
+          <div class="actions">
+            {#if isWO}<button class="btn primary" type="submit" disabled={planning}>{planning ? 'Reading…' : 'Read the work order'}</button>
+            {:else}<button class="btn primary" type="submit" disabled={planning || cloning || !!blocker}>{cloning ? 'Cloning…' : planning ? 'Gaffer is planning…' : 'Ask Gaffer for a plan'}</button><button class="btn quiet" type="button" disabled={planning || cloning || !!blocker} onclick={() => void writeOwn()}>Write the plan myself</button>{/if}
+          </div>
         </form>
       {/if}
     {:else if step === 'plan' && template}
@@ -701,6 +755,7 @@
       {#if images.length}<p class="hint" role="status">{images.length === 1 ? 'The attached image travels' : `All ${images.length} attached images travel`} with every pipeline this outcome starts.</p>{/if}
       {#if !pathway}{@render crewDetails()}{/if}
       {@render readinessPanel()}
+      {#if workOrderNotes.length}<ul class="hint work-order-notes">{#each workOrderNotes as note (note)}<li>{note}</li>{/each}</ul>{/if}
       <ol class="plan" aria-label="Planned sessions">
         {#each sessions as item, index (item.key)}<li>
           <div class="plan-head"><label for={`${formId}-${item.key}-title`}>Pipeline {index + 1}</label><button class="link" type="button" aria-label={`Remove pipeline ${index + 1}`} onclick={() => removeSession(item.key)}>Remove</button></div>
@@ -931,12 +986,14 @@
             </div>
             {@render balanceField()}
             <p class="hint">{anyBackup ? `A stage starts on its tier’s backup when the first choice’s plan has under ${balancePercent(balanceBelow)}% left in its tightest window and the backup’s has more. The stage says when that happened and why.` : 'No tier has a backup yet, so every stage runs on its first choice.'} Balancing needs the machine to be able to read the agent’s plan; without figures every stage stays on its first choice.</p>
-            <p class="crew-save"><button class="link" type="button" disabled={planning || busy || crewSaving || !tools.length} onclick={() => void rememberCrew()}>{crewSaving ? 'Saving…' : 'Save as my crew'}</button> <span role="status">{crewNote}</span></p>
+            <p class="crew-save">{#if anySuggested}<button class="link" type="button" disabled={planning || busy} onclick={useSavedCrew}>Use my saved crew</button> {/if}<button class="link" type="button" disabled={planning || busy || crewSaving || !tools.length} onclick={() => void rememberCrew()}>{crewSaving ? 'Saving…' : 'Save as my crew'}</button> <span role="status">{crewNote}</span></p>
           </details>
 {/snippet}
 
 <style>
   .outcome{display:grid;gap:14px;min-width:0;font-size:14px;line-height:1.5}p{margin:0;overflow-wrap:anywhere}.hint{color:var(--muted)}.warning{color:var(--bad)}
+  .work-order-problems,.work-order-notes{list-style:none;margin:0;padding:0;display:grid;gap:4px;overflow-wrap:anywhere}
+  .work-order-problems:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
   form{display:grid;gap:12px;min-width:0}label{font-weight:600;display:grid;gap:6px;min-width:0}
   textarea,input,select{font:inherit;font-weight:400;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px 12px;min-width:0;width:100%;max-width:100%;min-height:44px;box-sizing:border-box}textarea{resize:vertical}
   .pathway-choice{display:contents}

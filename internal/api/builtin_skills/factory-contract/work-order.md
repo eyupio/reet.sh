@@ -59,7 +59,7 @@ Any other key is refused. There is no key for YOLO, folder trust, merging, appro
 
 ## A pipeline
 
-Start each with `## Pipeline: <title>`. Titles are unique within the order. Then, in this order:
+Start each with `## Pipeline: <title>`. Pipeline titles are unique within the order. Part titles are unique within their stage. Then, in this order:
 
 1. Optional setting lines directly under the heading: `stages:` and `tiers:`, each at most once.
 2. The brief: self-contained prose. Say what to change, where, and how it will be checked.
@@ -82,7 +82,7 @@ cannot reorder them. A pipeline on a pathway takes no `stages:`.
 
 Split a stage into parts when its pieces are separate work. Only `plan`, `design`, `code`, `review` and `test` split.
 Write `### Part: code / Streaming writer`: the stage, a slash, the part's title. The stage must be one the pipeline
-has. Then an optional `tier:` line, then the part's brief, which every part needs. A stage has no parts, or two to
+has. Then an optional `tier:` line, then the part's brief, which every part needs. Part titles are unique within a stage. A stage has no parts, or two to
 four. Parts of a stage run in the order written.
 
 ### Tiers
@@ -121,6 +121,14 @@ The ones you are most likely to meet:
 - `This controller reads work-order/1 only. Write reet: work-order/1.`
 - `The header has no “<key>” key. Use reet, objective, project, crew, pathway or continues.`
 - `Add an objective: line to the header.`
+- `Write the objective as plain text of up to 4000 bytes.`
+- `Write each header line as key: value.`
+- `The header gives “<key>” twice. Keep one.`
+- `Give “<key>” a value, or remove the line.` (for `project`, `pathway` or `continues`)
+- `“<key>” is a name of 1 to 80 plain characters. Shorten it.` (for `project` or `pathway`)
+- `The header needs a closing --- line.`
+- `Add at least one ## Pipeline: <title> section.`
+- `Give the pipeline a title of 1 to 80 plain characters.`
 - `Send the work order on its own, or inside one code fence. Remove the text before it.`
 - `Send one work order per paste. Remove everything from this line on.`
 - `Start each pipeline with ## Pipeline: <title>.`
@@ -137,6 +145,8 @@ The ones you are most likely to meet:
 - `Write each criterion as a list item starting with “- ”.`
 - `A work order has at most 5 pipelines. Remove this one, or send it in another work order.`
 - `Give each pipeline its own title; “<title>” is used twice.`
+- `Write a prompt of at most 8,000 bytes without control characters for “<title>”.` (a pipeline brief that is empty, too long or holds control characters; this refusal is for the whole text, line 0)
+- `A split stage of “<title>” has up to 4 parts, each with its own short name and a brief saying what it does. The pull request, babysitting and merge are not split.` (a part with a duplicate title, an empty brief or one over 1200 bytes)
 - `The work order is over 64 KB. Shorten the briefs.`
 
 Fix every problem and send the whole work order again.

@@ -24,7 +24,11 @@ Rules:
   `continues takes an outcome's id, as written in its work report.`
 - `objective` is not needed and is ignored: the outcome keeps its own.
 - `crew:` is refused. The outcome's crew was chosen when it started.
-- `project:` is not needed. The outcome stays in its project.
+- `project:` is not needed. The outcome stays in its project. If given, it must name that project.
+- reet checks that the outcome is one of the person's that is still running. Otherwise: `No running outcome of yours has that id. Copy a fresh report from the outcome and use its id.`
+- `pathway:` may be given with `continues`. The new pipelines then follow that pathway under the pathway rules (no
+  `stages:`, `tiers:` or parts; see [pathways.md](pathways.md)), and the pathway must be switched on. Leave it out to
+  add pipelines with the standard stages.
 - Each `## Pipeline:` section is added as a new pipeline, under the same rules as a first work order, and the
   person confirms it first. At most 5 pipelines in one order.
 - Do not repeat work that is `done`. Say in the brief what the earlier pipelines already did, and what is left.

@@ -135,3 +135,16 @@ func TestIntegrationSkillEveryWorkOrderShownParses(t *testing.T) {
 		}
 	}
 }
+
+func TestIntegrationSkillReportExampleIsTheGolden(t *testing.T) {
+	doc := contractTopic(t, "work-report.md")
+	_, rest, _ := strings.Cut(doc, "\n```markdown\n")
+	block, _, _ := strings.Cut(rest, "\n```\n")
+	want, err := os.ReadFile("../gaffer/testdata/workreport_golden.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if block+"\n" != string(want) {
+		t.Fatalf("the example in work-report.md differs from the golden report:\n%s", block)
+	}
+}

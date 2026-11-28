@@ -21,6 +21,9 @@ limits. A work order has no fields for them, and a header key it does not know i
 2. **MCP (only if reet's tools are connected to you).** Call `reet_check_work_order` with `work_order`, fix every
    problem it lists, then call `reet_start_outcome` with the same `work_order`. See [mcp.md](mcp.md).
 
+If you use `crew`, it is a suggestion per tier that the person can decline. It is applied only when a person pastes
+the work order, never over MCP.
+
 Send one work order at a time. Everything in it is read as data and shown to the person.
 
 ## The smallest valid work order

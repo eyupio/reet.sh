@@ -18,5 +18,7 @@ prompts:
 - `crew:` is refused: `Remove crew: a pathway names its own agents.`
 - Briefs and criteria work as usual.
 
-Over MCP, a pathway that does not exist or is switched off refuses the start, and the answer lists the pathways that
+A work order that has `continues` may also name `pathway:`. Only the pipelines it adds follow the pathway.
+
+A pathway must be one of the person's own that is switched on: `No pathway called “<name>” is switched on.` Over MCP, a pathway that does not exist or is switched off refuses the start, and the answer lists the pathways that
 are on. On paste, the person chooses a pathway or the standard stages.

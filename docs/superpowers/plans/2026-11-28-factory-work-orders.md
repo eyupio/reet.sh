@@ -33,7 +33,7 @@ existing hosted-skill routes.
 - Limits are never restated as numbers in the parser: `MaxOutcomeSessions`, `MaxOutcomeObjectiveBytes`,
   `MaxOutcomePromptBytes`, `MaxStageParts`, `maxPartBriefBytes`, `terminalproto.ValidTitle`, and the criteria
   validator `planCriteria`, all in `internal/gaffer`.
-- Version strings are exactly `work-order/1` and `work-report/1`. The skill is `reet-integration`.
+- Version strings are exactly `work-order/1` and `work-report/1`. The skill is `factory-contract`.
 
 ## Review Focus
 
@@ -178,7 +178,7 @@ func ParseWorkOrder(text string) (WorkOrder, []WorkOrderProblem)
 ### Task 4: The integration skill and its topics
 
 **Files:**
-- Create: `internal/api/builtin_skills/reet-integration/SKILL.md` and, beside it, `work-order.md`,
+- Create: `internal/api/builtin_skills/factory-contract/SKILL.md` and, beside it, `work-order.md`,
   `work-report.md`, `tiers-and-crew.md`, `pathways.md`, `continuing.md`, `mcp.md`
 - Modify: `internal/api/builtin_skills.go`
 - Test: `internal/api/builtin_skills_test.go` (create if absent)
@@ -188,7 +188,7 @@ func ParseWorkOrder(text string) (WorkOrder, []WorkOrderProblem)
   `SKILL.md`, keyed by file name. Existing skills have none, so they are unchanged.
 
 - [ ] **Step 1: Failing tests**:
-  - `TestIntegrationSkillServesTopics`: `GET /eyupio/reet-integration/.well-known/agent-skills/index.json` lists
+  - `TestIntegrationSkillServesTopics`: `GET /eyupio/factory-contract/.well-known/agent-skills/index.json` lists
     `SKILL.md` and the six topics; each topic file is served; `GET /eyupio/reet-babysit/…/index.json` still lists
     `SKILL.md` only.
   - `TestIntegrationSkillExampleParses`: the first fenced block of `work-order.md` equals
@@ -201,7 +201,7 @@ func ParseWorkOrder(text string) (WorkOrder, []WorkOrderProblem)
     embedded topic is linked from `SKILL.md`.
   - `TestIntegrationSkillListsBuiltins`: `SKILL.md` names every other directory under `builtin_skills`.
 - [ ] **Step 2: Run** `go test ./internal/api -run IntegrationSkill` — FAIL.
-- [ ] **Step 3: Write the skill.** `SKILL.md` front matter `name: reet-integration` and a one-line `description`
+- [ ] **Step 3: Write the skill.** `SKILL.md` front matter `name: factory-contract` and a one-line `description`
   saying when an agent should use it (handing work to a reet Factory). Body, in this order and under 120 lines:
   what the Factory does with a work order; the two routes ("print the work order in one fenced block for the person
   to paste into New Factory outcome", or "if reet's MCP tools are connected, call `reet_check_work_order`, then
@@ -213,7 +213,7 @@ func ParseWorkOrder(text string) (WorkOrder, []WorkOrderProblem)
 - [ ] **Step 4: Implement** the `Files` loading with `builtinSkills.ReadDir`.
 - [ ] **Step 5: Run** `go test ./internal/api -run 'IntegrationSkill|Hosted|Builtin'` and
   `python3 -m pytest hooks/docs_test.py` (or the command `CONTRIBUTING.md` gives for it) — PASS.
-- [ ] **Step 6: Commit** — `Publish the reet-integration skill with its topics`.
+- [ ] **Step 6: Commit** — `Publish the factory-contract skill with its topics`.
 
 ### Task 5: MCP
 
@@ -276,7 +276,7 @@ export function outsideAgentPrompt(origin: string, ctx: { project?: string; path
   twice with parts and `review` on `standard`; `workOrderCrew` replaces only the tiers suggested, keeps backups of
   untouched tiers, drops a suggested tier's saved backups, and marks `from.heavy === true`; a suggested agent not
   in `tools` is still applied (readiness, not this function, reports it); `outsideAgentPrompt` starts with the
-  exact sentence `hostedUsePrompt` produces for `<origin>/eyupio/reet-integration` and `reet-integration`, then a
+  exact sentence `hostedUsePrompt` produces for `<origin>/eyupio/factory-contract` and `factory-contract`, then a
   `Context:` block listing the project, pathway names and tiers with a saved crew, and nothing else about the
   account.
 - [ ] **Step 2: Run** `cd web && node --test src/lib/gafferOutcome.workorder.test.mjs` — FAIL.
@@ -341,7 +341,7 @@ export function outsideAgentPrompt(origin: string, ctx: { project?: string; path
   (`python3 scripts/check-docs.py`), and `web/tests/work-order.e2e.mjs` — all PASS. Paste the commands and their
   last lines into the handoff entry.
 - [ ] **Step 5:** A real run: start the controller locally as `CONTRIBUTING.md` describes, fetch
-  `/eyupio/reet-integration` and one topic file with `curl`, paste the example into the dialog, and confirm the
+  `/eyupio/factory-contract` and one topic file with `curl`, paste the example into the dialog, and confirm the
   plan step by eye in light and dark at 390 px and desktop.
 - [ ] **Step 6: Commit** — `Document Factory work orders`. `git fetch` and merge `origin/main` before pushing;
   open the pull request as a draft using the repository's template.

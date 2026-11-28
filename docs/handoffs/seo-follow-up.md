@@ -5,7 +5,7 @@ read from the GitHub repository alone; do not depend on a local worktree, an unt
 
 The full audit and its status update are in [SEO_AUDIT.md](../../SEO_AUDIT.md). The top-level current state is in
 [handoff.md](../../handoff.md) and its [log](log/); the original `SEO-1` entry is in the
-[archive](../archive.md).
+[archive](archive.md).
 
 ## What is already on `main`
 

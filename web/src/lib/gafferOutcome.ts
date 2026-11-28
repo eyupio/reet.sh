@@ -7,7 +7,7 @@ export const MAX_PLAN_PROMPT_BYTES = 8000
 export const MAX_PLAN_TITLE = 80
 const OUTCOME_PREFIX = 'Outcome: '
 
-export type PlanSession = { key: string; title: string; prompt: string; stages?: string[]; /** The acceptance criteria the person agrees for this pipeline; empty rows are dropped when sent. */ criteria?: string[]; /** The tier of each stage that is not on its default, and Gaffer's reasons. */ tiers?: Record<string, 'heavy' | 'standard' | 'light'>; whys?: Record<string, string>; /** The parts a stage is split into, by stage kind, in the order they run. */ parts?: Record<string, StagePart[]> }
+export type PlanSession = { key: string; title: string; prompt: string; stages?: string[]; /** The acceptance criteria the person agrees for this pipeline; empty rows are dropped when sent. */ criteria?: string[]; /** The tier of each stage that is not on its default, and Gaffer's reasons. */ tiers?: Record<string, 'heavy' | 'standard' | 'light'>; whys?: Record<string, string>; /** The parts a stage is split into, by stage kind, in the order they run. */ parts?: Record<string, StagePart[]>; /** The row came from a pasted work order, so a tier it set is the work order's, not Gaffer's. */ from?: 'order' }
 /** One part of a split stage: a short name, what it does, and how demanding it is. `why` is Gaffer's reason for the tier. */
 export type StagePart = { title: string; brief: string; tier: 'heavy' | 'standard' | 'light'; why?: string }
 /** How many parts a stage can be split into. */
@@ -766,4 +766,41 @@ const DECISION_DID: Record<string, string> = { again: 'Reviewed the stage again'
 /** One of Gaffer's decisions in words: what had stopped the stage, and what Gaffer did about it. */
 export function decisionText(d: { about: string; choice?: string; failed?: boolean }): { about: string; did: string } {
   return { about: DECISION_ABOUT[d.about] ?? 'The stage stopped', did: d.failed || !d.choice ? 'Left to you' : DECISION_DID[d.choice] ?? d.choice }
+}
+
+// Work orders. An outside agent writes one with the factory-contract skill; pasted as the outcome, the controller reads it
+// (POST /api/v2/gaffer/work-orders/check) and the plan review opens filled in. It is data: nothing in it is obeyed beyond
+// its fields, and its crew is a suggestion for this outcome only.
+export type WorkOrderMember = { tool: string; model?: string; effort?: string }
+export type WorkOrder = { objective: string; project?: string; pathway?: string; continues?: string; crew?: Partial<Record<CrewTier, WorkOrderMember>>; sessions: { title: string; prompt: string; stages?: { kind: string; tier?: string; part?: string; brief?: string }[]; criteria?: string[] }[] }
+/** Whether a paste is meant as a work order: a `---` line with `reet: work-order/` on the next, as gaffer.IsWorkOrder reads it. */
+export function isWorkOrder(text: string): boolean {
+  const lines = text.replace(/^\uFEFF/, '').split(/\r\n|\r|\n/)
+  return lines.some((line, at) => line.trim() === '---' && (lines[at + 1] ?? '').trim().startsWith('reet: work-order/'))
+}
+/** A work order's pipelines as the plan review's rows: stages, tiers, parts and criteria. */
+export function workOrderSessions(order: WorkOrder): PlanSession[] {
+  return order.sessions.map((item, at) => ({ key: `order-${at + 1}`, title: item.title, prompt: item.prompt, from: 'order' as const, stages: item.stages?.length ? orderStages([...new Set(item.stages.map(stage => stage.kind))]) : [...DEFAULT_STAGES], ...planRatings(item.stages), ...(item.criteria?.length ? { criteria: [...item.criteria] } : {}) }))
+}
+/** The crew with a work order's suggestions in place: each tier it names takes that agent, model and effort and none of
+ *  the saved backups; the other tiers are left as they are. An agent this machine lacks is still applied, so Launch
+ *  readiness, not this, says it cannot start; `tools` (the machine's agents) is taken for that reason and changes nothing. */
+export function workOrderCrew(crew: Crew, suggested: WorkOrder['crew'], tools: string[]): { crew: Crew; from: Record<CrewTier, boolean> } {
+  void tools
+  const out = { ...crew }, from: Record<CrewTier, boolean> = { heavy: false, standard: false, light: false }
+  for (const { tier } of CREW_TIERS) {
+    const one = suggested?.[tier]
+    if (!one?.tool) continue
+    out[tier] = { tool: one.tool, model: one.model ?? '', effort: one.effort ?? '' }
+    from[tier] = true
+  }
+  return { crew: out, from }
+}
+/** Copy prompt for an outside agent: the factory-contract skill's use line, as its public page gives it (hostedUsePrompt
+ *  in internal/api/hosted.go, installPrompt in install.ts; a test keeps them equal), then what the dialog already holds.
+ *  Nothing else about the account goes in it. The sentence is written out here because this file imports nothing. */
+export function outsideAgentPrompt(origin: string, ctx: { project?: string; pathways: string[]; savedTiers: CrewTier[] }): string {
+  const use = `Run \`npx skills@1.7.4 use "${origin}/eyupio/factory-contract" --skill "factory-contract"\` and follow the generated skill instructions now. Read its complete output, redirecting it to a temporary file first if necessary. Resolve relative paths from the supporting-files directory it provides.`
+  const list = (items: string[]) => items.map(oneLine).filter(Boolean).join(', ') || 'none'
+  return `${use}\n\nContext:\n- Project: ${oneLine(ctx.project ?? '') || 'not chosen yet'}\n- Pathways switched on: ${list(ctx.pathways)}\n- Tiers with a saved crew: ${list(ctx.savedTiers)}`
 }

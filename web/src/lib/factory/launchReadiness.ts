@@ -20,7 +20,7 @@ export type Fact = {
 }
 /** Where the agent came from: the saved crew's tier, the outcome's own agent, the person's change in this dialog, the
  *  outcome's agent because the saved crew's is not on this machine, a pathway stage's own agent, or a crew not read. */
-export type AgentSource = 'saved' | 'outcome' | 'chosen' | 'fallback' | 'pathway' | 'unknown'
+export type AgentSource = 'saved' | 'outcome' | 'chosen' | 'order' | 'fallback' | 'pathway' | 'unknown'
 export type Choice = { tool: string; model: string; effort?: string }
 export type SpareReadiness = {
   agent: string; model: string; effort: string
@@ -76,6 +76,8 @@ export type ReadinessInput = {
   edited: boolean
   /** Where a pathway stage's agent comes from; absent for an ordinary tier. */
   origin?: PathwayRunOrigin
+  /** The tier is on what a pasted work order suggested for this outcome. */
+  suggested?: boolean
 }
 
 /** The server balances only on figures read within this long (internal/gaffer/outcome_balance.go). */
@@ -92,9 +94,10 @@ const capital = (word: string) => word ? word[0].toUpperCase() + word.slice(1) :
 /** The accounts the controller holds for the machine, whether or not the latest read succeeded. */
 const kept = (accounts: MachineAccounts | null | undefined): AgentAccount[] => accounts?.accounts ?? []
 
-export function agentSource(input: Pick<ReadinessInput, 'saved' | 'edited' | 'member' | 'tools' | 'origin'>): AgentSource {
+export function agentSource(input: Pick<ReadinessInput, 'saved' | 'edited' | 'member' | 'tools' | 'origin' | 'suggested'>): AgentSource {
   const { saved, edited, member, tools, origin } = input
   if (origin) return origin === 'saved-crew' ? 'saved' : origin === 'unknown-crew' ? 'unknown' : origin
+  if (input.suggested) return 'order'
   if (!edited) return saved?.tool && !tools.includes(saved.tool) ? 'fallback' : 'outcome'
   const same = saved?.tool === member.tool && (saved.model ?? '') === member.model.trim() && (saved.effort ?? '') === (member.effort ?? '')
   return same ? 'saved' : 'chosen'
@@ -106,6 +109,7 @@ function sourceFact(source: AgentSource, input: ReadinessInput): Fact {
   if (source === 'unknown') return fact('missing', 'Crew not known', 'Your saved Factory crew could not be read, so what this stage runs on is not known.')
   if (source === 'saved') return fact('ready', 'Saved crew', 'From your saved crew for this tier.')
   if (source === 'chosen') return fact('ready', 'Your choice', 'Chosen for this outcome.')
+  if (source === 'order') return fact('ready', 'Suggested by the work order', 'Suggested by the work order you pasted, for this outcome only. Your saved crew is not changed.')
   if (source === 'fallback') return fact('unavailable', 'Outcome’s agent', `${name(input.saved?.tool ?? '')} from your saved crew is not on ${input.machine?.host || 'this machine'}, so this tier uses the outcome’s agent, ${agent}.`)
   return input.saved === null
     ? fact('missing', 'Outcome’s agent', `No crew is saved for this tier, so it uses the outcome’s agent, ${agent}.`)

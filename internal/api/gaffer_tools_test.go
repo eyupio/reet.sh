@@ -28,6 +28,23 @@ func TestGafferToolsOutsideTheFactoryReturnOthersText(t *testing.T) {
 	}
 }
 
+// The two work-order read tools land in the Factory: read group, and are not
+// wrongly excluded from carrying session text: a work report can carry a
+// management connection's handover prose.
+func TestGafferToolsClassifiesWorkOrderToolsAsFactoryReads(t *testing.T) {
+	for _, name := range []string{"reet_check_work_order", "reet_get_work_report"} {
+		if !mcpFactoryReads[name] {
+			t.Fatalf("%s is not a Factory read", name)
+		}
+		if gafferToolGroup(name, true) != "Factory: read" {
+			t.Fatalf("%s group: %s", name, gafferToolGroup(name, true))
+		}
+		if !gafferToolReturnsSessionText(name) {
+			t.Fatalf("%s should not be excluded from carrying session text", name)
+		}
+	}
+}
+
 func TestGafferToolsAreOffUntilChosenAndRunAsTheAccount(t *testing.T) {
 	t.Parallel()
 	st, err := store.Open(t.TempDir())

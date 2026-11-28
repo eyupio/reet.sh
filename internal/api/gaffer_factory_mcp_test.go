@@ -432,6 +432,231 @@ func TestMCPStandardStartStillDefaultsItsStages(t *testing.T) {
 	}
 }
 
+// sampleWorkOrder is a minimal, clean work order whose project header names
+// project (matched case-insensitively against a Factory project's name).
+func sampleWorkOrder(project string) string {
+	return "---\nreet: work-order/1\nobjective: Tidy the logs.\nproject: " + project + "\n---\n\n## Pipeline: Logs\n\nstages: code, review\ntiers: code=heavy\n\nTidy the logs. Do not merge.\n\n### Criteria\n\n- Logs are tidy\n"
+}
+
+func sampleWorkOrderWithCrew() string {
+	return "---\nreet: work-order/1\nobjective: Tidy the logs.\ncrew: heavy=claude\n---\n\n## Pipeline: Logs\n\nTidy the logs. Do not merge.\n"
+}
+
+func continuesWorkOrderMCP(id, title string) string {
+	return "---\nreet: work-order/1\ncontinues: " + id + "\n---\n\n## Pipeline: " + title + "\n\nDo more.\n"
+}
+
+// A clean work order starts an outcome with ordinary approvals: its stages,
+// tiers and criteria carry through, and the project header's case-insensitive
+// match against project_id's project is not a refusal.
+func TestFactoryMCPStartsAnOutcomeFromAWorkOrder(t *testing.T) {
+	t.Parallel()
+	s, user, write, project, _ := factoryMCPPathways(t)
+	args := map[string]any{"project_id": project, "agent": "opencode", "confirm": true, "work_order": sampleWorkOrder("Billing")}
+	out, err := s.executeMCPFactory(context.Background(), write, "reet_start_outcome", args)
+	if err != nil || out["applied"] != true {
+		t.Fatalf("start: %v %v", out, err)
+	}
+	rows, err := s.st.GafferOutcomesFor(user.ID)
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("outcomes: %d %v", len(rows), err)
+	}
+	o := rows[0]
+	if o.Yolo {
+		t.Fatal("started as YOLO")
+	}
+	piece := o.Sessions[0]
+	if stageLabels(piece) != "code,review" {
+		t.Fatalf("stages: %s", stageLabels(piece))
+	}
+	if piece.Stages[0].Tier != "heavy" {
+		t.Fatalf("tier: %+v", piece.Stages[0])
+	}
+	if len(piece.Criteria) != 1 || piece.Criteria[0].Text != "Logs are tidy" {
+		t.Fatalf("criteria: %v", piece.Criteria)
+	}
+	if piece.AutoMerge {
+		t.Fatal("auto-merge set")
+	}
+}
+
+// work_order given alongside pipelines, objective or pathway is refused
+// without starting anything.
+func TestFactoryMCPWorkOrderRefusesAlongsideItsOwnArguments(t *testing.T) {
+	t.Parallel()
+	s, _, write, project, _ := factoryMCPPathways(t)
+	want := "Give a work order or these arguments, not both. Nothing was started."
+	for name, extra := range map[string]map[string]any{
+		"pipelines": {"pipelines": []any{map[string]any{"title": "Logs", "prompt": "Tidy."}}},
+		"objective": {"objective": "Tidy the logs."},
+		"pathway":   {"pathway": "Careful"},
+	} {
+		args := map[string]any{"project_id": project, "agent": "opencode", "confirm": true, "work_order": sampleWorkOrder("Billing")}
+		for k, v := range extra {
+			args[k] = v
+		}
+		if _, err := s.executeMCPFactory(context.Background(), write, "reet_start_outcome", args); err == nil || err.Error() != want {
+			t.Fatalf("%s: %v", name, err)
+		}
+	}
+	if rows, err := s.st.GafferOutcomesFor(1); err != nil || len(rows) != 0 {
+		t.Fatalf("an outcome was saved: %d %v", len(rows), err)
+	}
+}
+
+// A work order's project header that does not match project_id's project is
+// refused; nothing is started.
+func TestFactoryMCPWorkOrderProjectMustMatchProjectID(t *testing.T) {
+	t.Parallel()
+	s, _, write, project, _ := factoryMCPPathways(t)
+	_, err := s.executeMCPFactory(context.Background(), write, "reet_start_outcome", map[string]any{"project_id": project, "agent": "opencode", "confirm": true, "work_order": sampleWorkOrder("not-billing")})
+	if err == nil || !strings.Contains(err.Error(), "not-billing") || !strings.Contains(err.Error(), "Nothing was started.") {
+		t.Fatalf("project mismatch: %v", err)
+	}
+}
+
+// A work order that continues an outcome is for reet_add_pipelines, not
+// reet_start_outcome.
+func TestFactoryMCPWorkOrderContinuesRefusedForStartOutcome(t *testing.T) {
+	t.Parallel()
+	s, _, write, project, _ := factoryMCPPathways(t)
+	wo := continuesWorkOrderMCP(strings.Repeat("a", 32), "Logs")
+	_, err := s.executeMCPFactory(context.Background(), write, "reet_start_outcome", map[string]any{"project_id": project, "agent": "opencode", "confirm": true, "work_order": wo})
+	if err == nil || !strings.Contains(err.Error(), "reet_add_pipelines") {
+		t.Fatalf("continues on start: %v", err)
+	}
+}
+
+// A parse problem refuses with the problem; nothing is started.
+func TestFactoryMCPWorkOrderParseProblemRefusesWithTheProblem(t *testing.T) {
+	t.Parallel()
+	s, _, write, project, _ := factoryMCPPathways(t)
+	_, err := s.executeMCPFactory(context.Background(), write, "reet_start_outcome", map[string]any{"project_id": project, "agent": "opencode", "confirm": true, "work_order": "not a work order"})
+	if err == nil || !strings.Contains(err.Error(), "This is not a work order") {
+		t.Fatalf("parse problem: %v", err)
+	}
+	if rows, err := s.st.GafferOutcomesFor(1); err != nil || len(rows) != 0 {
+		t.Fatalf("an outcome was saved: %d %v", len(rows), err)
+	}
+}
+
+// reet_add_pipelines from a work order requires continues to equal the
+// outcome being added to.
+func TestFactoryMCPAddPipelinesFromWorkOrderRequiresMatchingContinues(t *testing.T) {
+	t.Parallel()
+	s, user, write, project, _ := factoryMCPPathways(t)
+	ctx := context.Background()
+	if _, err := s.executeMCPFactory(ctx, write, "reet_start_outcome", pathwayStartArgs(project, "", nil)); err != nil {
+		t.Fatal(err)
+	}
+	rows, _ := s.st.GafferOutcomesFor(user.ID)
+	outcomeID := rows[0].ID
+	wrong := continuesWorkOrderMCP(strings.Repeat("z", 32), "More")
+	if _, err := s.executeMCPFactory(ctx, write, "reet_add_pipelines", map[string]any{"outcome_id": outcomeID, "confirm": true, "work_order": wrong}); err == nil {
+		t.Fatal("mismatched continues accepted")
+	}
+	right := continuesWorkOrderMCP(outcomeID, "More")
+	out, err := s.executeMCPFactory(ctx, write, "reet_add_pipelines", map[string]any{"outcome_id": outcomeID, "confirm": true, "work_order": right})
+	if err != nil || out["applied"] != true {
+		t.Fatalf("add with matching continues: %v %v", out, err)
+	}
+	o, err := s.st.GafferOutcomeFor(user.ID, outcomeID)
+	if err != nil || len(o.Sessions) != 2 || o.Sessions[1].Title != "More" {
+		t.Fatalf("added pipeline: %+v %v", o, err)
+	}
+}
+
+// The existing YOLO refusal for reet_add_pipelines is unchanged when the
+// pipelines come from a work order.
+func TestFactoryMCPAddPipelinesFromWorkOrderRefusedOnYOLO(t *testing.T) {
+	t.Parallel()
+	s, user, write, _, _ := factoryMCPPathways(t)
+	yolo, err := s.st.CreateGafferOutcomeFor(user.ID, store.GafferOutcome{ID: strings.Repeat("y", 32), Objective: "Ship it.", Yolo: true, Sessions: []store.GafferOutcomeSession{{Key: "a", Title: "Part", Prompt: "Do it.", RequestID: strings.Repeat("8", 32)}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wo := continuesWorkOrderMCP(yolo.ID, "More")
+	_, err = s.executeMCPFactory(context.Background(), write, "reet_add_pipelines", map[string]any{"outcome_id": yolo.ID, "confirm": true, "work_order": wo})
+	if err == nil || !strings.Contains(err.Error(), "runs on YOLO") {
+		t.Fatalf("yolo + work_order: %v", err)
+	}
+}
+
+// reet_check_work_order is open to a read-scope connection, answers a clean
+// order's plan named the way reet_get_factory_outcome names stages and
+// tiers, and notes that crew is not applied over MCP.
+func TestFactoryMCPCheckWorkOrderReportsPlanAndCrewNote(t *testing.T) {
+	t.Parallel()
+	s, user, _, _, _ := factoryMCPPathways(t)
+	read := mcpAccess{User: user, Connection: store.MCPConnection{ID: 9, Name: "reader", Scope: "read"}}
+	out, err := s.executeMCPFactory(context.Background(), read, "reet_check_work_order", map[string]any{"work_order": sampleWorkOrderWithCrew()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out["ok"] != true {
+		t.Fatalf("ok: %v", out)
+	}
+	plan, ok := out["plan"].(map[string]any)
+	if !ok {
+		t.Fatalf("plan: %v", out)
+	}
+	sessions, ok := plan["sessions"].([]map[string]any)
+	if !ok || len(sessions) != 1 || sessions[0]["title"] != "Logs" {
+		t.Fatalf("plan sessions: %v", plan)
+	}
+	if out["note"] != "The crew suggestion applies only when a person pastes the work order. Over MCP the saved crew decides." {
+		t.Fatalf("note: %v", out["note"])
+	}
+}
+
+// A work order with a problem has no plan, and ok is false.
+func TestFactoryMCPCheckWorkOrderWithProblemsHasNoPlan(t *testing.T) {
+	t.Parallel()
+	s, _, write, _, _ := factoryMCPPathways(t)
+	out, err := s.executeMCPFactory(context.Background(), write, "reet_check_work_order", map[string]any{"work_order": "not a work order"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out["ok"] != false {
+		t.Fatalf("ok: %v", out)
+	}
+	problems, ok := out["problems"].([]gaffer.WorkOrderProblem)
+	if !ok || len(problems) != 1 {
+		t.Fatalf("problems: %v", out)
+	}
+	if _, hasPlan := out["plan"]; hasPlan {
+		t.Fatal("plan present despite problems")
+	}
+}
+
+// reet_get_work_report carries handover text only for a management
+// connection, the rule reet_get_factory_outcome follows.
+func TestFactoryMCPGetWorkReportHidesHandoversFromAReadOnlyConnection(t *testing.T) {
+	t.Parallel()
+	s, user, _ := factoryMCPFixture(t)
+	o := factoryRecord(t, s, user.ID, "g", "ready_to_merge", func(p *store.GafferOutcomeSession) {
+		p.Stages[0].Summary = "Did the thing."
+	})
+	read := mcpAccess{User: user, Connection: store.MCPConnection{ID: 9, Name: "reader", Scope: "read"}}
+	out, err := s.executeMCPFactory(context.Background(), read, "reet_get_work_report", map[string]any{"outcome_id": o.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	report, ok := out["report"].(string)
+	if !ok || strings.Contains(report, "### Handover") || strings.Contains(report, "Did the thing.") {
+		t.Fatalf("read-only report: %s", report)
+	}
+	write := mcpAccess{User: user, Connection: store.MCPConnection{ID: 2, Name: "manager", Scope: "write"}}
+	out2, err := s.executeMCPFactory(context.Background(), write, "reet_get_work_report", map[string]any{"outcome_id": o.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	report2, _ := out2["report"].(string)
+	if !strings.Contains(report2, "### Handover") || !strings.Contains(report2, "Did the thing.") {
+		t.Fatalf("management report: %s", report2)
+	}
+}
+
 // A custom stage is read by its name, sent back to by it, and a stage the
 // pipeline does not have is refused with the names of those it has.
 func TestMCPNamesACustomStage(t *testing.T) {

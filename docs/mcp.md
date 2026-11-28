@@ -169,8 +169,8 @@ background supervision or grant themselves that authority.
 
 ## Read and steer the Factory
 
-Four tools read the Factory for any connection on a writer account. Two are described here. The other two, `reet_list_factory_projects` and
-`reet_list_pathways`, are described below the controls:
+Six tools read the Factory for any connection on a writer account. Three are described here. The other three, `reet_list_factory_projects`,
+`reet_list_pathways` and `reet_get_work_report`, are described below the controls:
 
 - `reet_list_factory` lists the outcomes, newest first, as short rows: `id`,
   `state`, `objective` (clipped to 200 characters), `project` and, for each
@@ -212,6 +212,12 @@ Four tools read the Factory for any connection on a writer account. Two are desc
   characters): `pipeline`, a key from `reet_list_factory`, reads one of them.
   Each stage has a `name`: the built-in stage's name, or the name of a stage of the person's own pathway. A pipeline that
   was started on a pathway has `pathway`, its name.
+- `reet_check_work_order` is the dry run behind `work_order` on `reet_start_outcome` and `reet_add_pipelines`: it
+  parses a work order (see the reet-integration skill) and answers `{ok, problems, plan}`, starting nothing and
+  asking no model anything. `problems` is a line-numbered list of why it was refused; `plan` is only given when
+  there are none, and names each pipeline's stages and tiers the way `reet_get_factory_outcome` does (`kind`,
+  `tier`, `part`). A work order whose header gives `crew` gets a `note`: the crew suggestion is not applied over
+  MCP, only when a person pastes the work order; the saved crew decides here as it always does.
 
 Ten more are the person's own controls and need management scope:
 
@@ -225,8 +231,8 @@ Ten more are the person's own controls and need management scope:
 | `reet_report_outcome` | One request to the Gaffer provider for a report; may use its credits. |
 | `reet_tell_pipeline_agent` | Queues your instruction for the working agent of a pipeline's stage in hand. Takes a stable `request_id`. `applied` is false when nothing was queued (the agent is waiting on an approval, say); trying again takes a new `request_id`. |
 | `reet_send_pipeline_back` | Has the stage in hand, or an earlier one, done again with your reason. Needs `confirm: true`. `stage` is the stage's name as the outcome lists it; a name the pipeline does not have is refused with the names it does. |
-| `reet_start_outcome` | Starts an outcome in a project: real agent sessions, with ordinary approvals. Needs `confirm: true`. A pipeline's `tiers` says how demanding a stage is (`light`, `standard` or `heavy`), which picks the agent and backup from the user's saved crew; `balance_below` sets when a backup takes over. A pipeline's `parts` splits a stage into two to four named parts, each with a brief and, if it differs, a tier. `pathway` (a pathway's id or its exact name, in any letter case, from `reet_list_pathways`) starts every pipeline on that saved pathway's stages instead; it is refused, with nothing started, if a pipeline also gives `stages`, `tiers` or `parts`, or if no pathway of that name is switched on (the refusal lists the ones that are). It cannot name an agent for a stage or give Gaffer the outcome's decisions. Pass a stable `request_id` to make a retry safe: asked again under the same one, it answers the outcome already started with `applied: false`. |
-| `reet_add_pipelines` | Adds up to five pipelines to an outcome. Needs `confirm: true`. Takes `pathway` as `reet_start_outcome` does, with the same refusals. |
+| `reet_start_outcome` | Starts an outcome in a project: real agent sessions, with ordinary approvals. Needs `confirm: true`. A pipeline's `tiers` says how demanding a stage is (`light`, `standard` or `heavy`), which picks the agent and backup from the user's saved crew; `balance_below` sets when a backup takes over. A pipeline's `parts` splits a stage into two to four named parts, each with a brief and, if it differs, a tier. `pathway` (a pathway's id or its exact name, in any letter case, from `reet_list_pathways`) starts every pipeline on that saved pathway's stages instead; it is refused, with nothing started, if a pipeline also gives `stages`, `tiers` or `parts`, or if no pathway of that name is switched on (the refusal lists the ones that are). It cannot name an agent for a stage or give Gaffer the outcome's decisions. `work_order` takes a work order instead of `pipelines`, `objective` and `pathway`: give one or the other, else the call is refused with nothing started; a header `project`, when given, must name `project_id`'s own project in any letter case, and a header `continues` is refused, naming `reet_add_pipelines`. Pass a stable `request_id` to make a retry safe: asked again under the same one, it answers the outcome already started with `applied: false`. |
+| `reet_add_pipelines` | Adds up to five pipelines to an outcome. Needs `confirm: true`. Takes `pathway` as `reet_start_outcome` does, with the same refusals. `work_order` takes a work order instead of `pipelines` and `pathway`; its header's `continues` must equal `outcome_id`, else the call is refused with nothing added. |
 
 `reet_list_factory_projects` (a read) lists the projects an outcome can run in.
 
@@ -234,6 +240,12 @@ Ten more are the person's own controls and need management scope:
 `description`, `stages` (their names, in order) and `problems`, the sentences that would refuse a start on it, empty when
 none. A pathway that is switched off is not listed. A stage's own prompt, model and skills are not included. The
 answer is paged like the other lists: `limit` and `offset`, with the rows in `items`.
+
+`reet_get_work_report` (a read) answers `{outcome_id, report}`: the outcome as a work report, the same Markdown
+format a work order uses. A management connection's `report` carries each finished stage's `### Handover` note; a
+read-only connection's does not, the same rule `reet_get_factory_outcome` follows for `handover`. The report's own
+closing line says how to add more work: answer with a work order whose header carries `continues: <outcome_id>`,
+which `reet_add_pipelines`' `work_order` argument then reads.
 
 Each control answers with the outcome in short, as `reet_list_factory` gives it, with `applied` and a `note`. Call `reet_get_factory_outcome` for every stage.
 

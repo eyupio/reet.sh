@@ -10,5 +10,9 @@ date in their heading; `git log --diff-filter=A -- docs/handoffs/log` lists them
 **Entries written before this layout** are in [docs/handoffs/archive.md](docs/handoffs/archive.md), newest first. Other
 pages cite them by ID (CREW-CHOICES-1, DESKS-1, MOBILE-2 and so on); search that file for the ID.
 
-User-facing changes also leave a changelog fragment in [changelog.d/](changelog.d/), for the same reason. See
-[CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md).
+The live continuation notes are [real-agent-checks.md](docs/handoffs/real-agent-checks.md),
+[seo-follow-up.md](docs/handoffs/seo-follow-up.md), [gaffer-continuation.md](docs/handoffs/gaffer-continuation.md) and
+[gaffer-resume.md](docs/handoffs/gaffer-resume.md). The rest of `docs/handoffs/` outside `log/` and `archive.md` is
+historical.
+
+The two-file rule is in [AGENTS.md](AGENTS.md); changelog fragments are in [changelog.d/](changelog.d/).

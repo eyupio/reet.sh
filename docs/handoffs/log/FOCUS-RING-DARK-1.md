@@ -1,4 +1,4 @@
-# FOCUS-RING-DARK-1: focus ring clears 3:1 in the dark theme
+## FOCUS-RING-DARK-1: focus ring clears 3:1 in the dark theme
 
 **What:** `web/src/app.css` gets a `--focus` token (the accent text tone) used by the global `:focus-visible` outline and by
 the border of a focused field. Dark: `#ed976e` (about 6.4:1 on the card), light: unchanged `#b84216`. `theme.test.mjs` checks

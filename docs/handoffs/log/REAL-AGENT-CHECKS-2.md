@@ -1,4 +1,4 @@
-# REAL-AGENT-CHECKS-2: real-agent plan covers batch rollback and remove, and fleet setup copy
+## REAL-AGENT-CHECKS-2: real-agent plan covers batch rollback and remove, and fleet setup copy
 
 **What:** `docs/handoffs/real-agent-checks.md` gains part 8 (software batches: default update, roll back, remove, refusals,
 connection loss, restart) and part 9 (copy a setup: read, merge plan, credential refusals, widening and the typed word, order,

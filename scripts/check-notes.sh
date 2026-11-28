@@ -1,12 +1,11 @@
 #!/bin/sh
-# Fails a pull request that leaves no handoff entry, and says when a change that people running reet would notice leaves no
-# changelog fragment. Both are new files, so two pull requests never conflict on them (see AGENTS.md).
+# Checks the two-file rule in AGENTS.md: fails a pull request that adds no handoff entry, and says when a change that
+# people running reet would notice leaves no changelog fragment.
 #
 #   scripts/check-notes.sh [BASE]     BASE is the branch to compare with (default origin/main)
 #
-# A handoff entry is a new docs/handoffs/log/*.md. A changelog fragment is a new changelog.d/*.md other than README.md. The
-# fragment is only advised, because only a person can say whether a change is visible to someone running reet; the entry is
-# required for every change.
+# A handoff entry is a new docs/handoffs/log/*.md. A changelog fragment is a new changelog.d/*.md other than README.md.
+# Only a person can say whether a change is visible to someone running reet, so the fragment is only advised.
 set -eu
 
 base=${1:-origin/main}

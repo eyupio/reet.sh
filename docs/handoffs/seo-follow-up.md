@@ -4,7 +4,8 @@ This handoff records the public-search work landed on 4 November 2026 and the re
 read from the GitHub repository alone; do not depend on a local worktree, an untracked file or a machine-specific path.
 
 The full audit and its status update are in [SEO_AUDIT.md](../../SEO_AUDIT.md). The top-level current state is in
-[handoff.md](../../handoff.md), section `SEO-1`.
+[handoff.md](../../handoff.md) and its [log](log/); the original `SEO-1` entry is in the
+[archive](../archive.md).
 
 ## What is already on `main`
 
@@ -142,7 +143,7 @@ Continue the SEO work on the public GitHub repository eyupio/reet.sh.
 
 Start by reading these files from the repository (use the GitHub repository as the source of truth, not a local
 worktree or untracked file):
-- handoff.md, section "SEO-1"
+- handoff.md and the latest entries in docs/handoffs/log/ (the original SEO-1 entry is in docs/handoffs/archive.md)
 - docs/handoffs/seo-follow-up.md
 - SEO_AUDIT.md, including the "Status update — 4 November 2026" section
 
@@ -167,7 +168,7 @@ Working rules:
   decision.
 - Do not invent search volumes, rankings, traffic or competitor weaknesses. Verify claims against the repository or
   the public site.
-- Update handoff.md and docs/handoffs/seo-follow-up.md in the same pull request when a task is completed.
+- Add a new docs/handoffs/log/<ID>.md entry and update docs/handoffs/seo-follow-up.md in the same pull request when a task is completed.
 - Open PRs against main, wait for green checks, and merge only when the PR is mergeable and green.
 
 Deliver the smallest useful next PR, report the PR number and checks, and leave the handoff describing the next

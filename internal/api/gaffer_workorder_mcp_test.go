@@ -70,6 +70,9 @@ func TestMCPStartsAWorkOrder(t *testing.T) {
 	if err != nil || len(o.Sessions) != 1 {
 		t.Fatalf("outcome: %+v %v", o, err)
 	}
+	if !strings.Contains(out["note"].(string), workOrderCrewNote) {
+		t.Fatalf("a start must say the crew was not applied: %v", out["note"])
+	}
 	if o.Objective != "Ship CSV export." || o.Yolo || o.Sessions[0].AutoMerge || stageLabels(o.Sessions[0]) != "code,review,test,pr,babysit,merge" || len(o.Sessions[0].Criteria) != 2 {
 		t.Fatalf("started: %+v", o)
 	}
@@ -85,6 +88,7 @@ func TestMCPWorkOrderRefusals(t *testing.T) {
 	}
 	started, _ := s.st.GafferOutcomesFor(write.User.ID)
 	id := started[0].ID
+	second := runningOutcome(t, s.st, write.User.ID, strings.Repeat("d", 32)).ID
 	cases := []struct {
 		name, tool string
 		args       map[string]any
@@ -95,7 +99,8 @@ func TestMCPWorkOrderRefusals(t *testing.T) {
 		{"with pathway", "reet_add_pipelines", map[string]any{"work_order": good, "outcome_id": id, "pathway": "x"}, "Give a work order or these arguments, not both. Nothing was started."},
 		{"other project", "reet_start_outcome", map[string]any{"work_order": mcpWorkOrder("objective: Ship.\nproject: Other\n", mcpOrderBody)}, "project"},
 		{"continues on start", "reet_start_outcome", map[string]any{"work_order": mcpWorkOrder("objective: Ship.\ncontinues: "+id+"\n", mcpOrderBody)}, "reet_add_pipelines"},
-		{"continues on another", "reet_add_pipelines", map[string]any{"work_order": mcpWorkOrder("continues: "+strings.Repeat("b", 32)+"\n", mcpOrderBody), "outcome_id": id}, "continues"},
+		{"continues missing", "reet_add_pipelines", map[string]any{"work_order": mcpWorkOrder("continues: "+strings.Repeat("b", 32)+"\n", mcpOrderBody), "outcome_id": id}, workOrderNotRunning},
+		{"continues another running", "reet_add_pipelines", map[string]any{"work_order": mcpWorkOrder("continues: "+second+"\n", mcpOrderBody), "outcome_id": id}, "continues another outcome"},
 		{"parse problem", "reet_start_outcome", map[string]any{"work_order": mcpWorkOrder("objective: Ship.\n", "## Pipeline: One\n")}, "Nothing was started."},
 	}
 	for _, c := range cases {
@@ -114,8 +119,8 @@ func TestMCPWorkOrderRefusals(t *testing.T) {
 		}
 	}
 	rows, _ := s.st.GafferOutcomesFor(write.User.ID)
-	if len(rows) != 1 {
-		t.Fatalf("a refusal started %d outcomes", len(rows)-1)
+	if len(rows) != 2 {
+		t.Fatalf("a refusal started %d outcomes", len(rows)-2)
 	}
 }
 
@@ -184,5 +189,49 @@ func TestMCPGivesAWorkReport(t *testing.T) {
 	out, err = s.executeMCPFactory(ctx, read, "reet_get_work_report", map[string]any{"outcome_id": rows[0].ID})
 	if err != nil || strings.Contains(out["report"].(string), "### Handover") || strings.Contains(out["report"].(string), "HANDOVER_NOTE") {
 		t.Fatalf("a read connection sees no handover: %v %v", out, err)
+	}
+}
+
+func TestMCPAddWorkOrderSaysTheCrewWasNotApplied(t *testing.T) {
+	t.Parallel()
+	s, user, write, project, _ := factoryMCPPathways(t)
+	ctx := context.Background()
+	if _, err := s.executeMCPFactory(ctx, write, "reet_start_outcome", pathwayStartArgs(project, "", nil)); err != nil {
+		t.Fatal(err)
+	}
+	rows, _ := s.st.GafferOutcomesFor(user.ID)
+	out, err := s.executeMCPFactory(ctx, write, "reet_add_pipelines", map[string]any{"outcome_id": rows[0].ID, "confirm": true, "work_order": mcpWorkOrder("objective: More.\ncrew: heavy=claude\n", mcpOrderBody)})
+	if err != nil || !strings.Contains(out["note"].(string), workOrderCrewNote) {
+		t.Fatalf("add: %v %v", out, err)
+	}
+}
+
+// Not yours, missing and finished are one answer, so nothing leaks.
+func TestMCPAddWorkOrderContinuesGivesOneAnswer(t *testing.T) {
+	t.Parallel()
+	s, user, write, _, _ := factoryMCPPathways(t)
+	ctx := context.Background()
+	other, err := s.st.CreateUser("other-wo@example.test", "Other", "member", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	theirs := runningOutcome(t, s.st, other.ID, strings.Repeat("e", 32)).ID
+	mine := runningOutcome(t, s.st, user.ID, strings.Repeat("f", 32))
+	if _, err := s.st.UpdateGafferOutcomeFor(user.ID, mine.ID, mine.Revision, func(o *store.GafferOutcome) bool {
+		o.State, o.Sessions[0].State = "stopped", "stopped"
+		return true
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var seen []string
+	for _, id := range []string{theirs, strings.Repeat("9", 32), mine.ID} {
+		_, err := s.executeMCPFactory(ctx, write, "reet_add_pipelines", map[string]any{"outcome_id": id, "confirm": true, "work_order": mcpWorkOrder("continues: "+id+"\n", mcpOrderBody)})
+		if err == nil {
+			t.Fatalf("%s: no refusal", id)
+		}
+		seen = append(seen, err.Error())
+	}
+	if seen[0] != workOrderNotRunning || seen[0] != seen[1] || seen[1] != seen[2] {
+		t.Fatalf("answers differ: %q", seen)
 	}
 }

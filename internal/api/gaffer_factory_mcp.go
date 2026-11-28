@@ -447,6 +447,13 @@ func (s *server) runMCPFactory(ctx context.Context, access mcpAccess, name strin
 	// back, a pipeline tried again or moved on, and a merge approved. A client
 	// can still read it, make a pipeline wait for approval, ask for a report
 	// and stop it.
+	// A work order that continues an outcome gets one sentence for not yours,
+	// not there, finished and archived, as the page's check gives.
+	if text, ok := args["work_order"].(string); ok && name == "reet_add_pipelines" {
+		if order, problems := gaffer.ParseWorkOrder(text); len(problems) == 0 && order.Continues != "" && !s.workOrderRunning(uid, order.Continues) {
+			return nil, errors.New(workOrderNotRunning)
+		}
+	}
 	if name == "reet_tell_pipeline_agent" || name == "reet_add_pipelines" || name == "reet_send_pipeline_back" ||
 		name == "reet_retry_pipeline" || name == "reet_move_pipeline_on" || name == "reet_approve_pipeline_merge" {
 		cur, err := s.gafferProviders.Outcome(uid, id)
@@ -503,12 +510,14 @@ func (s *server) runMCPFactory(ctx context.Context, access mcpAccess, name strin
 	}
 	var o store.GafferOutcome
 	var err error
+	crewIgnored := false
 	// applied says whether the call changed anything; a control that found
 	// nothing to do says so instead of reporting a change.
 	applied := true
 	switch name {
 	case "reet_start_outcome":
-		objective, pathwayName, pipelines, perr := s.mcpPipelinesFor(uid, name, args, "")
+		objective, pathwayName, pipelines, crew, perr := s.mcpPipelinesFor(uid, name, args, "")
+		crewIgnored = crew
 		if perr != nil {
 			return nil, perr
 		}
@@ -552,7 +561,8 @@ func (s *server) runMCPFactory(ctx context.Context, access mcpAccess, name strin
 			s.recordPathwaySkills(uid, pathway, o, len(pipelines))
 		}
 	case "reet_add_pipelines":
-		_, pathwayName, pipelines, perr := s.mcpPipelinesFor(uid, name, args, id)
+		_, pathwayName, pipelines, crew, perr := s.mcpPipelinesFor(uid, name, args, id)
+		crewIgnored = crew
 		if perr != nil {
 			return nil, perr
 		}
@@ -625,49 +635,55 @@ func (s *server) runMCPFactory(ctx context.Context, access mcpAccess, name strin
 		return map[string]any{"outcome": mcpOutcomeRow(o), "applied": false, "note": "Nothing was changed: this outcome had already finished. " + mcpOutcomeMore}, nil
 	}
 	s.event(uid, "mcp", "mcp-factory-control", "", map[string]any{"connection": access.Connection.Name, "tool": name, "outcome": id, "pipeline": key})
-	return map[string]any{"outcome": mcpOutcomeRow(o), "applied": true, "note": mcpOutcomeMore}, nil
+	note := mcpOutcomeMore
+	if crewIgnored {
+		note = workOrderCrewNote + " " + note
+	}
+	return map[string]any{"outcome": mcpOutcomeRow(o), "applied": true, "note": note}, nil
 }
+
+const workOrderCrewNote = "The crew suggestion applies only when a person pastes the work order. Over MCP the saved crew decides."
 
 // mcpPipelinesFor is what a start or an add is asked to run: the pipelines,
 // objective and pathway of its own arguments, or of its work order. A work
 // order and those arguments are not both taken, and nothing in it chooses a
 // crew, YOLO or a merge. The rest of a start or an add is the same either way.
-func (s *server) mcpPipelinesFor(uid int64, tool string, args map[string]any, outcomeID string) (objective, pathway string, pipelines []gaffer.OutcomeSession, err error) {
+func (s *server) mcpPipelinesFor(uid int64, tool string, args map[string]any, outcomeID string) (objective, pathway string, pipelines []gaffer.OutcomeSession, crewIgnored bool, err error) {
 	str := func(key string) string { v, _ := args[key].(string); return v }
 	text, given := args["work_order"].(string)
 	if !given {
 		pipelines, err = mcpPipelines(args["pipelines"], str("pathway") != "")
-		return str("objective"), str("pathway"), pipelines, err
+		return str("objective"), str("pathway"), pipelines, false, err
 	}
 	if args["pipelines"] != nil || str("objective") != "" || str("pathway") != "" {
-		return "", "", nil, errors.New("Give a work order or these arguments, not both. Nothing was started.")
+		return "", "", nil, false, errors.New("Give a work order or these arguments, not both. Nothing was started.")
 	}
 	order, problems := gaffer.ParseWorkOrder(text)
 	if len(problems) > 0 {
-		return "", "", nil, errors.New("The work order has problems: " + mcpProblemLines(problems) + " Nothing was started.")
+		return "", "", nil, false, errors.New("The work order has problems: " + mcpProblemLines(problems) + " Nothing was started.")
 	}
 	adding := tool == "reet_add_pipelines"
 	switch {
 	case order.Continues != "" && !adding:
-		return "", "", nil, errors.New("A work order that continues an outcome is given to reet_add_pipelines, not reet_start_outcome. Nothing was started.")
+		return "", "", nil, false, errors.New("A work order that continues an outcome is given to reet_add_pipelines, not reet_start_outcome. Nothing was started.")
 	case order.Continues != "" && order.Continues != outcomeID:
-		return "", "", nil, errors.New("The work order continues another outcome than outcome_id. Nothing was started.")
+		return "", "", nil, false, errors.New("The work order continues another outcome than outcome_id. Nothing was started.")
 	}
 	if order.Project != "" {
 		project := args["project_id"]
 		if adding {
 			o, oerr := s.gafferProviders.Outcome(uid, outcomeID)
 			if oerr != nil {
-				return "", "", nil, oerr
+				return "", "", nil, false, oerr
 			}
 			project = o.ProjectID
 		}
 		id, _ := project.(string)
 		if row, perr := s.st.FolderProjectFor(uid, id); perr != nil || !strings.EqualFold(row.Name, order.Project) {
-			return "", "", nil, errors.New("The work order is for the project “" + order.Project + "”, which is not the project given. Nothing was started.")
+			return "", "", nil, false, errors.New("The work order is for the project “" + order.Project + "”, which is not the project given. Nothing was started.")
 		}
 	}
-	return order.Objective, order.Pathway, order.Sessions, nil
+	return order.Objective, order.Pathway, order.Sessions, len(order.Crew) > 0, nil
 }
 
 func mcpProblemLines(problems []gaffer.WorkOrderProblem) string {
@@ -742,7 +758,7 @@ func (s *server) mcpCheckWorkOrder(uid int64, text string) (map[string]any, erro
 		plan = append(plan, map[string]any{"title": piece.Title, "stages": stages, "criteria": len(piece.Criteria)})
 	}
 	if len(order.Crew) > 0 {
-		notes = append(notes, "The crew suggestion applies only when a person pastes the work order. Over MCP the saved crew decides.")
+		notes = append(notes, workOrderCrewNote)
 	}
 	if len(notes) > 0 {
 		out["note"] = strings.Join(notes, " ")

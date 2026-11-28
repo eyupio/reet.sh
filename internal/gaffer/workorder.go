@@ -130,7 +130,9 @@ func closingHeaderLine(lines []string) int {
 // not inside a tagged fence is counted across the whole text; exactly one
 // is the ordinary, unambiguous case, and that one is the close. More than
 // one means a plain fence sits somewhere in the body, and ambiguity is
-// reported rather than guessed at.
+// reported rather than guessed at: ok is still true (the text is shaped like
+// a work order, with everything after the opening fence as its lines) and
+// ambiguous holds the refusal the caller must give instead of parsing on.
 func locateWorkOrderBlock(text string) (lines []string, offset int, ok bool, ambiguous *WorkOrderProblem) {
 	all := strings.Split(strings.NewReplacer("\r\n", "\n", "\r", "\n").Replace(text), "\n")
 	fenceStart, fenceEnd := -1, -1
@@ -166,7 +168,9 @@ func locateWorkOrderBlock(text string) (lines []string, offset int, ok bool, amb
 		case closes == 1:
 			fenceEnd = first
 		case closes > 1:
-			return nil, 0, false, problem(first+1, "A work order wrapped in one fence must not contain a plain \"```\" fence inside it. Give the inner fence a language tag (for example \"```text\"), or send the work order unwrapped.")
+			// Still a work order in shape, so IsWorkOrder says yes; ParseWorkOrder refuses it.
+			fenceEnd = len(all)
+			ambiguous = problem(first+1, "A work order wrapped in one fence must not contain a plain \"```\" fence inside it. Give the inner fence a language tag (for example \"```text\"), or send the work order unwrapped.")
 		}
 	}
 	if fenceStart >= 0 && fenceEnd > fenceStart {
@@ -183,7 +187,7 @@ func locateWorkOrderBlock(text string) (lines []string, offset int, ok bool, amb
 	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "---" {
 		return nil, 0, false, nil
 	}
-	return lines, offset, true, nil
+	return lines, offset, true, ambiguous
 }
 
 // ParseWorkOrder reads text as a work order. It never returns a usable order

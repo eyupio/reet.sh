@@ -183,6 +183,11 @@ func TestWorkOrderUntaggedFenceAmbiguous(t *testing.T) {
 	}
 	wrapped := "Here is the work order you asked for.\n\n```markdown\n" + withBareSample + "\n```\n\nHope that helps.\n"
 
+	// The paste route gates on IsWorkOrder, so it must still say yes here or
+	// the refusal below is never shown.
+	if !IsWorkOrder(wrapped) {
+		t.Error("IsWorkOrder = false for a fence-wrapped work order with an untagged inner fence")
+	}
 	order, problems := ParseWorkOrder(wrapped)
 	if len(problems) != 1 {
 		t.Fatalf("problems: %+v (order %+v)", problems, order)

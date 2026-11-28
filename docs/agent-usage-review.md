@@ -49,7 +49,7 @@ are for this revision.
 | 6 | `handoff-history.md` (4,031 lines, 281,734 bytes, repository root) | Older delivery narrative, archived on 23 October 2026 | Linked from `docs/handoffs/archive.md` and research notes | Historical, outside `docs_dir` |
 | 7 | `docs/handoffs/flaky-tests.md` | Unstable tests with evidence, owner and fix-by date | Contributors and CI reviewers | Active |
 | 8 | `changelog.d/README.md` and `changelog.d/*.md` | One fragment per user-visible change; format and release collection rule | Contributors and release maintainer | Active |
-| 9 | `scripts/changelog_collect.py` (54 lines) | Folds fragments into `CHANGELOG.md` under "Unreleased" | Release maintainer | Active |
+| 9 | `scripts/changelog_collect.py` (57 lines) | Folds fragments into `CHANGELOG.md` under "Unreleased" | Release maintainer | Active |
 | 10 | `.github/workflows/notes.yml` (26 lines) and `scripts/check-notes.sh` (26 lines) | Fails a pull request with no new handoff entry; advises a fragment for `web/src`, `internal/api` or `cmd` changes | CI on every pull request | Active |
 | 11 | `.github/workflows/image.yml` (full suite) | Web check, MCP tests, `go vet`, and six Go shards under `-race`; path filters decide whether it runs | CI on code-changing pull requests and pushes | Active |
 | 12 | `.github/workflows/docs.yml`, `scripts/check-docs.py` (228 lines), `scripts/check-docs-browser.py` (138 lines), `hooks/docs.py` (329 lines) | Builds and publishes the docs site; checks links, metadata, sitemap, search, crawler files and browser layouts | CI on docs changes; GitHub Pages | Active |
@@ -101,7 +101,7 @@ that can mislead; **S4** historical noise, or a setup heavier than the work need
    ./...` and `go test -race ./...`. The real suite in `image.yml:54-64` also runs `npm ci` and `npm run check` in
    `web`, `npm ci`, a fixture build and `npm test` in `mcp`, and then `go vet`; `image.yml:11-23` restricts
    pull-request runs by path, so a documentation-only pull request runs none of the Go suite at all. The docs checks in
-   `docs.yml:61-78` and the browser suites in `terminal-browser.yml` are also absent. The PR template repeats the same
+   `docs.yml:69-82` and the browser suites in `terminal-browser.yml` are also absent. The PR template repeats the same
    short list.
 
 5. **The pull-request template omits the two things CI enforces.** `.github/PULL_REQUEST_TEMPLATE.md:11-14` has no
@@ -123,7 +123,7 @@ that can mislead; **S4** historical noise, or a setup heavier than the work need
    their own words. They agree today, so the risk is not a current contradiction but six edits for the next change and
    drift between them.
 
-8. **`handoff.md` is cited 105 times across 42 Markdown files, and most citations no longer resolve.** The file is now
+8. **`handoff.md` is cited 94 times across 37 tracked Markdown files, and most citations no longer resolve.** The file is now
    14 lines. Examples with line or section references: `docs/research/paste-research.md:108-110`
    (`handoff.md:70`, `:62-64, 101`, `:104-106`), `docs/research/reference-tool-frontend-research.md:9, 94, 175`
    (`handoff.md:39-50`, `:50`), `docs/structured-chat-plan.md:11`, `docs/roadmap.md:9`,
@@ -236,8 +236,8 @@ can skip them:
 
 - Every citation was read at this revision, and line numbers come from `nl -ba` on the file named.
 - Counts: 51 files in `docs/handoffs/log/`; 36 feature files in `docs/handoffs/` plus `archive.md`; 28 plans and 42
-  specs; 105 references to `handoff.md` in 42 Markdown files (this review, `archive.md` and `handoff-history.md`
-  excluded); 10 `scripts/probe-*.py` scripts plus `scripts/check-claude-credentials.py`.
+  specs; 94 references to `handoff.md` in 37 tracked Markdown files (this review, `archive.md`, `handoff-history.md` and
+  the generated `site/` directory excluded); 10 `scripts/probe-*.py` scripts plus `scripts/check-claude-credentials.py`.
 - `handoff-history.md` was confirmed absent from the built site because it sits outside `docs_dir: docs`
   (`mkdocs.yml:22`), not because of an exclusion rule.
 - Not verified: organisation-level rulesets and branch protection, so the claim that a conflicted pull request runs

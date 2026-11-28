@@ -49,6 +49,16 @@ test('workOrderSessions turns the example into one PlanSession the plan review a
   assert.equal(plan.filter(stage => stage.kind === 'code').every(stage => stage.tier === 'heavy'), true)
 })
 
+test('a tier the work order itself rates reads as the person\'s choice, never as Gaffer\'s assessment', () => {
+  const [session] = o.workOrderSessions(order)
+  // planRatings would mark 'review' as Gaffer's by merely having a whys entry (even an empty one); a work order's
+  // own tiers must not trigger that, so stageTier should fall back to 'you', with no borrowed reason text.
+  const rated = o.stageTier('review', session)
+  assert.equal(rated.by, 'you')
+  assert.equal(rated.why, '')
+  assert.equal(session.whys, undefined)
+})
+
 const crew = {
   heavy: { tool: 'claude', model: 'sonnet', backup: { tool: 'codex', model: '' } },
   standard: { tool: 'codex', model: '', backup: { tool: 'claude', model: 'haiku' } },

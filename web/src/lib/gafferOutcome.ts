@@ -843,10 +843,14 @@ export function isWorkOrder(text: string): boolean {
 export function workOrderSessions(order: WorkOrder): PlanSession[] {
   return order.sessions.map((session, index) => {
     const kinds = orderStages(new Set((session.stages ?? []).map(stage => stage.kind)))
+    // planRatings' whys is left out: it marks a tier as Gaffer's assessment merely by being present (even with an
+    // empty reason), which is right for an actual Gaffer plan but wrong here — a work order's own tiers are
+    // whoever wrote it, never Gaffer's, so stageTier's 'you'/'default' fallback must apply instead.
+    const { tiers, parts } = planRatings(session.stages)
     return {
       key: `wo-${index}`, title: session.title, prompt: session.prompt, stages: kinds.length ? kinds : [...DEFAULT_STAGES],
       ...(session.criteria?.length ? { criteria: [...session.criteria] } : {}),
-      ...planRatings(session.stages),
+      tiers, parts,
     }
   })
 }

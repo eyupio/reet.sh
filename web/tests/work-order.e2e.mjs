@@ -159,13 +159,24 @@ try {
    await expect(outcome.getByRole('textbox',{name:'Criterion 2 for pipeline 1',exact:true})).toHaveValue("A reader of another team's report is refused")
    await outcome.screenshot({path:`${shots}/work-order-plan-${width}-${theme}.png`})
    expect(await outcome.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
-   // The crew editor can restore the saved crew (empty here) over what the work order suggested.
+   // Changing a suggested tier's agent by hand is the person's own choice from then on, not the work order's any
+   // more. Scoped to the readiness line itself: the stage's own tier-rating paragraph also says "Your choice" (the
+   // work order's own tier is credited to whoever wrote it, never to Gaffer; see the workOrderSessions test), which
+   // is a different fact about a different thing and must not be confused with the agent's source here.
+   const reviewSource=tiers.locator('[data-stage=review] .ready-line')
    await outcome.getByText('Choose who does what',{exact:true}).click()
+   await outcome.getByRole('combobox',{name:'Standard agent',exact:true}).selectOption('claude')
+   await expect(reviewSource).toContainText('Your choice')
+   await expect(reviewSource).not.toContainText('Suggested by the work order')
+   // Heavy was not touched, so it still reads as the work order's suggestion.
+   await expect(split).toContainText('Suggested by the work order')
+   // The crew editor can still restore the saved crew (empty here) over what the work order suggested, Standard included.
    const useSaved=outcome.getByRole('button',{name:'Use my saved crew',exact:true})
    await expect(useSaved).toBeVisible()
    await useSaved.click()
    await expect(outcome.getByRole('combobox',{name:'Heavy agent',exact:true})).toHaveValue('claude')
-   await expect(tiers.locator('[data-stage=review]')).not.toContainText('Suggested by the work order')
+   await expect(reviewSource).not.toContainText('Suggested by the work order')
+   await expect(reviewSource).not.toContainText('Your choice')
    expect(w.errors).toEqual([])
   } finally { await w.context.close() }
  }
@@ -213,9 +224,14 @@ try {
    expect(f.box.approved).toHaveLength(1)
    const sent=f.box.approved[0]
    expect(sent.yolo).toBe(false);expect(sent.trust).toBe(false);expect(sent.autoMerge).toBe(false)
+   // Proves the suggestion was actually applied, not just that it happens to match the machine's default agent:
+   // the model and effort are the work order's own ("heavy=claude/opus/high"), which nothing else in the fixture sets.
    const codeStages=sent.sessions[0].stages.filter(stage=>stage.kind==='code')
    expect(codeStages).toHaveLength(2)
-   expect(codeStages.every(stage=>stage.tool==='claude')).toBe(true)
+   expect(codeStages.every(stage=>stage.tool==='claude'&&stage.model==='opus'&&stage.effort==='high')).toBe(true)
+   // The standard-tier suggestion ("standard=codex") too, on a stage no code stage shares a tier with.
+   const review=sent.sessions[0].stages.find(stage=>stage.kind==='review')
+   expect(review.tool).toBe('codex')
    expect(w.errors).toEqual([])
   } finally { await w.context.close() }
  }

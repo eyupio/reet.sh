@@ -238,16 +238,26 @@
   // The tiers a pasted work order suggested its own agent for, so each stage line and the crew editor can say so.
   let workOrderSuggested = $state<Partial<Record<CrewTier, boolean>>>({})
   const anySuggested = $derived(CREW_TIERS.some(({ tier }) => workOrderSuggested[tier]))
-  // Restores every tier to the saved crew, undoing what a work order suggested.
-  function useSavedCrew() { for (const { tier } of CREW_TIERS) startTier(tier); workOrderSuggested = {} }
+  // Restores every tier to the saved crew, backups included, undoing what a work order suggested.
+  function useSavedCrew() { for (const { tier } of CREW_TIERS) applySavedTier(tier) }
   // A tier's first choice as the dialog starts it: the saved crew's where this machine can run it, else the outcome's own agent.
+  // Explicitly setting a tier this way is never the work order's own suggestion any more.
   function startTier(tier: keyof Crew) {
     const member = savedCrew?.[tier], useSaved = savedHere(tier)
-    chosenRoles[tier] = useSaved; editedRoles[tier] = false; droppedEffort[tier] = ''
+    chosenRoles[tier] = useSaved; editedRoles[tier] = false; droppedEffort[tier] = ''; workOrderSuggested[tier] = false
     crew[tier] = useSaved
       ? { tool: member!.tool!, model: member!.model ?? '', effort: member!.effort ?? '', source: member!.provider ?? '' }
       : { tool, model, effort, source: chosenSource }
     crewSourceExplicit[tier] = useSaved && !!member!.provider
+  }
+  // The tier's first choice and its backups exactly as the saved crew gives them for this machine, falling back to
+  // no backup when it cannot run them. Shared by the dialog's own start (the mount effect below) and "Use my saved crew".
+  function applySavedTier(tier: keyof Crew) {
+    startTier(tier)
+    const member = savedCrew?.[tier]
+    const spares = [member?.backup, ...(member?.moreBackups ?? [])].flatMap(one => one?.tool && tools.includes(one.tool) ? [{ tool: one.tool, model: one.model ?? '', effort: one.effort ?? '', source: one.provider ?? '' }] : [])
+    backups[tier] = spares[0] ?? { tool: '', model: '', effort: '' }
+    more[tier] = spares.slice(1, MAX_BACKUPS)
   }
   // The saved default for who decides is where this dialog starts; the person still chooses for this outcome.
   onMount(() => { void getGafferCrew(life.signal).then(answer => { if (life.signal.aborted) return; if (answer.saved) { savedCrew = answer.crew; crewRead = 'saved'; if (answer.crew.gafferDecides) automation = true } else crewRead = 'empty' }).catch(() => { if (!life.signal.aborted) crewRead = 'failed' }) })
@@ -256,13 +266,7 @@
     if (!host || !available.includes(tool) || crewRead === 'reading' || crewMachine === host) return
     crewMachine = host
     untrack(() => {
-      for (const { tier } of CREW_TIERS) {
-        const member = saved?.[tier]
-        startTier(tier)
-        const spares = [member?.backup, ...(member?.moreBackups ?? [])].flatMap(one => one?.tool && available.includes(one.tool) ? [{ tool: one.tool, model: one.model ?? '', effort: one.effort ?? '', source: one.provider ?? '' }] : [])
-        backups[tier] = spares[0] ?? { tool: '', model: '', effort: '' }
-        more[tier] = spares.slice(1, MAX_BACKUPS)
-      }
+      for (const { tier } of CREW_TIERS) applySavedTier(tier)
       if (saved?.balanceBelow) balanceBelow = balancePercent(saved.balanceBelow)
       crewNote = CREW_TIERS.some(({ tier }) => chosenRoles[tier]) ? 'Started from your saved crew.' : ''
     })
@@ -324,7 +328,7 @@
   const efforts = (id: string) => reportedEfforts(id, machine?.capabilities)
   // The effort a crew role asked for (saved, or typed) and the machine does not report: it is cleared above, and kept here so the plan can say so.
   let droppedEffort = $state<Record<string, string>>({})
-  const edit = (tier: 'heavy' | 'standard' | 'light') => { chosenRoles[tier] = true; editedRoles[tier] = true; droppedEffort[tier] = '' }
+  const edit = (tier: 'heavy' | 'standard' | 'light') => { chosenRoles[tier] = true; editedRoles[tier] = true; droppedEffort[tier] = ''; workOrderSuggested[tier] = false }
   // A chosen level the agent no longer reports (another project's machine, or a crew role's own agent) goes back to the
   // agent's default, so what is shown is what the outcome will start with.
   // Nothing is cleared while the machine's capabilities are not known: a guess would only lose the person's choice.
@@ -475,7 +479,7 @@
     }
   }
   function pickCrewSource(role: keyof Crew, next: string) {
-    chosenRoles[role] = true; editedRoles[role] = true
+    chosenRoles[role] = true; editedRoles[role] = true; workOrderSuggested[role] = false
     crew[role] = { ...crew[role], source: next }
     crewSourceExplicit[role] = true
   }

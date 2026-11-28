@@ -71,7 +71,7 @@ rules, one value per line, parsed with string cuts as `builtinSkill` parses fron
 reet: work-order/1
 objective: Add CSV export to the reports page
 project: reports-api
-crew: heavy=claude-code/opus/high, standard=codex
+crew: heavy=claude/opus/high, standard=codex
 ---
 
 ## Pipeline: Export endpoint
@@ -104,7 +104,7 @@ Header keys:
 | `reet` | Required, first. `work-order/1`. Another version is refused with the versions this controller reads. |
 | `objective` | Required. The outcome, under the existing 4,000-byte limit. |
 | `project` | Optional hint: a project's name. Matched exactly, any letter case; no match is a note, and the person chooses. Never an id, never a path. |
-| `crew` | Optional suggestion of who does the work, per tier: `<tier>=<agent>[/<model>[/<effort>]]`, comma-separated, each tier at most once. See Trust. |
+| `crew` | Optional suggestion of who does the work, per tier: `<tier>=<agent>[/<model>[/<effort>]]`, comma-separated, each tier at most once. The agent is one of reet's agent names (`claude`, `codex`, `opencode`, `cline`, `antigravity`); another is refused. See Trust. |
 | `pathway` | Optional: a saved pathway's exact name. Then no pipeline may give `stages`, `tiers` or parts (the rule `mcpPipelines` already enforces), and `crew` is refused. |
 | `continues` | Optional: an outcome's id, taken from a work report. The pipelines are then *added* to that outcome; `objective` is not required and is ignored. |
 

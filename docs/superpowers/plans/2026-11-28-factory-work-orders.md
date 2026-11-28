@@ -87,7 +87,7 @@ func ParseWorkOrder(text string) (WorkOrder, []WorkOrderProblem)
 - [ ] **Step 1: Write the failing tests** in `workorder_test.go`:
 
   - `TestWorkOrderExample`: parsing `testdata/workorder_example.md` gives no problems; `Objective == "Add CSV export
-    to the reports page"`, `Project == "reports-api"`, `Crew["heavy"] == {claude-code, opus, high}`,
+    to the reports page"`, `Project == "reports-api"`, `Crew["heavy"] == {claude, opus, high}`,
     `Crew["standard"] == {codex, "", ""}`; one session titled `Export endpoint` whose `Stages` are, in order,
     `plan`, `code` (part `Streaming writer`, tier `heavy`), `code` (part `Endpoint and auth`, tier `heavy`, from the
     stage's `tiers:` line), `review` (tier `standard`), `test`, `pr`; two `Criteria`.
@@ -101,7 +101,8 @@ func ParseWorkOrder(text string) (WorkOrder, []WorkOrderProblem)
     `tiers: code=huge`; `tiers:` naming a stage not in `stages:`; `### Part: pr / x` (not splittable); one part
     only for a stage; `### Notes` (unknown section); a `## Something else` heading; a `## ` or `### ` heading or a
     `---` line inside a brief; eleven criteria; `pathway:` with a pipeline that has `stages:`; `pathway:` with
-    `crew:`; `crew: heavy=a, heavy=b`; `crew: huge=a`; `continues:` with `crew:`; two work orders in one paste;
+    `crew:`; `crew: heavy=claude, heavy=codex`; `crew: huge=claude`; `crew: heavy=nosuchagent` (the agent must be
+    `terminalproto.ReviewedChatTool`); `continues:` with `crew:`; two work orders in one paste;
     text of `MaxWorkOrderBytes+1` bytes → line 0.
   - `TestWorkOrderReusesValidation`: a brief of `MaxOutcomePromptBytes+1` bytes is a problem, and one of exactly
     `MaxOutcomePromptBytes` is not (proves the constant, not a copy, decides).
@@ -112,8 +113,11 @@ func ParseWorkOrder(text string) (WorkOrder, []WorkOrderProblem)
   handling, `---` header), read header keys with `strings.Cut(line, ":")`, then walk `## Pipeline:` sections. Build
   each stage as `OutcomeStageInput{Kind, Tier, Part, Brief}`; a stage with parts becomes one entry per part in file
   order; a part without `tier:` takes the stage's tier from `tiers:`. After building, validate the whole thing by
-  calling the existing `outcomePieces(order.Sessions, "check", "", "", store.GafferCrew{}, false,
-  map[string]bool{}, 0)` and turning its error into a problem at line 0, so no session rule is written twice. Do
+  calling the existing `outcomePieces(order.Sessions, "opencode", "", "", store.GafferCrew{}, false,
+  map[string]bool{}, 0)` and turning its error into a problem at line 0, so no session rule is written twice. The
+  tool argument is only a stand-in for the outcome's agent, which a work order does not choose: `outcomePieces`
+  refuses a stage whose agent is not `terminalproto.ReviewedChatTool`, so it must be a reviewed tool name, and
+  `TestWorkOrderExample` fails if it is not. Do
   the parser's own checks (the table above) first so they carry line numbers.
 
 - [ ] **Step 4: Run** `go test ./internal/gaffer -run WorkOrder` — expected: PASS.

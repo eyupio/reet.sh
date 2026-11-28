@@ -22,9 +22,10 @@ What changed.
 - **Review status.** `docs/agent-usage-review.md` gains a status update recording what was implemented and what was
   declined.
 
-What was checked. `scripts/check-notes.sh` finds this entry, the docs build/check and browser check were run where the
-worktree allows, and `git diff --check` reports no whitespace errors.
+What was checked. `scripts/check-notes.sh` finds this entry, `mkdocs build --strict` passed,
+`scripts/check-docs.py` passed 76 pages, and `git diff --check` reports no whitespace errors.
 
-What was not checked. No application code changed, so the Go, web and MCP suites were not run. The declined
+What was not checked. `scripts/check-docs-browser.py` was not run because Playwright is not installed in this worktree;
+CI runs it in `docs.yml`. No application code changed, so the Go, web and MCP suites were not run. The declined
 recommendations (archive consolidation, retiring plans, excluding this review, and a shared-file edit check) still need
 a maintainer decision.

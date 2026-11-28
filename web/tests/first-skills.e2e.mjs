@@ -182,5 +182,38 @@ try {
   await expect(page.getByText(/This username is permanent/)).toBeVisible()
   await context.close()
  }
+ // On a phone Liked, Tag, List and Sort sit behind Filters, which counts the ones that are on; Search and Select stay in
+ // view, and a wide screen shows everything as before.
+ if (run('filters')) {
+  const world = [skillRow('a-skill',{tags:[{id:1,name:'seo'}]})]
+  const routes = {'/api/v2/skills': req => skillsPageOf(world, new URL(req.url()).searchParams.get('status') || 'active')}
+  for (const width of [390, 1440]) {
+   const {context,page,errors} = await open({width, routes, touch:width < 500})
+   await page.goto(`${base}/skills`)
+   const filters = page.getByRole('button',{name:/^Filters/})
+   const liked = page.getByRole('button',{name:'Liked',exact:true})
+   await expect(page.getByRole('searchbox',{name:'Search skills'})).toBeVisible()
+   await expect(page.getByRole('button',{name:'Select',exact:true})).toBeVisible()
+   if (width === 1440) {
+    await expect(filters).toBeHidden()
+    await expect(liked).toBeVisible()
+    await expect(page.getByLabel('Sort by')).toBeVisible()
+   } else {
+    await expect(filters).toHaveAttribute('aria-expanded','false')
+    await expect(liked).toBeHidden()
+    expect((await filters.boundingBox()).height).toBeGreaterThanOrEqual(44)
+    await filters.click()
+    await expect(filters).toHaveAttribute('aria-expanded','true')
+    await expect(liked).toBeVisible()
+    await liked.click()
+    await filters.click()
+    await expect(liked).toBeHidden()
+    await expect(filters).toHaveText('Filters 1')
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'no sideways scroll').toBe(true)
+   }
+   expect(errors).toEqual([])
+   await context.close()
+  }
+ }
  console.log('First skills: add leads on an empty library, the tools sit under the list, a skeleton while it loads, a written skill is a row like any other, hosting explains itself before the username.')
 } finally {await browser.close()}

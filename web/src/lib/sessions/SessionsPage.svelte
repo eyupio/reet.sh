@@ -318,13 +318,13 @@
   {#if denied}
     <p class="none" role="alert">Your account no longer has terminal access. Sign in again or ask the owner to check your permissions. Existing sessions were not ended.</p>
   {:else if terminals !== undefined && terminals.length === 0 && (sessions ?? []).length === 0}
-    <div class="first-machine"><h2>Connect your first machine</h2><p>Enroll a machine and enable terminal access locally to start sessions here.</p><a class="btn primary" href={machinesAt('add-machine')}>Connect a machine</a></div>
+    <div class="first-machine"><h2>Connect your first machine</h2><p>Connect a machine, then turn on terminal access on that machine. Its sessions are listed here.</p><a class="btn primary" href={machinesAt('add-machine')}>Connect a machine</a></div>
   {:else if sessions !== undefined}
     {#if listed.length === 0}
-      {#if (sessions ?? []).length === 0}<div class="first-machine"><h2>No sessions yet</h2><p>Start an agent or a terminal on one of your machines.</p><a class="btn primary" href="/#launch" aria-label="New session">Start a session</a></div>
-      {:else}<p class="none">Every session here is on a desk. Open Desks to see them.</p>{/if}
+      {#if (sessions ?? []).length === 0}<div class="first-machine"><h2>No sessions yet</h2><p>Start an agent or a terminal on one of your machines and it will be listed here.</p><a class="btn primary" href="/#launch" aria-label="New session">Start a session</a></div>
+      {:else}<p class="none">All your sessions are on desks. Open Desks to see them; any that need you will be listed here too.</p>{/if}
     {:else if groups.length === 0}
-      <p class="none">{filter.state === 'needs' ? 'Nothing marks a session as needing you yet, so none is listed here.' : on > 0 && !query.trim() ? 'No sessions match these filters.' : 'No sessions match.'}</p>
+      <p class="none">{filter.state === 'needs' ? 'No session needs you right now.' : on > 0 && !query.trim() ? 'No sessions match these filters.' : 'No sessions match.'}</p>
     {:else}
       <div class="groups">
         {#each groups as g (g.key)}

@@ -829,7 +829,7 @@ try {
   // Needs you: nothing raises it yet, and the page says so.
   await page.getByRole('button',{name:/Filters & sort/}).click()
   await filters(page).getByLabel('State',{exact:true}).selectOption('needs')
-  await expect(page.getByText('Nothing marks a session as needing you yet, so none is listed here.',{exact:true})).toBeVisible()
+  await expect(page.getByText('No session needs you right now.',{exact:true})).toBeVisible()
   expect(errors).toEqual([])
   await context.close()
  }

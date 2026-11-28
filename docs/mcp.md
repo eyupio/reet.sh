@@ -282,11 +282,11 @@ already consented OAuth grant. Clients with other OAuth grant types, private
 client secrets or client-ID metadata documents must use the supported public
 dynamic-registration flow or manual bearer authentication.
 
-The 50 tool definitions are shared with the optional stdio package. For accounts
-with write access, read-only connections discover eighteen tools and management
-connections fifty, including the two separately granted context reads,
-three management-only worker messaging tools and the fourteen Factory tools
-(four reads and ten management-only controls).
+The 52 tool definitions are shared with the optional stdio package. For accounts
+with write access, read-only connections discover twenty tools and management
+connections fifty-two, including the two separately granted context reads,
+three management-only worker messaging tools and the sixteen Factory tools
+(six reads and ten management-only controls).
 Viewer accounts retain ten read tools.
 Collections support bounded pages and filters. Responses are capped at 25,000
 characters; use smaller pages or more specific filters for large shelves.

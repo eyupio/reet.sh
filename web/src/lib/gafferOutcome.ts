@@ -767,3 +767,117 @@ const DECISION_DID: Record<string, string> = { again: 'Reviewed the stage again'
 export function decisionText(d: { about: string; choice?: string; failed?: boolean }): { about: string; did: string } {
   return { about: DECISION_ABOUT[d.about] ?? 'The stage stopped', did: d.failed || !d.choice ? 'Left to you' : DECISION_DID[d.choice] ?? d.choice }
 }
+
+// Work orders. A work order is the public, versioned contract described in internal/gaffer/workorder.go: a person pastes
+// its Markdown into this dialog, which recognises it, checks it with the server (POST /api/v2/gaffer/work-orders/check)
+// and opens the plan review already filled in. Everything here mirrors that Go file's own rules so the two never read a
+// paste differently.
+export type WorkOrderMember = { tool: string; model?: string; effort?: string }
+export type WorkOrderProblem = { line: number; text: string }
+export type WorkOrderStage = { kind: string; tier?: string; tierWhy?: string; part?: string; brief?: string }
+export type WorkOrderSession = { title: string; prompt: string; stages?: WorkOrderStage[]; criteria?: string[] }
+export type WorkOrder = { objective: string; project?: string; pathway?: string; continues?: string; crew?: Partial<Record<CrewTier, WorkOrderMember>>; sessions: WorkOrderSession[] }
+
+function nextNonBlank(lines: string[], start: number): number {
+  for (let i = start; i < lines.length; i++) if (lines[i].trim() !== '') return i
+  return -1
+}
+function closingHeaderLine(lines: string[]): number {
+  for (let i = 1; i < lines.length; i++) if (lines[i].trim() === '---') return i
+  return -1
+}
+function workOrderVersion(headerLines: string[]): string {
+  for (const raw of headerLines) {
+    const trimmed = raw.trim()
+    if (!trimmed) continue
+    const at = trimmed.indexOf(':')
+    if (at < 0) return ''
+    if (trimmed.slice(0, at).trim() !== 'reet') return ''
+    const value = trimmed.slice(at + 1).trim()
+    return value.startsWith('work-order/') ? value.slice('work-order/'.length) : ''
+  }
+  return ''
+}
+/** The lines that make up a work order: the whole paste, or, when the whole paste sits in one fenced code block, the
+ *  lines inside that fence. Mirrors locateWorkOrderBlock in internal/gaffer/workorder.go, less the line numbers and the
+ *  ambiguous-fence refusal: only the server's own parser needs those. */
+function locateWorkOrderBlock(text: string): string[] | null {
+  const all = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n')
+  let fenceStart = -1, fenceEnd = -1
+  for (let i = 0; i < all.length; i++) {
+    if (!all[i].trim().startsWith('```')) continue
+    const j = nextNonBlank(all, i + 1)
+    if (j >= 0 && all[j].trim() === '---') { fenceStart = i; break }
+  }
+  if (fenceStart >= 0) {
+    let nested = false, closes = 0, first = -1
+    for (let i = fenceStart + 1; i < all.length; i++) {
+      const trimmed = all[i].trim()
+      if (!trimmed.startsWith('```')) continue
+      if (nested) nested = trimmed !== '```'
+      else if (trimmed === '```') { closes++; if (first < 0) first = i }
+      else nested = true
+    }
+    if (closes === 1) fenceEnd = first
+    else if (closes > 1) fenceEnd = all.length
+  }
+  let lines = fenceStart >= 0 && fenceEnd > fenceStart ? all.slice(fenceStart + 1, fenceEnd) : all
+  let start = 0, end = lines.length
+  while (start < end && lines[start].trim() === '') start++
+  while (end > start && lines[end - 1].trim() === '') end--
+  lines = lines.slice(start, end)
+  return lines.length && lines[0].trim() === '---' ? lines : null
+}
+/** The same cheap test as gaffer.IsWorkOrder: a header, possibly the whole of one fenced code block, whose first line is
+ *  reet: work-order/. It says nothing about whether that work order is otherwise sound. */
+export function isWorkOrder(text: string): boolean {
+  const lines = locateWorkOrderBlock(text)
+  if (!lines) return false
+  const closeAt = closingHeaderLine(lines)
+  return closeAt > 0 && workOrderVersion(lines.slice(1, closeAt)) !== ''
+}
+
+/** The work order's pipelines as the plan review already edits them: planRatings already turns a server's stage list
+ *  into tiers, whys and parts, and a work order's own stages are that same shape. A pipeline with no "stages:" line
+ *  takes the ordinary default stages, as a plan with none from Gaffer's own provider already does. */
+export function workOrderSessions(order: WorkOrder): PlanSession[] {
+  return order.sessions.map((session, index) => {
+    const kinds = orderStages(new Set((session.stages ?? []).map(stage => stage.kind)))
+    return {
+      key: `wo-${index}`, title: session.title, prompt: session.prompt, stages: kinds.length ? kinds : [...DEFAULT_STAGES],
+      ...(session.criteria?.length ? { criteria: [...session.criteria] } : {}),
+      ...planRatings(session.stages),
+    }
+  })
+}
+
+/** The crew after a work order's suggestions are applied: only the tiers it names change, each losing its saved backups
+ *  (the work order's own choice is the first one tried now, not the person's backup for it); a tier the order left
+ *  alone keeps everything it had, backups included. Whether a suggested agent is on this machine is for readiness to
+ *  say, not this function: it applies every tier the order names. */
+export function workOrderCrew(crew: Crew, suggested: WorkOrder['crew'], tools: string[]): { crew: Crew; from: Record<CrewTier, boolean> } {
+  const from = { heavy: false, standard: false, light: false } as Record<CrewTier, boolean>
+  const next = { ...crew }
+  for (const tier of ['heavy', 'standard', 'light'] as CrewTier[]) {
+    const member = suggested?.[tier]
+    if (!member) continue
+    next[tier] = { tool: member.tool, model: member.model ?? '', ...(member.effort ? { effort: member.effort } : {}) }
+    from[tier] = true
+  }
+  return { crew: next, from }
+}
+
+/** The sentence Hosted's own Copy prompt gives for a published skill (hostedUsePrompt, internal/api/hosted.go), for the
+ *  public reet-integration skill, then the context an outside agent needs to write one: the project, the pathways on
+ *  offer and which tiers have a saved crew. Nothing else about the account travels in it. */
+export function outsideAgentPrompt(origin: string, ctx: { project?: string; pathways: string[]; savedTiers: CrewTier[] }): string {
+  // shortcut: repeats the CLI version install.ts's SKILLS_CLI names (a Go test keeps that equal to ref.SkillsCLI); this
+  // file has no other value import (several tests compile it standalone), so update both if that version ever moves.
+  const opening = `Run \`npx skills@1.7.4 use "${origin}/eyupio/reet-integration" --skill "reet-integration"\` and follow the generated skill instructions now. Read its complete output, redirecting it to a temporary file first if necessary. Resolve relative paths from the supporting-files directory it provides.`
+  const lines = [
+    ctx.project ? `Project: ${ctx.project}` : '',
+    ctx.pathways.length ? `Pathways: ${ctx.pathways.join(', ')}` : '',
+    ctx.savedTiers.length ? `Saved crew: ${ctx.savedTiers.map(tierLabel).join(', ')}` : '',
+  ].filter(Boolean)
+  return `${opening}\n\nContext:\n${lines.join('\n')}`
+}

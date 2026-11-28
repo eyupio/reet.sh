@@ -1,6 +1,6 @@
 import { inflight } from './inflight'
 import type { ModelFavourite } from './models'
-import type { CrewTier } from './gafferOutcome'
+import type { CrewTier, WorkOrder, WorkOrderProblem } from './gafferOutcome'
 import type { Fence, FenceMachine } from './controllerMove'
 
 export type Skill = {
@@ -399,6 +399,12 @@ export async function listGafferOutcomes(signal?: AbortSignal, quiet = false): P
 /** What the person, Gaffer and the controller did to an outcome's pipelines, newest first, from the activity log. */
 export async function listGafferOutcomeHistory(id: string, signal?: AbortSignal): Promise<Event[]> { return (await (await req(`/api/v2/gaffer/outcomes/${encodeURIComponent(id)}/history`, { signal, cache: 'no-store' })).json()).events }
 export async function getGafferOutcome(id: string, signal?: AbortSignal): Promise<GafferOutcome> { return (await req(`/api/v2/gaffer/outcomes/${encodeURIComponent(id)}`, { signal, cache: 'no-store' })).json() }
+/** The dry run behind a pasted work order: the parsed plan (or null, with the parser's own problems), the caller's own
+ *  project and pathway matched by name, and anything else worth a note. Nothing is started and no model is asked anything. */
+export type GafferWorkOrderCheck = { order: WorkOrder | null; problems: WorkOrderProblem[]; projectId: string; pathwayId: string; notes: string[] }
+export async function checkWorkOrder(text: string, signal?: AbortSignal): Promise<GafferWorkOrderCheck> { return (await req('/api/v2/gaffer/work-orders/check', { method: 'POST', body: json({ text }), signal })).json() }
+/** The Markdown work report for one of the caller's own outcomes, with its handover text. */
+export async function getWorkReport(id: string, signal?: AbortSignal): Promise<string> { return (await req(`/api/v2/gaffer/outcomes/${encodeURIComponent(id)}/work-report`, { signal, cache: 'no-store' })).text() }
 /** Saves the approved plan; the controller then starts and follows each session, with or without this browser. */
 export async function createGafferOutcome(input: GafferOutcomeInput, signal?: AbortSignal): Promise<GafferOutcome> { return (await req('/api/v2/gaffer/outcomes', { method: 'POST', body: json(input), signal })).json() }
 export async function stopGafferOutcome(o: Pick<GafferOutcome, 'id' | 'revision'>, signal?: AbortSignal): Promise<GafferOutcome> { return (await req(`/api/v2/gaffer/outcomes/${encodeURIComponent(o.id)}/stop`, { method: 'POST', body: json({ revision: o.revision }), signal })).json() }

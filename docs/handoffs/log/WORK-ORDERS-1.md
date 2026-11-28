@@ -45,9 +45,9 @@ limits; choose an agent over MCP; start anything without the person's approval (
 
 **Known limits**
 
-- A fenced paste whose brief holds a bare fence of the wrapper's own characters closes the wrapper there, as Markdown
-  does. Sections after it are refused; a cut tail of the last brief is not noticed. The skill tells agents to wrap in a
-  longer fence.
+- A fenced paste is refused when a later line could close its wrapper again (a bare fence of the wrapper's own
+  characters in a brief, or a code block in chatter after the order). The author wraps the work order in a longer
+  fence. This refuses some pastes that would have been harmless, on purpose: a brief is never cut short quietly.
 - A commit pushed by hand while a pipeline waits in delivery review leaves a recorded `passed` in the work report. The
   report says its statuses are as last recorded.
 - Archived outcomes do not offer **Copy for your agent**.

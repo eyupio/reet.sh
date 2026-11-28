@@ -9,7 +9,7 @@ precise, versioned format, and stay in step with it until the outcome is what wa
 format from a public reet skill, fetched with the usual one-line prompt:
 
 ```
-Run `npx skills use "https://<controller>/eyupio/reet-integration" --skill "reet-integration"` and follow the
+Run `npx skills use "https://<controller>/eyupio/factory-contract" --skill "factory-contract"` and follow the
 generated skill instructions now. …
 ```
 
@@ -166,8 +166,8 @@ agent reads a short entry page, and follows links to exactly the detail it needs
 ends when it prints (or submits) a work order; from there reet takes over, after the person has confirmed and
 refined the plan.
 
-- **Entry page** `SKILL.md` (name `reet-integration`, matching the other built-ins' `reet-*` names; assistant's
-  call, the owner's example said `factory-contract`): what reet's Factory is in five lines, the two routes, the
+- **Entry page** `SKILL.md` (name `factory-contract`, the owner's choice; it is the one built-in not named
+  `reet-*`): what reet's Factory is in five lines, the two routes, the
   smallest valid work order, and a table **If you need more** of topic files, each with one line on when to read it.
 - **Topics** are supporting files of the same skill, flat names, served by the existing
   `/{username}/{slug}/.well-known/agent-skills/{name}/{file...}` route and fetched by `npx skills use` into its
@@ -210,7 +210,7 @@ refined the plan.
 3. **HTTP**: `POST /api/v2/gaffer/work-orders/check` (text in; plan, hints, suggestions, problems out; starts
    nothing) and `GET /api/v2/gaffer/outcomes/{id}/work-report`. Registered beside the outcome routes in
    `internal/api/gaffer_outcomes.go`, same access wrapper.
-4. **The skill**, `internal/api/builtin_skills/reet-integration/`. See "The integration skill" below.
+4. **The skill**, `internal/api/builtin_skills/factory-contract/`. See "The integration skill" below.
 5. **Web, New Factory outcome** (`web/src/lib/GafferOutcome.svelte`): when the outcome text is a work order, the
    dialog says **This is a work order** and **Ask Gaffer for a plan** becomes **Read the work order**. It calls
    `check`; problems are listed with their line numbers; a clean one opens the existing plan review with pipelines,

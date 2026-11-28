@@ -13,8 +13,8 @@ implement the plan, not to redesign.
 2. `docs/superpowers/specs/2026-11-28-factory-work-orders-design.md` (what and why).
 3. `docs/superpowers/plans/2026-11-28-factory-work-orders.md` (the eight tasks, with exact names and tests).
 
-**What it is, in four sentences.** An agent outside reet reads a public built-in skill, `reet-integration`, served at
-`/eyupio/reet-integration` with topic files it can follow for more detail. It writes a Markdown work order with a
+**What it is, in four sentences.** An agent outside reet reads a public built-in skill, `factory-contract`, served at
+`/eyupio/factory-contract` with topic files it can follow for more detail. It writes a Markdown work order with a
 flat header (`reet: work-order/1`). A person pastes that into **New Factory outcome**; reet recognises it, shows the
 pipelines, stages, parts, criteria and a per-tier crew suggestion in the existing plan review, and nothing starts
 until the person confirms. A work report (`reet: work-report/1`) carries the state back by **Copy for your agent**,

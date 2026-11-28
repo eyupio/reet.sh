@@ -12,6 +12,10 @@ import (
 // MaxWorkOrderBytes is the most text a work order may be.
 const MaxWorkOrderBytes = 64 << 10
 
+// DefaultWorkOrderStages are the stages a pipeline runs when it names none,
+// here and in reet_start_outcome.
+var DefaultWorkOrderStages = []string{"code", "review", "test", "pr", "babysit", "merge"}
+
 const workOrderPrefix = "reet: work-order/"
 
 type WorkOrderMember struct {
@@ -406,7 +410,7 @@ func workOrderSession(p *woPipe, onPathway bool, bad func(int, string)) OutcomeS
 		return session
 	}
 
-	kinds := []string{"code", "review", "test", "pr", "babysit", "merge"} // as reet_start_outcome does
+	kinds := DefaultWorkOrderStages
 	if raw, ok := settings["stages"]; ok {
 		kinds = nil
 		last := -1

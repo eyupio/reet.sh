@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/eyupio/reet.sh/internal/gaffer"
+	"github.com/eyupio/reet.sh/internal/store"
 )
 
 const workOrderNotRunning = "No running outcome of yours has that id. Copy a fresh report from the outcome and use its id."
@@ -38,55 +39,29 @@ func (s *server) gafferWorkOrderCheck(w http.ResponseWriter, r *http.Request) {
 	}
 	var notes []string
 	if order.Project != "" {
-		rows, err := s.st.ListFolderProjectsFor(uid)
+		id, note, err := s.workOrderProject(uid, order.Project)
 		if err != nil {
 			writeErr(w, 500, "Your projects could not be read.")
 			return
 		}
-		var found []string
-		for _, p := range rows {
-			if strings.EqualFold(p.Name, order.Project) {
-				found = append(found, p.ID)
-			}
-		}
-		switch len(found) {
-		case 1:
-			out["projectId"] = found[0]
-		case 0:
-			notes = append(notes, "No project of yours is called “"+order.Project+"”. Choose a project when you approve it.")
-		default:
-			notes = append(notes, "More than one project of yours is called “"+order.Project+"” (the names differ only in letter case). Choose a project when you approve it.")
+		out["projectId"] = id
+		if note != "" {
+			notes = append(notes, note)
 		}
 	}
 	if order.Pathway != "" {
-		rows, err := s.gafferProviders.Pathways(uid)
+		p, problem, err := s.workOrderPathway(uid, order.Pathway)
 		if err != nil {
 			gafferError(w, err)
 			return
 		}
-		on := []string{}
-		for _, p := range rows {
-			if !p.Enabled {
-				continue
-			}
-			on = append(on, p.Name)
-			if out["pathwayId"] == "" && (p.ID == order.Pathway || strings.EqualFold(p.Name, order.Pathway)) {
-				out["pathwayId"] = p.ID
-			}
-		}
-		if out["pathwayId"] == "" {
-			text := "No pathway called “" + order.Pathway + "” is switched on."
-			if len(on) > 0 {
-				text += " The ones that are: " + strings.Join(on, ", ") + "."
-			}
-			problems = append(problems, gaffer.WorkOrderProblem{Line: 0, Text: text})
+		out["pathwayId"] = p.ID
+		if problem != "" {
+			problems = append(problems, gaffer.WorkOrderProblem{Line: 0, Text: problem})
 		}
 	}
-	if order.Continues != "" {
-		// One sentence for not yours, not there, archived and finished, so nothing leaks.
-		if o, err := s.gafferProviders.Outcome(uid, order.Continues); err != nil || o.ArchivedAt > 0 || o.State == "stopped" || o.Finished() {
-			problems = append(problems, gaffer.WorkOrderProblem{Line: 0, Text: workOrderNotRunning})
-		}
+	if order.Continues != "" && !s.workOrderRunning(uid, order.Continues) {
+		problems = append(problems, gaffer.WorkOrderProblem{Line: 0, Text: workOrderNotRunning})
 	}
 	if len(problems) > 0 {
 		out["problems"] = problems
@@ -98,6 +73,64 @@ func (s *server) gafferWorkOrderCheck(w http.ResponseWriter, r *http.Request) {
 	}
 	out["order"] = order
 	writeJSON(w, 200, out)
+}
+
+// workOrderProject finds the project a work order names, in any letter case.
+// The id is empty, with a note, when none or more than one of the person's
+// projects has that name.
+func (s *server) workOrderProject(uid int64, name string) (id, note string, err error) {
+	rows, err := s.st.ListFolderProjectsFor(uid)
+	if err != nil {
+		return "", "", err
+	}
+	var found []string
+	for _, p := range rows {
+		if strings.EqualFold(p.Name, name) {
+			found = append(found, p.ID)
+		}
+	}
+	switch len(found) {
+	case 1:
+		return found[0], "", nil
+	case 0:
+		return "", "No project of yours is called “" + name + "”. Choose a project when you approve it.", nil
+	}
+	return "", "More than one project of yours is called “" + name + "” (the names differ only in letter case). Choose a project when you approve it.", nil
+}
+
+// workOrderPathway finds the switched-on pathway a work order names, by id or
+// by name in any case. With none, the problem says which are on.
+func (s *server) workOrderPathway(uid int64, name string) (found store.GafferPathway, problem string, err error) {
+	rows, err := s.gafferProviders.Pathways(uid)
+	if err != nil {
+		return found, "", err
+	}
+	on := []string{}
+	for _, p := range rows {
+		if !p.Enabled {
+			continue
+		}
+		on = append(on, p.Name)
+		if found.ID == "" && (p.ID == name || strings.EqualFold(p.Name, name)) {
+			found = p
+		}
+	}
+	if found.ID != "" {
+		return found, "", nil
+	}
+	problem = "No pathway called “" + name + "” is switched on."
+	if len(on) > 0 {
+		problem += " The ones that are: " + strings.Join(on, ", ") + "."
+	}
+	return found, problem, nil
+}
+
+// workOrderRunning says whether an outcome of the person's can still be
+// continued. One answer for not yours, not there, archived and finished, so
+// nothing leaks.
+func (s *server) workOrderRunning(uid int64, id string) bool {
+	o, err := s.gafferProviders.Outcome(uid, id)
+	return err == nil && o.ArchivedAt == 0 && o.State != "stopped" && !o.Finished()
 }
 
 // gafferWorkReport is an outcome as the Markdown an outside agent reads.

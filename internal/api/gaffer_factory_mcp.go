@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/eyupio/reet.sh/internal/gaffer"
@@ -17,7 +18,7 @@ import (
 // page makes, so the same rules hold: nothing here starts an outcome, answers
 // an approval, runs a command or merges anything itself.
 
-var mcpFactoryReads = map[string]bool{"reet_list_factory": true, "reet_get_factory_outcome": true, "reet_list_factory_projects": true, "reet_list_pathways": true}
+var mcpFactoryReads = map[string]bool{"reet_list_factory": true, "reet_get_factory_outcome": true, "reet_list_factory_projects": true, "reet_list_pathways": true, "reet_check_work_order": true, "reet_get_work_report": true}
 var mcpFactoryWrites = map[string]bool{
 	"reet_move_pipeline_on": true, "reet_retry_pipeline": true, "reet_set_pipeline_merge": true,
 	"reet_approve_pipeline_merge": true, "reet_stop_outcome": true, "reet_report_outcome": true,
@@ -63,7 +64,7 @@ func mcpPipelines(raw any, onPathway bool) ([]gaffer.OutcomeSession, error) {
 			}
 		}
 		if len(piece.Stages) == 0 {
-			for _, kind := range []string{"code", "review", "test", "pr", "babysit", "merge"} {
+			for _, kind := range gaffer.DefaultWorkOrderStages {
 				piece.Stages = append(piece.Stages, gaffer.OutcomeStageInput{Kind: kind})
 			}
 		}
@@ -410,7 +411,17 @@ func (s *server) runMCPFactory(ctx context.Context, access mcpAccess, name strin
 		// Fifty pathways of twelve named stages do not fit one answer, so they are paged.
 		return mcpPage(out, args, nil)
 	}
+	if name == "reet_check_work_order" {
+		return s.mcpCheckWorkOrder(uid, str("work_order"))
+	}
 	id, key := str("outcome_id"), str("pipeline")
+	if name == "reet_get_work_report" {
+		o, err := s.gafferProviders.Outcome(uid, id)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"report": gaffer.WorkReport(o, full)}, nil
+	}
 	if name == "reet_get_factory_outcome" {
 		o, err := s.gafferProviders.Outcome(uid, id)
 		if err != nil {
@@ -497,7 +508,7 @@ func (s *server) runMCPFactory(ctx context.Context, access mcpAccess, name strin
 	applied := true
 	switch name {
 	case "reet_start_outcome":
-		pipelines, perr := mcpPipelines(args["pipelines"], str("pathway") != "")
+		objective, pathwayName, pipelines, perr := s.mcpPipelinesFor(uid, name, args, "")
 		if perr != nil {
 			return nil, perr
 		}
@@ -531,21 +542,21 @@ func (s *server) runMCPFactory(ctx context.Context, access mcpAccess, name strin
 				return nil, errors.New("balance_below is a whole number from 5 to 90.")
 			}
 		}
-		pathway, perr := s.mcpUsePathway(uid, str("pathway"), pipelines)
+		pathway, perr := s.mcpUsePathway(uid, pathwayName, pipelines)
 		if perr != nil {
 			return nil, perr
 		}
-		o, err = s.gafferProviders.CreateOutcome(uid, gaffer.OutcomeInput{Objective: str("objective"), ProjectID: str("project_id"), Tool: str("agent"), Model: str("model"), Sessions: pipelines, BalanceBelow: balanceBelow, MaxReviews: 12, Hours: 24, Confirmed: true, AutoReport: args["reports_by_itself"] == true, RequestID: str("request_id")})
+		o, err = s.gafferProviders.CreateOutcome(uid, gaffer.OutcomeInput{Objective: objective, ProjectID: str("project_id"), Tool: str("agent"), Model: str("model"), Sessions: pipelines, BalanceBelow: balanceBelow, MaxReviews: 12, Hours: 24, Confirmed: true, AutoReport: args["reports_by_itself"] == true, RequestID: str("request_id")})
 		id = o.ID
 		if err == nil {
 			s.recordPathwaySkills(uid, pathway, o, len(pipelines))
 		}
 	case "reet_add_pipelines":
-		pipelines, perr := mcpPipelines(args["pipelines"], str("pathway") != "")
+		_, pathwayName, pipelines, perr := s.mcpPipelinesFor(uid, name, args, id)
 		if perr != nil {
 			return nil, perr
 		}
-		pathway, perr := s.mcpUsePathway(uid, str("pathway"), pipelines)
+		pathway, perr := s.mcpUsePathway(uid, pathwayName, pipelines)
 		if perr != nil {
 			return nil, perr
 		}
@@ -615,6 +626,129 @@ func (s *server) runMCPFactory(ctx context.Context, access mcpAccess, name strin
 	}
 	s.event(uid, "mcp", "mcp-factory-control", "", map[string]any{"connection": access.Connection.Name, "tool": name, "outcome": id, "pipeline": key})
 	return map[string]any{"outcome": mcpOutcomeRow(o), "applied": true, "note": mcpOutcomeMore}, nil
+}
+
+// mcpPipelinesFor is what a start or an add is asked to run: the pipelines,
+// objective and pathway of its own arguments, or of its work order. A work
+// order and those arguments are not both taken, and nothing in it chooses a
+// crew, YOLO or a merge. The rest of a start or an add is the same either way.
+func (s *server) mcpPipelinesFor(uid int64, tool string, args map[string]any, outcomeID string) (objective, pathway string, pipelines []gaffer.OutcomeSession, err error) {
+	str := func(key string) string { v, _ := args[key].(string); return v }
+	text, given := args["work_order"].(string)
+	if !given {
+		pipelines, err = mcpPipelines(args["pipelines"], str("pathway") != "")
+		return str("objective"), str("pathway"), pipelines, err
+	}
+	if args["pipelines"] != nil || str("objective") != "" || str("pathway") != "" {
+		return "", "", nil, errors.New("Give a work order or these arguments, not both. Nothing was started.")
+	}
+	order, problems := gaffer.ParseWorkOrder(text)
+	if len(problems) > 0 {
+		return "", "", nil, errors.New("The work order has problems: " + mcpProblemLines(problems) + " Nothing was started.")
+	}
+	adding := tool == "reet_add_pipelines"
+	switch {
+	case order.Continues != "" && !adding:
+		return "", "", nil, errors.New("A work order that continues an outcome is given to reet_add_pipelines, not reet_start_outcome. Nothing was started.")
+	case order.Continues != "" && order.Continues != outcomeID:
+		return "", "", nil, errors.New("The work order continues another outcome than outcome_id. Nothing was started.")
+	}
+	if order.Project != "" {
+		project := args["project_id"]
+		if adding {
+			o, oerr := s.gafferProviders.Outcome(uid, outcomeID)
+			if oerr != nil {
+				return "", "", nil, oerr
+			}
+			project = o.ProjectID
+		}
+		id, _ := project.(string)
+		if row, perr := s.st.FolderProjectFor(uid, id); perr != nil || !strings.EqualFold(row.Name, order.Project) {
+			return "", "", nil, errors.New("The work order is for the project “" + order.Project + "”, which is not the project given. Nothing was started.")
+		}
+	}
+	return order.Objective, order.Pathway, order.Sessions, nil
+}
+
+func mcpProblemLines(problems []gaffer.WorkOrderProblem) string {
+	var out []string
+	for _, p := range problems {
+		if p.Line > 0 {
+			out = append(out, "line "+strconv.Itoa(p.Line)+": "+p.Text)
+		} else {
+			out = append(out, p.Text)
+		}
+	}
+	return strings.Join(out, " ")
+}
+
+// mcpCheckWorkOrder says what a work order would start: its pipelines as the
+// outcome would name their stages and tiers. It starts nothing.
+func (s *server) mcpCheckWorkOrder(uid int64, text string) (map[string]any, error) {
+	order, problems := gaffer.ParseWorkOrder(text)
+	out := map[string]any{"ok": false, "problems": []gaffer.WorkOrderProblem{}, "plan": []map[string]any{}}
+	if len(problems) > 0 {
+		out["problems"] = problems
+		return out, nil
+	}
+	var notes []string
+	if order.Project != "" {
+		id, note, err := s.workOrderProject(uid, order.Project)
+		if err != nil {
+			return nil, err
+		}
+		out["project_id"] = id
+		if note != "" {
+			notes = append(notes, note)
+		}
+	}
+	var onPathway []string
+	if order.Pathway != "" {
+		p, problem, err := s.workOrderPathway(uid, order.Pathway)
+		if err != nil {
+			return nil, err
+		}
+		out["pathway_id"] = p.ID
+		if problem != "" {
+			problems = append(problems, gaffer.WorkOrderProblem{Text: problem})
+		}
+		for _, st := range p.Stages {
+			onPathway = append(onPathway, store.GafferOutcomeStage{Kind: st.Kind, Name: st.Name}.Label())
+		}
+	}
+	if order.Continues != "" && !s.workOrderRunning(uid, order.Continues) {
+		problems = append(problems, gaffer.WorkOrderProblem{Text: workOrderNotRunning})
+	}
+	if len(problems) > 0 {
+		out["problems"] = problems
+		return out, nil
+	}
+	plan := []map[string]any{}
+	for _, piece := range order.Sessions {
+		stages := []map[string]any{}
+		for _, st := range piece.Stages {
+			row := map[string]any{"kind": st.Kind, "name": store.GafferOutcomeStage{Kind: st.Kind}.Label()}
+			if st.Part != "" {
+				row["part"] = st.Part
+			}
+			if st.Tier != "" {
+				row["tier"] = st.Tier
+			}
+			stages = append(stages, row)
+		}
+		for _, label := range onPathway {
+			stages = append(stages, map[string]any{"name": label})
+		}
+		plan = append(plan, map[string]any{"title": piece.Title, "stages": stages, "criteria": len(piece.Criteria)})
+	}
+	if len(order.Crew) > 0 {
+		notes = append(notes, "The crew suggestion applies only when a person pastes the work order. Over MCP the saved crew decides.")
+	}
+	if len(notes) > 0 {
+		out["note"] = strings.Join(notes, " ")
+	}
+	out["ok"], out["plan"] = true, plan
+	return out, nil
 }
 
 // mcpUsePathway gives the pipelines the stages of the enabled pathway a client

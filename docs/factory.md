@@ -111,7 +111,7 @@ the list shows its status, its title, the outcome it is for and its stages.
 - On a tablet or phone an item that waits for you also says why, or what Gaffer recommends and why. It has one filled
   button for what it most likely needs, such as **Have Gaffer look again**, **Approve the merge** or **Try again**, and
   an approval has **Allow once** and **Deny**. **Details and other actions** (**Details** on a phone) opens the
-  pipeline.
+  pipeline, and **Open the session** goes straight to the stage's session to read what its agent did.
 
 On a wide screen the first pipeline waiting for you is open beside the list when the page opens, or else the first
 one working. The detail has the outcome, the pipeline's title and status, **Open session** and the outcome's menu

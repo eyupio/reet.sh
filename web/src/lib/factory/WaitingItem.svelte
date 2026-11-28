@@ -11,7 +11,8 @@
   // narrower than ROW_MIN of its own width is drawn as a card.
   // The page passes the hash-link `id` (and any other attributes) in `rest`.
   // With `detailsHref`, Details is a link to that address (Home); without it, a button that calls `ondetails` (the Factory).
-  let { item, layout, pipeline, selected = false, busy = false, permission, sessionId = '', usable, onchoose, ondetails, detailsHref = '', onanswered, ...rest }: {
+  // With `sessionHref`, a card that waits on the person also links to the stage's session, so what the agent did can be read before choosing.
+  let { item, layout, pipeline, selected = false, busy = false, permission, sessionId = '', sessionHref = '', usable, onchoose, ondetails, detailsHref = '', onanswered, ...rest }: {
     item: FactoryItem
     layout: 'card' | 'row' | 'compact'
     pipeline: 'labelled' | 'circles' | 'dots'
@@ -19,6 +20,7 @@
     busy?: boolean
     permission?: NonNullable<NeedCard['approval']>
     sessionId?: string
+    sessionHref?: string
     usable: (choice: NeedChoice) => boolean
     onchoose: (choice: NeedChoice) => void
     ondetails: () => void
@@ -40,6 +42,8 @@
   // A worker that ran out of its plan has two ways on: the filled backup, and any other model. Both are offered here, so
   // neither needs the detail. With no backup the other model is the filled button already.
   const recover = $derived(!item.archived && filled?.id !== 'replace-worker' ? item.need?.choices.find(choice => choice.id === 'replace-worker' && usable(choice)) : undefined)
+  // The session is a link on the card, not a button: it is a place to go. When opening it is the filled choice, that button does it.
+  const session = $derived(!item.archived && sessionHref ? item.need?.choices.find(choice => choice.id === 'open' && !choice.primary && usable(choice)) : undefined)
   const tone = $derived(item.section === 'waiting' ? 'you' : item.kind === 'running' ? 'good' : 'plain')
   const detailsLabel = $derived(`Details and other actions for ${item.title}`)
 
@@ -88,7 +92,7 @@
     {@render why()}
     <!-- An approval's command and its Allow and Deny sit above the row of buttons, so Details never squeezes them. -->
     {#if item.kind === 'approval' && permission && !item.archived}{@render approval()}{/if}
-    <div class="buttons" data-floating-clearance="avoid">{@render buttons(false)}</div>
+    <div class="buttons" data-floating-clearance="avoid">{@render buttons(false)}{#if session}<a class="btn" href={sessionHref} aria-label={`${session.label} for ${item.title}`}>{session.label}</a>{/if}</div>
   </article>
 {/snippet}
 

@@ -688,6 +688,12 @@ export function sessionEndedChoices(last: boolean, gone: boolean): Need {
   return recommend(SESSION_ENDED_WHY, choices)
 }
 type NeedGoal = { state: string; note: string; waitingOnWorker?: boolean; reviewFailed?: boolean; noStep?: boolean; advice?: GoalAdvice }
+/** The controller's note on a review that did not complete, said for the card: what went wrong, then that nothing retries
+ *  it. The note's own advice to "resume the goal" is the Try the review again button here. */
+const reviewFailedWhy = (note: string): string => {
+  const reason = /^Gaffer’s review did not complete \([^)]*\):\s*([\s\S]*?)\s*It will not be repeated automatically/.exec(note)?.[1]
+  return reason ? `Gaffer’s review of this stage did not finish: ${reason} It will not run again by itself.` : note
+}
 /** What a pipeline that needs the person is waiting for, in one sentence, and the things they can do about it as
  *  buttons, the most likely first. `last` is whether the stage in hand is the pipeline's last. */
 export function needsYou(goal: NeedGoal, reason: string | undefined, last: boolean): Need {
@@ -695,7 +701,7 @@ export function needsYou(goal: NeedGoal, reason: string | undefined, last: boole
   // The way out when the stage's agent is stuck in a session that is still open: asked for with a confirmation.
   const restart: NeedChoice = { id: 'restart', label: 'Restart stage…' }
   if (goal.waitingOnWorker) return { why: 'The agent is waiting for your answer or approval. Gaffer carries on by itself once you have answered.', choices: [{ id: 'answer', label: 'Open the session to answer', primary: true }] }
-  if (goal.reviewFailed) return recommend(goal.note, [{ id: 'retry', label: 'Try the review again', primary: true }, { id: 'tell', label: 'Tell the agent…' }, move, restart])
+  if (goal.reviewFailed) return recommend(reviewFailedWhy(goal.note), [{ id: 'retry', label: 'Try the review again', primary: true }, { id: 'tell', label: 'Tell the agent…' }, move, restart, { id: 'open', label: 'Open the session' }])
   if (goal.state === 'limit') return recommend(goal.note || 'This stage used its review budget or its time.', [{ id: 'budget', label: 'Give it a new budget', primary: true }, move])
   if (goal.noStep) return recommend('Gaffer reviewed this and chose no next step, so it stopped. Nothing in particular is being asked of you.', [{ id: 'again', label: 'Have Gaffer look again', primary: true }, { id: 'tell', label: 'Tell the agent…' }, move, restart, { id: 'open', label: 'Open the session' }])
   return recommend(reason || goal.note || 'Gaffer brought this back to you.', [{ id: 'again', label: 'Have Gaffer look again', primary: true }, { id: 'tell', label: 'Tell the agent…' }, move, restart, { id: 'open', label: 'Open the session' }], goal.advice)

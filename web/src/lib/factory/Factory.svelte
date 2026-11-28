@@ -533,7 +533,7 @@
 
 {#snippet entry(item: FactoryItem)}{@const pair = pairs.get(item.id)}{#if pair}{@const record = pair.record}{@const piece = pair.piece}
   <WaitingItem {item} layout={narrow ? 'card' : 'compact'} pipeline={narrow ? (phone ? 'circles' : 'labelled') : 'dots'} selected={!narrow && item.id === selectedId} {busy}
-    permission={approvalFor(piece.sessionId)} sessionId={piece.sessionId ?? ''} usable={choice => usable(choice, piece)} onchoose={choice => choose(choice, record, piece)}
+    permission={approvalFor(piece.sessionId)} sessionId={piece.sessionId ?? ''} sessionHref={piece.sessionId ? sessionHref(record, piece.sessionId) : ''} usable={choice => usable(choice, piece)} onchoose={choice => choose(choice, record, piece)}
     ondetails={() => open(item.id)} onanswered={answered} id={pipelineAnchor(record.id, piece.key)}/>
 {/if}{/snippet}
 

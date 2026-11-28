@@ -199,7 +199,7 @@ func (s *Service) answerRounds(ctx context.Context, job *chatJob, c store.Gaffer
 				}
 			}
 			if turn.Answer == "" {
-				return errors.New("The provider returned no visible answer. Check the model or reasoning setting before trying again.")
+				return errors.New("The provider returned no visible answer. Check the model and reasoning effort in your Gaffer settings before trying again.")
 			}
 			return nil
 		}

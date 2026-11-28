@@ -28,14 +28,14 @@
 </script>
 
 <section class="workbench" aria-labelledby={`${id}-heading`}>
-  <h2 id={`${id}-heading`}>Nothing in flight.</h2>
+  <h2 id={`${id}-heading`}>No sessions running.</h2>
   {#if none}
     <p class="guidance">{nothingEnrolled ? 'A session runs on one of your machines, and none is connected yet.' : 'None of your machines is connected right now.'}</p>
     {#if nothingEnrolled && canAdd}<a class="btn primary" href={addHref}>Add a machine</a>
     {:else}<a class="btn primary" href={machinesHref}>Open Machines</a>{/if}
   {:else}
     <button class="btn" class:primary={!quiet} type="button" onclick={event => onchoose('agent', event.currentTarget)}>Start an agent session</button>
-    {#if factory}<p class="guidance">Or give Gaffer a goal, approve the plan and follow the work in Factory.</p>{/if}
+    {#if factory}<p class="guidance">Or set Gaffer a goal and follow the work on the Factory page.</p>{/if}
   {/if}
   <div class="more">
     {#if !none}

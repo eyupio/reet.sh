@@ -142,6 +142,32 @@ func TestWorkOrderNestedFenceInBrief(t *testing.T) {
 	}
 }
 
+// TestWorkOrderFenceWithTrailingSample guards the other direction: an
+// agent's closing remark, after the outer fence that wraps the whole work
+// order, may itself show a fenced sample. That must not be mistaken for the
+// wrapper's own close, which would make the scan run on into the remark and
+// swallow it, and the fence after it, as if they were still the work order.
+func TestWorkOrderFenceWithTrailingSample(t *testing.T) {
+	clean := readExample(t)
+	wrapped := "Here is the work order you asked for.\n\n```markdown\n" + clean + "\n```\n\n" +
+		"By the way, here is how the export endpoint is called:\n\n```go\nhttp.Get(url)\n```\n\nHope that helps.\n"
+
+	cleanOrder, problems := ParseWorkOrder(clean)
+	if len(problems) != 0 {
+		t.Fatalf("clean: %+v", problems)
+	}
+	wrappedOrder, problems := ParseWorkOrder(wrapped)
+	if len(problems) != 0 {
+		t.Fatalf("a fenced sample in the trailing remark broke the wrapper: %+v", problems)
+	}
+	if !IsWorkOrder(wrapped) {
+		t.Error("IsWorkOrder false for a wrapper followed by a remark with its own fence")
+	}
+	if !reflect.DeepEqual(cleanOrder, wrappedOrder) {
+		t.Errorf("the trailing remark's fence changed the result:\n%+v\n%+v", cleanOrder, wrappedOrder)
+	}
+}
+
 func lineOf(t *testing.T, text, marker string) int {
 	t.Helper()
 	idx := strings.Index(text, marker)

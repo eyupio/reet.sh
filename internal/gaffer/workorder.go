@@ -113,12 +113,16 @@ func closingHeaderLine(lines []string) int {
 // A fence only wraps the whole work order when its own content starts with
 // the header's opening "---": a pipeline's brief is free Markdown and may
 // have a fenced code sample of its own, and that inner fence must never be
-// mistaken for the one wrapping the whole paste, in either direction (an
-// unfenced paste misread as fenced because of it, or a real wrapping
-// fence's close misread as the inner sample's close). So the wrapping
-// fence's start is the first "```" line whose own content begins with
-// "---", and its end is the last "```" line in the whole text after that,
-// skipping over whatever fences a brief has inside.
+// mistaken for the one wrapping the whole paste. So the wrapping fence's
+// start is the first "```" line whose own content begins with "---". Its
+// end is found by stepping through what follows one fence deep at a time:
+// a "```" line that carries a language tag (the usual way to open a code
+// sample, "```go" and so on) opens a nested fence to step over, matched by
+// the next bare "```"; a bare "```" met while not inside one of those is
+// the wrapping fence's own close, found and stopped at there and then, so
+// neither a sample inside a brief nor anything after the real close (an
+// agent's closing remark, which may have a fenced sample of its own) is
+// ever mistaken for it.
 func locateWorkOrderBlock(text string) (lines []string, offset int, ok bool) {
 	all := strings.Split(strings.NewReplacer("\r\n", "\n", "\r", "\n").Replace(text), "\n")
 	fenceStart, fenceEnd := -1, -1
@@ -132,9 +136,21 @@ func locateWorkOrderBlock(text string) (lines []string, offset int, ok bool) {
 		}
 	}
 	if fenceStart >= 0 {
-		for i := len(all) - 1; i > fenceStart; i-- {
-			if strings.TrimSpace(all[i]) == "```" {
+		nested := false
+		for i := fenceStart + 1; i < len(all); i++ {
+			trimmed := strings.TrimSpace(all[i])
+			if !strings.HasPrefix(trimmed, "```") {
+				continue
+			}
+			switch {
+			case nested:
+				nested = trimmed != "```"
+			case trimmed == "```":
 				fenceEnd = i
+			default:
+				nested = true
+			}
+			if fenceEnd >= 0 {
 				break
 			}
 		}

@@ -25,7 +25,7 @@ async function open({ width = 1440, theme = 'dark', routes = {}, status } = {}) 
   return { ...w, writes }
 }
 
-const workbench = page => page.getByRole('region', { name: 'Nothing in flight.', exact: true })
+const workbench = page => page.getByRole('region', { name: 'No sessions running.', exact: true })
 const noSideways = page => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)
 
 try {
@@ -39,13 +39,13 @@ try {
       // Quick-start buttons and a single explanation of where Factory work goes.
       await expect(start.getByRole('article')).toHaveCount(0)
       await expect(start.getByRole('img')).toHaveCount(0)
-      await expect(start.getByRole('heading')).toHaveText(['Nothing in flight.'])
+      await expect(start.getByRole('heading')).toHaveText(['No sessions running.'])
       // One obvious next step; the other ways to start are quiet links beneath it.
       const buttons = start.locator('.btn')
       await expect(buttons).toHaveText(['Start an agent session'])
       await expect(start.locator('.later')).toHaveText(['New Factory outcome', 'Open terminal', 'Plan a session'])
       await expect(page.getByRole('button', { name: 'New Factory outcome', exact: true })).toHaveCount(1)
-      await expect(start).toContainText('follow the work in Factory')
+      await expect(start).toContainText('follow the work on the Factory page')
       await expect(page.getByRole('button', { name: 'New session', exact: true })).toHaveCount(0)
       await expect(page.getByRole('button', { name: 'Start an agent session', exact: true })).toHaveCount(1)
       expect((await buttons.first().boundingBox()).height).toBeGreaterThanOrEqual(44)

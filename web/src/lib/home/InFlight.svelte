@@ -87,7 +87,7 @@
   {:else if !loaded}
     <p class="none">Reading your sessions…</p>
   {:else if groups.length === 0}
-    <p class="none">Nothing in flight. Sessions you start show here, and finished ones stay for a day.</p>
+    <p class="none">No sessions running. Sessions you start show here, and finished ones stay for a day.</p>
   {:else}
     <div class="list">
       {#each shownGroups as g (g.key)}

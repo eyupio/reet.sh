@@ -425,7 +425,7 @@ try{
   try{
    await expect(section(page,'Waiting for you')).toContainText('Nothing is waiting for you.')
    await page.getByRole('group',{name:'Home view',exact:true}).getByRole('button',{name:'Continue working',exact:true}).click()
-   await expect(page.getByRole('region',{name:'Nothing in flight.',exact:true})).toBeVisible()
+   await expect(page.getByRole('region',{name:'No sessions running.',exact:true})).toBeVisible()
    await expect(page.locator('.workspace-heading .counts')).toHaveText('0 waiting for you')
    await expect(page.getByRole('main')).not.toContainText('Desk idle shell')
    expect(w.state.unexpected).toEqual([]);expect(w.errors).toEqual([])

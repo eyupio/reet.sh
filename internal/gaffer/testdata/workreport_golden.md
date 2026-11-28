@@ -19,6 +19,21 @@ state: done
 > ---
 > reet: work-order/1
 
+## Pipeline: Split work
+state: running
+pathway: House way
+
+- code / Writer: done
+- code / Reader: in_progress
+
+### Handover: code / Writer
+> Writer done.
+>
+> Second paragraph.
+
+### Handover: code / Reader
+> Reader half.
+
 ## Pipeline: Reader checks
 state: delivery_review
 stage in hand: test

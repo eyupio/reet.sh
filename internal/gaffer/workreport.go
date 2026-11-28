@@ -20,9 +20,16 @@ func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }
 // wording; checks are read live from GitHub and so are shown as unverified.
 func WorkReport(o store.GafferOutcome, handovers bool) string {
 	var b strings.Builder
-	b.WriteString("---\nreet: work-report/1\noutcome: " + o.ID + "\nobjective: " + oneLine(o.Objective) + "\nstate: " + o.State + "\n---\n")
+	b.WriteString("---\nreet: work-report/1\noutcome: " + o.ID + "\nobjective: " + oneLine(o.Objective) + "\nstate: " + o.State + "\n")
+	if o.ArchivedAt > 0 {
+		b.WriteString("archived: yes\n")
+	}
+	b.WriteString("---\n")
 	for _, piece := range o.Sessions {
 		b.WriteString("\n## Pipeline: " + oneLine(piece.Title) + "\nstate: " + piece.State + "\n")
+		if piece.PathwayName != "" {
+			b.WriteString("pathway: " + oneLine(piece.PathwayName) + "\n")
+		}
 		if piece.Stage < len(piece.Stages) && piece.Stages[piece.Stage].State != "done" {
 			b.WriteString("stage in hand: " + oneLine(piece.Stages[piece.Stage].Label()) + "\n")
 		}
@@ -30,7 +37,7 @@ func WorkReport(o store.GafferOutcome, handovers bool) string {
 			b.WriteString("\n")
 		}
 		for _, st := range piece.Stages {
-			b.WriteString("- " + oneLine(st.Label()) + ": " + st.State)
+			b.WriteString("- " + stageName(st) + ": " + st.State)
 			if st.Tier != "" {
 				b.WriteString(" (" + oneLine(st.Tier) + ")")
 			}
@@ -38,9 +45,9 @@ func WorkReport(o store.GafferOutcome, handovers bool) string {
 		}
 		for _, st := range piece.Stages {
 			if handovers && st.Summary != "" {
-				b.WriteString("\n### Handover: " + oneLine(st.Label()) + "\n")
+				b.WriteString("\n### Handover: " + stageName(st) + "\n")
 				for _, line := range strings.Split(strings.ReplaceAll(clipTo(st.Summary, workReportHandoverBytes), "\r", ""), "\n") {
-					b.WriteString("> " + line + "\n")
+					b.WriteString(strings.TrimRight("> "+line, " ") + "\n")
 				}
 			}
 		}
@@ -61,12 +68,22 @@ func WorkReport(o store.GafferOutcome, handovers bool) string {
 	return b.String()
 }
 
-func reportCriterionStatus(piece store.GafferOutcomeSession, c store.GafferCriterion) string {
-	status := CriterionUnverified
-	for _, ev := range piece.Evidence {
-		if ev.CriterionID == c.ID && ev.Kind != "check" && ev.CriteriaRevision >= c.Revision && ev.Verdict != "" {
-			status = ev.Verdict
-		}
+// stageName is a stage's label, with the part's title for one part of a split stage.
+func stageName(st store.GafferOutcomeStage) string {
+	if st.Part != "" {
+		return oneLine(st.Label()) + " / " + oneLine(st.Part)
 	}
-	return status
+	return oneLine(st.Label())
+}
+
+// reportCriterionStatus is the delivery review's own rule (criterionView),
+// applied to what is stored: the reviewed commit is taken to be the one on
+// the latest evidence, and with no machine read there are no live checks, so
+// a criterion that rests on a check is unverified.
+func reportCriterionStatus(piece store.GafferOutcomeSession, c store.GafferCriterion) string {
+	head := deliveryHead{state: commitNone}
+	if n := len(piece.Evidence); n > 0 && piece.Evidence[n-1].Commit != "" {
+		head = deliveryHead{state: commitVerified, commit: piece.Evidence[n-1].Commit}
+	}
+	return criterionView(c, piece.Evidence, head).Status
 }

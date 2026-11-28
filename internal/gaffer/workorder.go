@@ -21,6 +21,22 @@ import (
 // MaxWorkOrderBytes is the most a pasted or submitted work order may be.
 const MaxWorkOrderBytes = 64 << 10
 
+// WorkOrderLimits is the work order format's enforced figures, for the
+// integration skill's prose to quote rather than restate as separate
+// literals: a test fails if the two ever differ.
+func WorkOrderLimits() map[string]int {
+	return map[string]int{
+		"pipelines":      MaxOutcomeSessions,
+		"objectiveBytes": MaxOutcomeObjectiveBytes,
+		"briefBytes":     MaxOutcomePromptBytes,
+		"parts":          MaxStageParts,
+		"partBriefBytes": maxPartBriefBytes,
+		"criteria":       store.MaxGafferCriteria,
+		"criterionBytes": store.MaxGafferCriterionText,
+		"titleRunes":     terminalproto.MaxTitleRunes,
+	}
+}
+
 // WorkOrderMember is one tier's crew suggestion from a work order's header:
 // an agent and, optionally, the model and effort to run it on.
 type WorkOrderMember struct {

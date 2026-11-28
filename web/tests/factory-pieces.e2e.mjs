@@ -81,11 +81,14 @@ try{
  // A review of Gaffer's own that did not complete: the card says what went wrong and that it will not run again by itself
  // (no "resume the goal", which the button already does), and links to the stage's session so the person can read it first.
  for(const [width,theme] of [[390,'dark'],[1000,'light']]){
-  const {w,page}=await open(width,{height:900,theme,tweak:f=>{const g=f.row.goal;g.state='needs_user';g.reviewFailed=true;delete g.advice;g.note='Gaffer’s review did not complete (failed): The provider returned no visible answer. Check the model and reasoning effort in your Gaffer settings before trying again. It will not be repeated automatically; resume the goal to try again.'}})
+  const {w,page}=await open(width,{height:900,theme,tweak:f=>{const g=f.row.goal;g.state='needs_user';g.reviewFailed=true;delete g.advice;Object.assign(f.outcome.sessions[0].stages[0],{agentState:'working',agentActiveAt:Date.now()-120000});g.note='Gaffer’s review did not complete (failed): The provider returned no visible answer. Check the model and reasoning effort in your Gaffer settings before trying again. It will not be repeated automatically; resume the goal to try again.'}})
   try{
    const waiting=page.getByRole('region',{name:'Waiting for you',exact:true})
    await expect(waiting).toContainText('Gaffer’s review of this stage did not finish: The provider returned no visible answer. Check the model and reasoning effort in your Gaffer settings before trying again. It will not run again by itself.')
    await expect(waiting).not.toContainText('resume the goal')
+   await expect(waiting.getByText('Review failed',{exact:true})).toBeVisible()
+   await expect(waiting.getByText('Agent: working · last active 2 min ago',{exact:true})).toBeVisible()
+   await expect(waiting.getByRole('button',{name:'Details and other actions for Export API',exact:true})).toHaveText('Details')
    await expect(waiting.getByRole('button',{name:/^Try the review again/})).toBeVisible()
    const session=waiting.getByRole('link',{name:'Open the session for Export API',exact:true})
    await expect(session).toHaveAttribute('href',`/sessions?agent=a1&session=${sid}`)

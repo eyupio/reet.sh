@@ -667,7 +667,8 @@ export const deliveryHref = (outcomeId: string, key: string): string => `/factor
 export type NeedChoice = { id: 'review' | 'answer' | 'retry' | 'again' | 'tell' | 'move' | 'budget' | 'open' | 'backup' | 'replace-worker' | 'restart' | 'stop' | 'merge'; label: string; primary?: boolean; /** The choice to take unless the person knows better: Gaffer's, when its review advised, else the usual one. */ recommended?: boolean }
 /** Who recommends the first choice and why. `text` is the instruction Gaffer would give the agent. */
 export type NeedRecommend = { by: 'gaffer' | 'default'; label: string; why: string; text?: string }
-export type Need = { why: string; choices: NeedChoice[]; recommend?: NeedRecommend }
+/** `problem` is a need that came from something going wrong (a review that did not finish), so a card marks it as one. */
+export type Need = { why: string; choices: NeedChoice[]; recommend?: NeedRecommend; problem?: boolean }
 /** Gaffer's advice on a stage its review brought back: one of the person's choices, and why. */
 export type GoalAdvice = { choice: string; why: string; text?: string }
 /** How many decisions Gaffer may take on one stage of an outcome whose decisions it was given. */
@@ -701,7 +702,7 @@ export function needsYou(goal: NeedGoal, reason: string | undefined, last: boole
   // The way out when the stage's agent is stuck in a session that is still open: asked for with a confirmation.
   const restart: NeedChoice = { id: 'restart', label: 'Restart stage…' }
   if (goal.waitingOnWorker) return { why: 'The agent is waiting for your answer or approval. Gaffer carries on by itself once you have answered.', choices: [{ id: 'answer', label: 'Open the session to answer', primary: true }] }
-  if (goal.reviewFailed) return recommend(reviewFailedWhy(goal.note), [{ id: 'retry', label: 'Try the review again', primary: true }, { id: 'tell', label: 'Tell the agent…' }, move, restart, { id: 'open', label: 'Open the session' }])
+  if (goal.reviewFailed) return { ...recommend(reviewFailedWhy(goal.note), [{ id: 'retry', label: 'Try the review again', primary: true }, { id: 'tell', label: 'Tell the agent…' }, move, restart, { id: 'open', label: 'Open the session' }]), problem: true }
   if (goal.state === 'limit') return recommend(goal.note || 'This stage used its review budget or its time.', [{ id: 'budget', label: 'Give it a new budget', primary: true }, move])
   if (goal.noStep) return recommend('Gaffer reviewed this and chose no next step, so it stopped. Nothing in particular is being asked of you.', [{ id: 'again', label: 'Have Gaffer look again', primary: true }, { id: 'tell', label: 'Tell the agent…' }, move, restart, { id: 'open', label: 'Open the session' }])
   return recommend(reason || goal.note || 'Gaffer brought this back to you.', [{ id: 'again', label: 'Have Gaffer look again', primary: true }, { id: 'tell', label: 'Tell the agent…' }, move, restart, { id: 'open', label: 'Open the session' }], goal.advice)

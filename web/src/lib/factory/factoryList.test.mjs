@@ -34,6 +34,21 @@ test('each pipeline is in exactly one section', () => {
   assert.equal(items[1].since, 1000)
 })
 
+test('a failed review is marked as a problem and carries what its agent is doing', () => {
+  const stage = { kind: 'code', tool: 'claude', state: 'running', agentState: 'working', agentActiveAt: 900 }
+  const record = { id: 'o1', objective: 'x', projectId: 'p', sessions: [piece('a', 'following', { stages: [stage] }), piece('b', 'following', { stages: [stage] })] }
+  const goals = new Map([['c-a', goal({ state: 'needs_user', reviewFailed: true, note: 'Gaffer’s review did not complete (failed): Overloaded. It will not be repeated automatically; resume the goal to try again.' }, true)], ['c-b', goal({}, true)]])
+  const [failed, asked] = f.factoryItems([record], goals)
+  assert.equal(failed.chip, 'Review failed')
+  assert.equal(failed.need.problem, true)
+  assert.deepEqual(failed.agent, { agentState: 'working', agentActiveAt: 900, agentHeldSince: undefined })
+  // An ordinary decision keeps its chip and is not marked.
+  assert.equal(asked.chip, 'Decision')
+  assert.equal(asked.need.problem, undefined)
+  // No agent line for a pipeline whose stage reports nothing.
+  assert.equal(f.factoryItems([{ ...record, sessions: [piece('c', 'following')] }], new Map([['c-c', goal({}, true)]]))[0].agent, undefined)
+})
+
 test('a lost session is an agent stopped item', () => {
   const record = { id: 'o1', objective: 'x', projectId: 'p', sessions: [piece('a', 'following', { sessionState: 'ended' })] }
   const [item] = f.factoryItems([record], new Map())

@@ -36,10 +36,11 @@ Wire the handler and reuse the report's read permission.
 
 ## Sending it
 
-- Put the work order on its own, or inside one code fence. Text before it outside a fence is refused. The fence closes
-  at the first line of only its own characters, at least as long, that is not closing a code block inside a brief;
-  anything after that line is ignored, unless a section of the work order follows it, which is refused. If a brief
-  holds a bare code fence of the same characters, wrap the work order in a longer fence (````).
+- Put the work order on its own, or inside one code fence. Text before it outside a fence is refused. Text after the
+  closing fence is ignored.
+- Wrap the work order in a fence longer than any fence inside it or after it: if a brief or your text after the order
+  uses a fence of three backticks, wrap the order in four. A paste where a later line could also close the wrapping fence (a line of only
+  the same fence characters, at least as long) is refused, because where the order ends would be a guess.
 - One work order per paste. A second `reet: work-order/` header is refused.
 - At most 64 KB in all.
 - Write plain text. Everything is shown to the person as written.
@@ -135,7 +136,7 @@ The ones you are most likely to meet:
 - `Add at least one ## Pipeline: <title> section.`
 - `Give the pipeline a title of 1 to 80 plain characters.`
 - `Send the work order on its own, or inside one code fence. Remove the text before it.`
-- `The code fence around the work order closes here, but the work order goes on after it. Wrap the work order in a longer fence (````) than any fence inside it.`
+- `The code fence around the work order could close here or at a later line. Wrap the work order in a longer fence than any fence inside it or after it, such as ````.`
 - `Send one work order per paste. Remove everything from this line on.`
 - `Start each pipeline with ## Pipeline: <title>.`
 - `“<heading>” is not a section of a work order. Use ## Pipeline: <title>, ### Part: <stage> / <title> or ### Criteria; inside a brief use headings of level 4 or deeper.`
@@ -145,7 +146,7 @@ The ones you are most likely to meet:
 - `Put the stages in pipeline order, each once: plan, design, code, review, test, pr, babysit, merge.`
 - `tiers names “<stage>”, which is not one of this pipeline's stages.`
 - `tiers gives <stage> a tier twice. Keep one.`
-- `Write this setting as stages: <stage>, <stage>, in lower case with a colon.` (and the same for `tiers: <stage>=<tier>, <stage>=<tier>` under a pipeline, or `tier: light, standard or heavy` under a part)
+- `This line reads as a setting. Write it as stages: <stage>, <stage>, in lower case with a colon, or start the brief with other words.` (and the same for `tiers: <stage>=<tier>, <stage>=<tier>` under a pipeline, or `tier: light, standard or heavy` under a part)
 - `“<key>:” is given twice for this pipeline. Keep one.`
 - `Split a stage into 2 to 4 parts, or give “<stage>” no parts.`
 - `The <stage> stage is not split into parts. Split plan, design, code, review or test.`

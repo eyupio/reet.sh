@@ -139,6 +139,8 @@ class BuiltinSkills(unittest.TestCase):
         topic.parent.mkdir(parents=True)
         (topic.parent / "SKILL.md").write_text("---\nname: factory-demo\ndescription: Topics.\n---\n", encoding="utf-8")
         topic.write_text("# Work\n", encoding="utf-8")
+        (topic.parent / ".hidden.md").write_text("not served\n", encoding="utf-8")
+        (topic.parent / "_draft.md").write_text("not served\n", encoding="utf-8")
         skills = docs.builtin_skills({"config_file_path": str(repo / "mkdocs.yml")})
         self.assertEqual(skills[1], ("reet-demo", "Shows: a thing.", content, {}))
         self.assertEqual(skills[0][3], {"work.md": "# Work\n"})

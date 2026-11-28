@@ -15,9 +15,10 @@ limits. A work order has no fields for them, and a header key it does not know i
 
 ## Two routes, one format
 
-1. **Paste (the usual route).** Print the work order in one fenced code block and nothing else of substance. Tell the
-   person to paste it into **New Factory outcome** in reet. reet reads it, shows the pipelines and stages, and the
-   person confirms and starts.
+1. **Paste (the usual route).** Print the work order in one fenced code block and nothing else of substance. Make that
+   fence longer than any fence inside it or after it: four backticks if a brief holds a fence of three (see
+   [work-order.md](work-order.md)). Tell the person to paste it into **New Factory outcome** in reet. reet reads it,
+   shows the pipelines and stages, and the person confirms and starts.
 2. **MCP (only if reet's tools are connected to you).** Call `reet_check_work_order` with `work_order`, fix every
    problem it lists, then call `reet_start_outcome` with the same `work_order`. See [mcp.md](mcp.md).
 

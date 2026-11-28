@@ -74,9 +74,10 @@ func workOrderBlock(text string) (block []string, offset, stray int, found bool)
 				switch {
 				case c == 0:
 				case inner == 0 && c == wrap && run >= wrapLen && run == len(t):
+					// A later line that could also close the wrapper makes the end of the order a guess.
 					for _, rest := range lines[j+1:] {
-						if workOrderSection(rest) {
-							return lines[i:j], i, j, true // the order goes on after its fence closed
+						if r := strings.TrimSpace(rest); r != "" && strings.Trim(r, string(wrap)) == "" && len(r) >= wrapLen {
+							return lines[i:j], i, j, true
 						}
 					}
 					return lines[i:j], i, -1, true
@@ -137,7 +138,7 @@ func ParseWorkOrder(text string) (WorkOrder, []WorkOrderProblem) {
 	bad := func(i int, msg string) { problems = append(problems, WorkOrderProblem{offset + i + 1, msg}) }
 	whole := func(msg string) { problems = append(problems, WorkOrderProblem{0, msg}) }
 	if stray > offset {
-		problems = append(problems, WorkOrderProblem{stray + 1, "The code fence around the work order closes here, but the work order goes on after it. Wrap the work order in a longer fence (````) than any fence inside it."})
+		problems = append(problems, WorkOrderProblem{stray + 1, "The code fence around the work order could close here or at a later line. Wrap the work order in a longer fence than any fence inside it or after it, such as ````."})
 	} else if stray >= 0 {
 		problems = append(problems, WorkOrderProblem{stray + 1, "Send the work order on its own, or inside one code fence. Remove the text before it."})
 	}
@@ -353,18 +354,6 @@ func headingLevel(line string) int {
 	return n
 }
 
-// workOrderSection reports a line that opens one of a work order's sections.
-func workOrderSection(line string) bool {
-	title := strings.TrimSpace(strings.TrimLeft(strings.TrimSpace(line), "#"))
-	switch headingLevel(line) {
-	case 2:
-		return strings.HasPrefix(title, "Pipeline:")
-	case 3:
-		return strings.HasPrefix(title, "Part:") || title == "Criteria"
-	}
-	return false
-}
-
 // fenceRun is the character and length of the code fence a trimmed line
 // starts with, or 0 when it starts none.
 func fenceRun(t string) (byte, int) {
@@ -401,7 +390,7 @@ func woSettings(lines []woLine, forms map[string]string, place string, bad func(
 		}
 		switch {
 		case raw != key || t[cut] != ':' || !strings.HasPrefix(form, key+":"):
-			bad(lines[0].n, "Write this setting as "+form+", in lower case with a colon.")
+			bad(lines[0].n, "This line reads as a setting. Write it as "+form+", in lower case with a colon, or start the brief with other words.")
 		case at[key] != 0: // a body line is never line 0
 			bad(lines[0].n, "“"+key+":” is given twice for this "+place+". Keep one.")
 		default:

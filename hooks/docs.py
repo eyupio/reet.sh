@@ -94,7 +94,8 @@ def builtin_skills(config):
         files = {}
         for name in sorted(os.listdir(os.path.join(root, slug))):
             path = os.path.join(root, slug, name)
-            if name != "SKILL.md" and os.path.isfile(path):
+            # go:embed leaves out names starting with . or _, so the controller never serves them.
+            if name != "SKILL.md" and not name.startswith((".", "_")) and os.path.isfile(path):
                 with open(path, encoding="utf-8") as fh:
                     files[name] = fh.read()
         skills.append((slug, found.group(1).strip() if found else "", content, files))

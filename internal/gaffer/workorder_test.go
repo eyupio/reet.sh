@@ -56,8 +56,9 @@ func TestWorkOrderTolerates(t *testing.T) {
 	want := mustParseWorkOrder(t, clean)
 	crlf := strings.ReplaceAll(clean, "\n", "\r\n")
 	fenced := "Here is the work order.\n\n```markdown\n" + clean + "```\n\nTell me what you think.\n"
-	chatter := "```markdown\n" + clean + "```\n\nThen run:\n\n```sh\nreet status\n```\n"
-	for name, text := range map[string]string{"crlf": crlf, "fenced": fenced, "chatter with code": chatter} {
+	// A wrapper longer than any fence inside or after it closes once.
+	chatter := "````markdown\n" + clean + "````\n\nThen run:\n\n```sh\nreet status\n```\n"
+	for name, text := range map[string]string{"crlf": crlf, "fenced": fenced, "longer wrapper, chatter with code": chatter} {
 		if !IsWorkOrder(text) {
 			t.Errorf("%s: not recognised", name)
 		}
@@ -121,7 +122,7 @@ func TestWorkOrderRefuses(t *testing.T) {
 		{"empty continues", head + "continues:\n---\n" + pipe("One"), 4, "continues"},
 		{"long project", head + "project: " + repeat("p", 200) + "\n---\n" + pipe("One"), 4, "project"},
 		{"too big", ok + "\n" + repeat("x", MaxWorkOrderBytes), 0, "64"},
-		{"capital stages", head + "---\n\n## Pipeline: One\nStages: plan, code\n\nBrief.\n", 7, "stages: "},
+		{"capital stages", head + "---\n\n## Pipeline: One\nStages: plan, code\n\nBrief.\n", 7, "reads as a setting. Write it as stages: "},
 		{"singular stage", head + "---\n\n## Pipeline: One\nstage: plan, code\n\nBrief.\n", 7, "stages: "},
 		{"stages with =", head + "---\n\n## Pipeline: One\nstages = plan, code\n\nBrief.\n", 7, "stages: "},
 		{"near miss after a setting", head + "---\n\n## Pipeline: One\nstages: code\n\nTiers: code=heavy\n\nBrief.\n", 9, "tiers: "},
@@ -132,6 +133,8 @@ func TestWorkOrderRefuses(t *testing.T) {
 		{"empty criteria", ok + "\n### Criteria\n\n", 10, "empty"},
 		{"indented unknown heading", ok + "\n   ### Notes\n", 10, "Notes"},
 		{"indented h2 in brief", head + "---\n\n## Pipeline: One\n\nBrief\n\n  ## Another\n", 10, "Another"},
+		{"chatter with code after a short wrapper", "```markdown\n" + ok + "```\n\nThen run:\n\n```sh\nreet status\n```\n", 10, "longer fence"},
+		{"bare block in the last brief", "```markdown\n" + head + "---\n\n## Pipeline: One\n\nDelete old tables except:\n```\nusers\n```\n```\n", 10, "longer fence"},
 		{"wrapper closed inside the order", "```markdown\n" + head + "---\n\n## Pipeline: One\n\nBrief\n```\ncode\n```\n\n### Criteria\n- x\n```\n", 10, "longer fence"},
 	}
 	for _, tc := range tests {
@@ -188,6 +191,11 @@ func TestWorkOrderAccepts(t *testing.T) {
 	order := mustParseWorkOrder(t, head+"Brief.\n\nStages: plan first, then code.\n\n  ### Part: code / A\n\nOne.\nTier: is fine here.\n\n ### Part: code / B\ntier: heavy\n\nTwo.\n\n   ### Criteria\n- It works\n")
 	if s := order.Sessions[0]; s.Prompt != "Brief.\n\nStages: plan first, then code." || len(s.Criteria) != 1 || len(s.Stages) != 7 || s.Stages[0].Brief != "One.\nTier: is fine here." || s.Stages[1].Tier != "heavy" {
 		t.Errorf("settings and indented headings: %+v", order.Sessions)
+	}
+	// A longer wrapper keeps a bare block in a brief.
+	wrapped := mustParseWorkOrder(t, "````markdown\n"+head+"Delete old tables except:\n```\nusers\n```\n````\n")
+	if wrapped.Sessions[0].Prompt != "Delete old tables except:\n```\nusers\n```" {
+		t.Errorf("longer wrapper: %q", wrapped.Sessions[0].Prompt)
 	}
 	// BOM and lone carriage returns.
 	text := "\ufeff" + strings.ReplaceAll(workOrderExample(t), "\n", "\r")

@@ -37,6 +37,9 @@
   const page = new SkillsPageState()
 
   let selecting = $state(false)
+  // On a phone Liked, Tag, List and Sort sit behind Filters; the button counts those that are not at their default.
+  let filtersOpen = $state(false)
+  const filterCount = $derived([page.onlyLiked, page.tagFilter, page.listFilter, page.sort !== 'name'].filter(Boolean).length)
   let selected = $state<string[]>([])
   let openId = $state('')
 
@@ -623,6 +626,8 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
         <input type="search" aria-label="Search skills" placeholder="Search" bind:value={page.q} />
       </div>
+      <button type="button" class="toggle filters-toggle" aria-expanded={filtersOpen} aria-controls="skills-filters" onclick={() => (filtersOpen = !filtersOpen)}>Filters{#if filterCount}{' '}<small>{filterCount}</small>{/if}</button>
+      <div class="filters" id="skills-filters" class:open={filtersOpen}>
       <button type="button" class="toggle liked" aria-pressed={page.onlyLiked} onclick={() => (page.onlyLiked = !page.onlyLiked)}>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"></path></svg>Liked
       </button>
@@ -643,7 +648,8 @@
         <option value="attention">Needs a look first</option>
         <option value="liked">Liked first</option>
       </select>
-      {#if canWrite}<button type="button" class="toggle" aria-pressed={selecting} onclick={toggleSelecting}>Select</button>{/if}
+      </div>
+      {#if canWrite}<button type="button" class="toggle pick-mode" aria-pressed={selecting} onclick={toggleSelecting}>Select</button>{/if}
     </div>
   </div>
 
@@ -759,7 +765,10 @@
   .toggle { min-height: 44px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--card); color: var(--muted); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px; font-size: 0.9375rem; }
   .toggle svg { width: 18px; height: 18px; }
   .toggle:hover { color: var(--ink); }
-  .toggle[aria-pressed='true'] { background: var(--tint); color: var(--ink); border-color: var(--accent); font-weight: 600; }
+  .filters { display: contents; }
+  .filters-toggle { display: none; }
+  .filters-toggle small { font: 400 0.875rem var(--mono); font-variant-numeric: tabular-nums; }
+  .toggle[aria-pressed='true'], .toggle[aria-expanded='true'] { background: var(--tint); color: var(--ink); border-color: var(--accent); font-weight: 600; }
   .toggle.liked[aria-pressed='true'] { background: var(--tint); color: var(--ink); border-color: var(--heart); }
   .toggle.liked[aria-pressed='true'] svg { color: var(--heart); fill: currentColor; }
 
@@ -783,9 +792,13 @@
     .tabs { width: 100%; }
     .tab { flex: 1; }
     .find { width: 100%; }
-    .search { flex: 1 1 100%; }
+    .search { flex: 1 1 140px; order: 1; }
     .search input { width: 100%; }
-    .find select, .find .toggle { flex: 1 1 calc(50% - 4px); min-width: 0; }
+    .filters-toggle { display: inline-flex; order: 2; }
+    .pick-mode { order: 3; }
+    .filters { display: none; order: 4; flex: 1 1 100%; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .filters.open { display: grid; }
+    .filters select, .filters .toggle { min-width: 0; }
   }
   @media (max-width: 560px) {
     .skills-page { gap: 16px; }

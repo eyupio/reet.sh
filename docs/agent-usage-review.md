@@ -44,7 +44,7 @@ are for this revision.
 | 1 | `AGENTS.md` (37 lines) | The two-file rule, house style, and repository traps not visible in the code | Coding agents and contributors | Active |
 | 2 | `CONTRIBUTING.md` (127 lines) | Development setup, local checks, style, pull-request flow, benchmark and Gaffer acceptance notes, docs-site build | Contributors and agents | Active |
 | 3 | `handoff.md` (14 lines) | Says where new handoff entries go, the heading format, and the archived entries | Contributors writing entries | Active |
-| 4 | `docs/handoffs/log/*.md` (51 files) | One record per change: what was built, checked and left undone | The next contributor or agent | Active, with some process entries |
+| 4 | `docs/handoffs/log/*.md` (52 files) | One record per change: what was built, checked and left undone | The next contributor or agent | Active, with some process entries |
 | 5 | `docs/handoffs/archive.md` (4,905 lines) | Every handoff entry from before the one-file layout, newest first | Readers following an entry ID | Historical, excluded from the site |
 | 6 | `handoff-history.md` (4,031 lines, 281,734 bytes, repository root) | Older delivery narrative, archived on 23 October 2026 | Linked from `docs/handoffs/archive.md` and research notes | Historical, outside `docs_dir` |
 | 7 | `docs/handoffs/flaky-tests.md` | Unstable tests with evidence, owner and fix-by date | Contributors and CI reviewers | Active |
@@ -235,7 +235,7 @@ can skip them:
 ## Method and limits
 
 - Every citation was read at this revision, and line numbers come from `nl -ba` on the file named.
-- Counts: 51 files in `docs/handoffs/log/`; 36 feature files in `docs/handoffs/` plus `archive.md`; 28 plans and 42
+- Counts: 52 files in `docs/handoffs/log/`; 36 feature files in `docs/handoffs/` plus `archive.md`; 28 plans and 42
   specs; 94 references to `handoff.md` in 37 tracked Markdown files (this review, `archive.md`, `handoff-history.md` and
   the generated `site/` directory excluded); 10 `scripts/probe-*.py` scripts plus `scripts/check-claude-credentials.py`.
 - `handoff-history.md` was confirmed absent from the built site because it sits outside `docs_dir: docs`
@@ -247,4 +247,6 @@ can skip them:
   `docs/ux-review.md` already is), `scripts/check-docs.py` (76 pages passed), `scripts/check-docs-browser.py` (passed)
   and the `hooks` unit tests with the docs virtual environment (31 passed). The Go, web and MCP suites were not run
   because no application code changed.
-- The `notes` check fails on this branch by design; finding 1 and recommendation A record that rather than hiding it.
+- The `notes` check was failing on this branch because it adds no handoff entry; the pull request now adds
+  `docs/handoffs/log/AGENT-USAGE-REVIEW-1.md` (option 1 in finding 1 and recommendation A) so the check passes. The
+  other two options in recommendation A still need a maintainer's decision.

@@ -56,6 +56,7 @@ func WorkReport(o store.GafferOutcome, handovers bool) string {
 			for _, c := range piece.Criteria {
 				b.WriteString("- [" + reportCriterionStatus(piece, c) + "] " + oneLine(c.Text) + "\n")
 			}
+			b.WriteString("Statuses are as last recorded; the delivery review in reet is the live view.\n")
 		}
 		switch piece.State {
 		case "delivery_review":
@@ -77,13 +78,34 @@ func stageName(st store.GafferOutcomeStage) string {
 }
 
 // reportCriterionStatus is the delivery review's own rule (criterionView),
-// applied to what is stored: the reviewed commit is taken to be the one on
-// the latest evidence, and with no machine read there are no live checks, so
-// a criterion that rests on a check is unverified.
+// applied to what is stored. Nothing stores the commit the review last read,
+// so the reviewed commit is taken to be the one on the latest evidence, with
+// no live checks. A recorded "passed" is kept only while the pipeline waits
+// (delivery review, ready to merge, done) and no stage started after the
+// latest evidence: otherwise work may have moved the commit, and the report
+// says "unverified". "needs_work" is always shown.
 func reportCriterionStatus(piece store.GafferOutcomeSession, c store.GafferCriterion) string {
 	head := deliveryHead{state: commitNone}
+	var last int64
+	for _, ev := range piece.Evidence {
+		last = max(last, ev.At)
+	}
 	if n := len(piece.Evidence); n > 0 && piece.Evidence[n-1].Commit != "" {
 		head = deliveryHead{state: commitVerified, commit: piece.Evidence[n-1].Commit}
 	}
-	return criterionView(c, piece.Evidence, head).Status
+	status := criterionView(c, piece.Evidence, head).Status
+	if status != CriterionPassed {
+		return status
+	}
+	switch piece.State {
+	case "delivery_review", "ready_to_merge", "done":
+	default:
+		return CriterionUnverified
+	}
+	for _, st := range piece.Stages {
+		if st.StartedAt > last {
+			return CriterionUnverified
+		}
+	}
+	return status
 }

@@ -47,6 +47,7 @@ stage in hand: test
 ### Criteria
 - [passed] An export of 10,000 rows finishes in under 5 seconds
 - [unverified] A reader of another team's report is refused
+Statuses are as last recorded; the delivery review in reet is the live view.
 
 ### Waiting for the person
 Delivery review.

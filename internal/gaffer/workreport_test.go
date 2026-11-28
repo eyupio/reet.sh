@@ -104,7 +104,7 @@ func TestWorkReportOddShapes(t *testing.T) {
 		}},
 	}}
 	got := WorkReport(o, true)
-	if strings.Count(got, "\n## Pipeline:") != 2 || strings.Count(got, "\n---\n") != 0 && !strings.HasPrefix(got, "---\n") {
+	if strings.Count(got, "\n## Pipeline:") != 2 || strings.Count(got, "\n---\n") != 1 {
 		t.Fatalf("structure forged:\n%s", got)
 	}
 	if strings.Contains(got, "> \n") || strings.Contains(got, "\n---\n## ") {
@@ -112,5 +112,28 @@ func TestWorkReportOddShapes(t *testing.T) {
 	}
 	if empty := WorkReport(store.GafferOutcome{ID: "y"}, true); !strings.Contains(empty, "state: \n---\n") || strings.Contains(empty, "\n## Pipeline") {
 		t.Fatalf("empty outcome:\n%s", empty)
+	}
+}
+
+func TestWorkReportPassedNeverOutlivesNewWork(t *testing.T) {
+	c := store.GafferCriterion{ID: "c1", Text: "t", Revision: 1}
+	ev := func(verdict string, at int64) store.GafferEvidence {
+		return store.GafferEvidence{CriterionID: "c1", Kind: "note", Verdict: verdict, CriteriaRevision: 1, Commit: "aaaa", At: at}
+	}
+	cases := []struct {
+		name  string
+		piece store.GafferOutcomeSession
+		want  string
+	}{
+		{"waiting, no new work", store.GafferOutcomeSession{State: "delivery_review", Evidence: []store.GafferEvidence{ev("passed", 10)}, Stages: []store.GafferOutcomeStage{{StartedAt: 5}}}, "passed"},
+		{"sent back, stage restarted", store.GafferOutcomeSession{State: "delivery_review", Evidence: []store.GafferEvidence{ev("passed", 10)}, Stages: []store.GafferOutcomeStage{{StartedAt: 20}}}, "unverified"},
+		{"running again", store.GafferOutcomeSession{State: "running", Evidence: []store.GafferEvidence{ev("passed", 10)}}, "unverified"},
+		{"needs work always shows", store.GafferOutcomeSession{State: "running", Evidence: []store.GafferEvidence{ev("needs_work", 10)}, Stages: []store.GafferOutcomeStage{{StartedAt: 20}}}, "needs_work"},
+		{"non-standard verdict", store.GafferOutcomeSession{State: "delivery_review", Evidence: []store.GafferEvidence{ev("bogus", 10)}}, "unverified"},
+	}
+	for _, tc := range cases {
+		if got := reportCriterionStatus(tc.piece, c); got != tc.want {
+			t.Errorf("%s: %s, want %s", tc.name, got, tc.want)
+		}
 	}
 }

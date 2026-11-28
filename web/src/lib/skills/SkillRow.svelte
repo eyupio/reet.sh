@@ -86,15 +86,15 @@
       <div class="acts">
         {#if row.status === 'active'}
           <button type="button" class="btn" data-act="archive" aria-label={`Archive ${row.name}`} title={machines ? `Take it off ${machinesWord} and keep it here` : 'Keep it here, off your machines'} aria-busy={busy === 'archive'} aria-disabled={!!busy} onclick={() => busy || onarchive(row)}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true"><rect x="3" y="4" width="18" height="5" rx="1"></rect><path d="M5 9v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9M10 13h4"></path></svg>Archive
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true"><rect x="3" y="4" width="18" height="5" rx="1"></rect><path d="M5 9v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9M10 13h4"></path></svg><span class="lbl">Archive</span>
           </button>
         {:else}
           <button type="button" class="btn" data-act="restore" aria-label={`Restore ${row.name}`} title={machines ? `Put it back on ${machinesWord}` : 'Make it Active again'} aria-busy={busy === 'restore'} aria-disabled={!!busy} onclick={() => busy || onrestore(row)}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true"><path d="M9 14l-5-5 5-5M4 9h10a6 6 0 0 1 0 12h-3"></path></svg>Restore
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true"><path d="M9 14l-5-5 5-5M4 9h10a6 6 0 0 1 0 12h-3"></path></svg><span class="lbl">Restore</span>
           </button>
         {/if}
         <button type="button" class="btn danger" data-act="delete" aria-label={`Delete ${row.name}`} aria-busy={busy === 'delete'} aria-disabled={!!busy} onclick={() => busy || ondelete(row)}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"></path></svg>Delete
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"></path></svg><span class="lbl">Delete</span>
         </button>
       </div>
     {/if}
@@ -130,7 +130,9 @@
   .tags li { padding: 4px 9px; border-radius: 999px; background: var(--bg-sunk); color: var(--ink-soft); font: 0.875rem/1.3 var(--mono); overflow-wrap: anywhere; }
   .where { grid-area: where; display: flex; align-items: center; gap: 4px; flex-wrap: wrap; min-width: 0; }
   .health { margin: 0; display: inline-flex; align-items: center; gap: 8px; font-size: 0.875rem; font-weight: 500; line-height: 1.35; min-width: 0; overflow-wrap: anywhere; }
-  .health[data-tone='ok'] { color: var(--good); }
+  /* Healthy is the usual state, so it reads quietly and only a green dot marks it; colour is kept for what needs a look. */
+  .health[data-tone='ok'] { color: var(--muted); }
+  .health[data-tone='ok'] .dot { background: var(--good); }
   .health[data-tone='work'] { color: var(--info); }
   .health[data-tone='bad'] { color: var(--bad); }
   .health[data-tone='off'] { color: var(--muted); }
@@ -148,7 +150,7 @@
   .acts { grid-area: acts; display: flex; gap: 8px; }
   .acts .btn { min-height: 44px; padding: 0 14px; border-radius: 10px; white-space: nowrap; font-weight: 500; }
   .acts .btn svg { width: 18px; height: 18px; flex: none; }
-  .acts .danger { color: var(--bad); }
+  .acts .danger:focus-visible { color: var(--bad); }
   .acts .btn[aria-disabled='true'] { opacity: 0.6; cursor: progress; }
   /* The ring that says a change is on its way takes the icon's place. */
   .acts .btn[aria-busy='true'] svg { display: none; }
@@ -162,11 +164,14 @@
     .line { grid-template-columns: minmax(0, 1fr) minmax(150px, 200px) 44px auto; grid-template-areas: 'who where heart acts'; }
     .tags { display: none; }
   }
-  /* A phone: the name and the heart, where it stands, then the two actions side by side. */
+  /* A phone: the name, the heart and the two actions on one line (the actions as icons, named for screen readers), then
+     where it stands. Two full-width buttons per skill used to fill the screen after four. */
   @media (max-width: 700px) {
-    .line { grid-template-columns: minmax(0, 1fr) 44px; grid-template-areas: 'who heart' 'where where' 'acts acts'; gap: 4px 8px; padding: 10px 12px 12px 16px; }
+    .line { grid-template-columns: minmax(0, 1fr) 44px auto; grid-template-areas: 'who heart acts' 'where where where'; gap: 0 4px; padding: 6px 8px 10px 16px; }
     .name { font-size: 1.1875rem; }
     .src, .desc { display: none; }
-    .acts .btn { flex: 1; justify-content: center; }
+    .acts { gap: 4px; }
+    .acts .btn { min-width: 44px; padding: 0; justify-content: center; }
+    .lbl { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   }
 </style>

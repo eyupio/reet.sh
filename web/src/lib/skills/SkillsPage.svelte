@@ -590,7 +590,7 @@
   {#if canWrite}
     <form class="add" onsubmit={add} aria-busy={adding}>
       <label class="vh" for="add-skill">Add a skill</label>
-      <input id="add-skill" bind:this={addEl} bind:value={addInput} type="text" autocomplete="off" placeholder="Paste a skills.sh link or an npx skills add command"
+      <input id="add-skill" bind:this={addEl} bind:value={addInput} type="text" autocomplete="off" placeholder="Paste a skills.sh link or npx command"
         aria-invalid={addError ? 'true' : undefined} aria-describedby={addError ? 'add-skill-error' : undefined} />
       <button type="submit" class="btn primary" disabled={adding || !addInput.trim()} aria-busy={adding}>{adding ? 'Adding…' : 'Add'}</button>
       <a class="btn" href="/hosting">Write a skill</a>

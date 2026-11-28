@@ -9,8 +9,8 @@ const run = name => !only || only === name
 const open = options => openWorkspace(browser, options)
 
 try {
- // Every Skills control is reachable on a phone: the two tabs, search, Liked, Tag, List, Sort and Select, with nothing
- // past the right edge behind a hidden scroll.
+ // Every Skills control is reachable on a phone: the two tabs, search, Filters (which holds Liked, Tag, List and Sort) and
+ // Select, with nothing past the right edge behind a hidden scroll.
  if (run('filters')) {
   const rows = [skillRow('code-review',{tags:[{id:1,name:'review'}],lists:[{id:7,name:'Daily kit'}]}), skillRow('old-notes',{status:'archived'})]
   const {context,page,errors} = await open({width:375,routes:{'/api/v2/skills':req=>skillsPageOf(rows,new URL(req.url()).searchParams.get('status')||'active')}})
@@ -18,7 +18,10 @@ try {
   const tabs = page.getByRole('tablist',{name:'Skill state'})
   const find = page.getByRole('group',{name:'Find skills'})
   await expect(find).toBeVisible()
-  for (const [what,control] of [['Active',tabs.getByRole('tab',{name:/^Active/})],['Archived',tabs.getByRole('tab',{name:/^Archived/})],['Search',find.getByRole('searchbox',{name:'Search skills'})],['Liked',find.getByRole('button',{name:'Liked'})],['Tag',find.getByRole('combobox',{name:'Tag'})],['List',find.getByRole('combobox',{name:'List'})],['Sort',find.getByRole('combobox',{name:'Sort by'})],['Select',find.getByRole('button',{name:'Select',exact:true})]]) {
+  const filters = find.getByRole('button',{name:/^Filters/})
+  await expect(filters).toHaveAttribute('aria-expanded','false')
+  await filters.click()
+  for (const [what,control] of [['Filters',filters],['Active',tabs.getByRole('tab',{name:/^Active/})],['Archived',tabs.getByRole('tab',{name:/^Archived/})],['Search',find.getByRole('searchbox',{name:'Search skills'})],['Liked',find.getByRole('button',{name:'Liked'})],['Tag',find.getByRole('combobox',{name:'Tag'})],['List',find.getByRole('combobox',{name:'List'})],['Sort',find.getByRole('combobox',{name:'Sort by'})],['Select',find.getByRole('button',{name:'Select',exact:true})]]) {
    const box = await control.boundingBox()
    expect(box, `${what} exists`).not.toBeNull()
    expect(box.x + box.width, `${what} right edge`).toBeLessThanOrEqual(375)

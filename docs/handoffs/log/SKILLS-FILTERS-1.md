@@ -14,6 +14,11 @@ What changed.
 - `first-skills.e2e.mjs` has a `filters` section: at 390 px Liked is hidden until Filters opens, the count says 1 after
   Liked is on, and there is no sideways scroll; at 1440 px Filters is hidden and everything is visible.
 
+- `phone-layout.e2e.mjs` measured Liked, Tag, List and Sort on a phone without opening anything, which CI's
+  `terminal ui (1)` shard caught as a timeout on the first push. It now opens Filters first and measures the Filters
+  button as well, so every control must still be reachable and fit the screen. It was not among the suites run before
+  the push; run it whenever the Skills toolbar changes.
+
 Checked: the build, the skills unit tests, the design detector (no findings), light and dark screenshots of the phone
 toolbar shut and open, and the `first-skills`, `skills-new`, `skills-prune`, `skill-open`, `empty-states` and
 `supporting-nav` browser suites. Not checked: a real touch device, and the filters group is not closed again when a

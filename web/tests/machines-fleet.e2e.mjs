@@ -158,7 +158,7 @@ try {
         await expect(badge).toHaveAttribute('title', /\d{4}|\d{1,2}[:.]\d{2}/)
         await expect(locked.locator('.machine-head .dot')).toHaveCount(0)
         await expect(locked).not.toContainText(/Inventory current|Sync agent online|Installing skills/)
-        await expect(locked.locator('.sync-copy strong')).toHaveText('Skills wait until it is unlocked there.')
+        await expect(locked.locator('.status-line strong')).toHaveText('Skills wait until it is unlocked there.')
         await expect(other.locator('[data-locked]')).toHaveCount(0)
         await expect(other.locator('.machine-head .badge')).not.toContainText('Locked')
         // The lock is said once as a line, in code, and it is what the disabled actions point at.
@@ -174,6 +174,7 @@ try {
         await expect(locked.locator('.start-reason')).toHaveCount(0)
         await expect(other.getByRole('button', { name: 'Start an agent' })).toBeEnabled()
         await expect(other.getByRole('link', { name: 'Open terminal' })).toBeVisible()
+        await locked.getByText('Agents on this machine', { exact: true }).click()
         await expect(locked.locator('[data-agent-update]').getByRole('button', { name: /^Update reet/ })).toBeDisabled()
         // The sessions the lock leaves running are counted, in the singular for one.
         const running = locked.locator('[data-locked] .running')

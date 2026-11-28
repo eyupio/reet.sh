@@ -40,7 +40,7 @@
   // A worker that ran out of its plan has two ways on: the filled backup, and any other model. Both are offered here, so
   // neither needs the detail. With no backup the other model is the filled button already.
   const recover = $derived(!item.archived && filled?.id !== 'replace-worker' ? item.need?.choices.find(choice => choice.id === 'replace-worker' && usable(choice)) : undefined)
-  const tone = $derived(item.section === 'waiting' ? 'you' : item.kind === 'running' ? 'good' : 'plain')
+  const tone = $derived(item.kind === 'failed' ? 'bad' : item.section === 'waiting' ? 'you' : item.kind === 'running' ? 'good' : 'plain')
   const detailsLabel = $derived(`Details and other actions for ${item.title}`)
 
   const ROW_MIN = 720
@@ -144,6 +144,7 @@
   .chip{flex:none;padding:2px 10px;border-radius:999px;border:1px solid var(--line-strong);font-size:0.875rem;font-weight:600;white-space:nowrap}
   .chip.you{border-color:var(--accent);color:var(--accent-text)}
   .chip.good{border-color:var(--good);color:var(--good)}
+  .chip.bad{border-color:var(--bad);color:var(--bad)}
   .title{min-width:0;margin:0;font:inherit;font-weight:700;overflow-wrap:anywhere}
   .objective,.why{min-width:0;margin:0;color:var(--muted);font-size:0.875rem;line-height:1.4;overflow-wrap:anywhere}
   .objective{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;overflow:hidden}

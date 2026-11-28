@@ -71,7 +71,7 @@
 
 <section class="flight" aria-labelledby={`${id}-title`}>
   <header>
-    <h2 id={`${id}-title`}>{heading}</h2>
+    <h2 id={`${id}-title`} class="vh">{heading}</h2>
     <div class="group-by" role="radiogroup" aria-label="Group by">
       <span class="lead" aria-hidden="true">Group by</span>
       <span class="segments">
@@ -150,7 +150,7 @@
   .session-card-pop { position: fixed; z-index: 60; pointer-events: none; }
   header { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   h2 { margin: 0; flex-grow: 1; font: 600 16px/1.3 var(--sans); }
-  .group-by { display: flex; align-items: center; gap: 10px; font-size: 14px; }
+  .group-by { display: flex; align-items: center; gap: 10px; font-size: 14px; margin-left: auto; }
   .lead { color: var(--muted); }
   .segments { display: flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
   .segments label { position: relative; display: flex; align-items: center; padding: 5px 10px; color: var(--muted); cursor: pointer; }

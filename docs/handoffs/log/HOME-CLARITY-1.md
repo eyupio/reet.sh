@@ -4,7 +4,7 @@ Why. Home's quiet states used words only the product's authors knew: "Nothing in
 "Factory", and board stages that said "Make room for your next idea." or "Ready when you are." without saying the stage
 was empty.
 
-What changed. Copy only; no layout, route, API or behaviour change.
+What changed. Mostly copy; no route, API or behaviour change.
 
 - `StartWorkbench.svelte`: the heading is "No sessions running." and the Factory line reads "Or set Gaffer a goal and
   follow the work on the Factory page."
@@ -13,6 +13,11 @@ What changed. Copy only; no layout, route, API or behaviour change.
   finished sessions yet." Their explanations and actions are unchanged.
 - `web/tests/workbench.e2e.mjs` and `web/tests/home-waiting.e2e.mjs` name the new heading.
 
+- `InFlight.svelte`: its "Continue working" heading repeated the tab just above it, so it is now visually hidden (the
+  region keeps its name) and Group by sits at the right.
+- `WaitingItem.svelte`: a failed Factory item takes the danger tone (`--bad`), as a failed session already did.
+
 Not changed. "Nothing is waiting for you.", the Planning board and Continue working labels, and the Yorkshire "Nowt
-matches just yet." for a filtered board: many suites pin them and they already say what is true. The signed-out landing
-page was not touched.
+matches just yet." for a filtered board: many suites pin them and they already say what is true. The Continue working / Planning board toggle is
+still two views: folding them into one would drop the backlog from Home and needs its own decision. The signed-out
+landing page was not touched.

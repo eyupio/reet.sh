@@ -168,6 +168,36 @@ func TestWorkOrderFenceWithTrailingSample(t *testing.T) {
 	}
 }
 
+// TestWorkOrderUntaggedFenceAmbiguous checks the case that cannot be told
+// apart from the wrapper's own close by local syntax alone: a plain,
+// untagged fence nested in the body of a work order that is itself fence
+// wrapped. Rather than silently guessing (and truncating the work order
+// with no error at all, as an earlier version of this fix did), it must be
+// refused with one clear, line-numbered problem.
+func TestWorkOrderUntaggedFenceAmbiguous(t *testing.T) {
+	clean := readExample(t)
+	withBareSample := strings.Replace(clean, "up to the first ### heading)\n",
+		"up to the first ### heading)\n\n```\nconst untaggedSample = true\n```\n", 1)
+	if withBareSample == clean {
+		t.Fatal("the brief text to extend was not found")
+	}
+	wrapped := "Here is the work order you asked for.\n\n```markdown\n" + withBareSample + "\n```\n\nHope that helps.\n"
+
+	order, problems := ParseWorkOrder(wrapped)
+	if len(problems) != 1 {
+		t.Fatalf("problems: %+v (order %+v)", problems, order)
+	}
+	if !strings.Contains(problems[0].Text, "language tag") {
+		t.Errorf("text %q does not say to tag the fence", problems[0].Text)
+	}
+	if want := lineOf(t, wrapped, "```\nconst untaggedSample = true"); problems[0].Line != want {
+		t.Errorf("line = %d, want %d (the inner fence's own line)", problems[0].Line, want)
+	}
+	if order.Objective != "" || len(order.Sessions) != 0 {
+		t.Errorf("a refused work order must not be usable: %+v", order)
+	}
+}
+
 func lineOf(t *testing.T, text, marker string) int {
 	t.Helper()
 	idx := strings.Index(text, marker)

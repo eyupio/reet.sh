@@ -63,7 +63,7 @@ var workOrderHeaderKeys = map[string]bool{"reet": true, "objective": true, "proj
 // code block, whose first key is reet: work-order/. It says nothing about
 // whether that work order is otherwise sound.
 func IsWorkOrder(text string) bool {
-	lines, _, ok := locateWorkOrderBlock(text)
+	lines, _, ok, _ := locateWorkOrderBlock(text)
 	if !ok {
 		return false
 	}
@@ -118,12 +118,20 @@ func closingHeaderLine(lines []string) int {
 // end is found by stepping through what follows one fence deep at a time:
 // a "```" line that carries a language tag (the usual way to open a code
 // sample, "```go" and so on) opens a nested fence to step over, matched by
-// the next bare "```"; a bare "```" met while not inside one of those is
-// the wrapping fence's own close, found and stopped at there and then, so
-// neither a sample inside a brief nor anything after the real close (an
-// agent's closing remark, which may have a fenced sample of its own) is
-// ever mistaken for it.
-func locateWorkOrderBlock(text string) (lines []string, offset int, ok bool) {
+// the next bare "```"; a bare "```" met while not inside one of those is a
+// candidate for the wrapping fence's own close.
+//
+// Telling that candidate apart from a plain, untagged fence nested in the
+// body (also a bare "```", with nothing to mark it as not the close) is not
+// possible from local syntax alone: a nested sample must carry a language
+// tag to be recognised as one. So, rather than silently truncating the work
+// order at the first bare line that is not really the close (missing
+// whatever came after it with no error at all), every bare "```" met while
+// not inside a tagged fence is counted across the whole text; exactly one
+// is the ordinary, unambiguous case, and that one is the close. More than
+// one means a plain fence sits somewhere in the body, and ambiguity is
+// reported rather than guessed at.
+func locateWorkOrderBlock(text string) (lines []string, offset int, ok bool, ambiguous *WorkOrderProblem) {
 	all := strings.Split(strings.NewReplacer("\r\n", "\n", "\r", "\n").Replace(text), "\n")
 	fenceStart, fenceEnd := -1, -1
 	for i, line := range all {
@@ -136,7 +144,7 @@ func locateWorkOrderBlock(text string) (lines []string, offset int, ok bool) {
 		}
 	}
 	if fenceStart >= 0 {
-		nested := false
+		nested, closes, first := false, 0, -1
 		for i := fenceStart + 1; i < len(all); i++ {
 			trimmed := strings.TrimSpace(all[i])
 			if !strings.HasPrefix(trimmed, "```") {
@@ -146,13 +154,19 @@ func locateWorkOrderBlock(text string) (lines []string, offset int, ok bool) {
 			case nested:
 				nested = trimmed != "```"
 			case trimmed == "```":
-				fenceEnd = i
+				closes++
+				if first < 0 {
+					first = i
+				}
 			default:
 				nested = true
 			}
-			if fenceEnd >= 0 {
-				break
-			}
+		}
+		switch {
+		case closes == 1:
+			fenceEnd = first
+		case closes > 1:
+			return nil, 0, false, problem(first+1, "A work order wrapped in one fence must not contain a plain \"```\" fence inside it. Give the inner fence a language tag (for example \"```text\"), or send the work order unwrapped.")
 		}
 	}
 	if fenceStart >= 0 && fenceEnd > fenceStart {
@@ -167,9 +181,9 @@ func locateWorkOrderBlock(text string) (lines []string, offset int, ok bool) {
 		lines = lines[:len(lines)-1]
 	}
 	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "---" {
-		return nil, 0, false
+		return nil, 0, false, nil
 	}
-	return lines, offset, true
+	return lines, offset, true, nil
 }
 
 // ParseWorkOrder reads text as a work order. It never returns a usable order
@@ -180,7 +194,10 @@ func ParseWorkOrder(text string) (WorkOrder, []WorkOrderProblem) {
 	if n := len(text); n > MaxWorkOrderBytes {
 		return WorkOrder{}, []WorkOrderProblem{*problem(0, "A work order is at most "+strconv.Itoa(MaxWorkOrderBytes)+" bytes; this one is "+strconv.Itoa(n)+".")}
 	}
-	lines, offset, ok := locateWorkOrderBlock(text)
+	lines, offset, ok, ambiguous := locateWorkOrderBlock(text)
+	if ambiguous != nil {
+		return WorkOrder{}, []WorkOrderProblem{*ambiguous}
+	}
 	if !ok {
 		return WorkOrder{}, []WorkOrderProblem{*problem(0, "This is not a work order: it must start with a --- header whose first line is reet: work-order/1, as the whole paste or inside one fenced code block.")}
 	}

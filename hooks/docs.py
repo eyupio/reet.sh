@@ -78,7 +78,10 @@ def _git_dates(docs_dir):
 
 
 def builtin_skills(config):
-    """Each built-in skill as (slug, description, content), read from the binary's own copies."""
+    """Each built-in skill as (slug, description, content, files), read from the binary's own copies.
+
+    files maps every other file in the skill's directory to its text, as builtinSkill loads them.
+    """
     if not config.get("config_file_path"):
         return []
     root = os.path.join(os.path.dirname(config["config_file_path"]), "internal", "api", "builtin_skills")
@@ -88,7 +91,13 @@ def builtin_skills(config):
             content = fh.read()
         front = content.removeprefix("---\n").partition("\n---")[0]
         found = re.search(r"^description:(.*)$", front, re.M)
-        skills.append((slug, found.group(1).strip() if found else "", content))
+        files = {}
+        for name in sorted(os.listdir(os.path.join(root, slug))):
+            path = os.path.join(root, slug, name)
+            if name != "SKILL.md" and os.path.isfile(path):
+                with open(path, encoding="utf-8") as fh:
+                    files[name] = fh.read()
+        skills.append((slug, found.group(1).strip() if found else "", content, files))
     return skills
 
 
@@ -126,14 +135,16 @@ def skill_page(base, slug, description, content):
 
 def write_skills(site_dir, skills):
     """The files the skills CLI fetches, at the paths the binary serves them."""
-    for slug, description, content in skills:
+    for slug, description, content, files in skills:
         home = os.path.join(site_dir, SKILLS_OWNER, slug)
         known = os.path.join(home, ".well-known", "agent-skills")
         os.makedirs(os.path.join(known, slug), exist_ok=True)
-        index = {"skills": [{"name": slug, "description": description, "files": ["SKILL.md"]}]}
+        index = {"skills": [{"name": slug, "description": description, "files": sorted(["SKILL.md", *files])}]}
         _write(home, "SKILL.md", content)
         _write(known, "index.json", json.dumps(index))
         _write(os.path.join(known, slug), "SKILL.md", content)
+        for name, text in files.items():
+            _write(os.path.join(known, slug), name, text)
 
 
 def on_files(files, config):
@@ -155,7 +166,7 @@ def on_files(files, config):
         if dates.get(file.src_uri)
     }
     base = (config.get("site_url") or "").rstrip("/") + "/"
-    for slug, description, content in builtin_skills(config):
+    for slug, description, content, _ in builtin_skills(config):
         files.append(File.generated(
             config, SKILLS_OWNER + "/" + slug + ".md", content=skill_page(base, slug, description, content)
         ))

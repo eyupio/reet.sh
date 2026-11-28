@@ -168,7 +168,8 @@ Working rules:
   decision.
 - Do not invent search volumes, rankings, traffic or competitor weaknesses. Verify claims against the repository or
   the public site.
-- Add a new docs/handoffs/log/<ID>.md entry and update docs/handoffs/seo-follow-up.md in the same pull request when a task is completed.
+- Add a new docs/handoffs/log/<ID>.md entry and update docs/handoffs/seo-follow-up.md in the same pull request when a
+  task is completed.
 - Open PRs against main, wait for green checks, and merge only when the PR is mergeable and green.
 
 Deliver the smallest useful next PR, report the PR number and checks, and leave the handoff describing the next

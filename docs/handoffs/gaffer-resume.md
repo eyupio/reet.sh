@@ -67,8 +67,8 @@ work orchestration, cross-machine routing and independent review remain separate
 
 ## Resume procedure and standing preferences
 
-1. Read `handoff.md` and the latest entries in `docs/handoffs/log/`, this checkpoint, `docs/work-orchestration-handoff.md`,
-   `docs/gaffer-ai.md`, and the widget/setup and offline-acceptance contracts.
+1. Read `handoff.md` and the latest entries in `docs/handoffs/log/`, this checkpoint,
+   `docs/work-orchestration-handoff.md`, `docs/gaffer-ai.md`, and the widget/setup and offline-acceptance contracts.
 2. Fetch current main and inspect current PR state/reviews/checks. Both #625 and
    #626 were merged by the owner; do not reopen their old implementation branches
    or repeat completed slices. Preserve unrelated upstream work.

@@ -109,16 +109,34 @@ func closingHeaderLine(lines []string) int {
 // inside that fence. offset is the 1-based line, in text, of the returned
 // lines' first entry. Blank lines around the block are trimmed, keeping the
 // line numbers of what is left.
+//
+// A fence only wraps the whole work order when its own content starts with
+// the header's opening "---": a pipeline's brief is free Markdown and may
+// have a fenced code sample of its own, and that inner fence must never be
+// mistaken for the one wrapping the whole paste, in either direction (an
+// unfenced paste misread as fenced because of it, or a real wrapping
+// fence's close misread as the inner sample's close). So the wrapping
+// fence's start is the first "```" line whose own content begins with
+// "---", and its end is the last "```" line in the whole text after that,
+// skipping over whatever fences a brief has inside.
 func locateWorkOrderBlock(text string) (lines []string, offset int, ok bool) {
 	all := strings.Split(strings.NewReplacer("\r\n", "\n", "\r", "\n").Replace(text), "\n")
 	fenceStart, fenceEnd := -1, -1
 	for i, line := range all {
-		trimmed := strings.TrimSpace(line)
-		switch {
-		case fenceStart < 0 && strings.HasPrefix(trimmed, "```"):
+		if !strings.HasPrefix(strings.TrimSpace(line), "```") {
+			continue
+		}
+		if j := nextNonBlankLine(all, i+1); j >= 0 && strings.TrimSpace(all[j]) == "---" {
 			fenceStart = i
-		case fenceStart >= 0 && fenceEnd < 0 && trimmed == "```":
-			fenceEnd = i
+			break
+		}
+	}
+	if fenceStart >= 0 {
+		for i := len(all) - 1; i > fenceStart; i-- {
+			if strings.TrimSpace(all[i]) == "```" {
+				fenceEnd = i
+				break
+			}
 		}
 	}
 	if fenceStart >= 0 && fenceEnd > fenceStart {

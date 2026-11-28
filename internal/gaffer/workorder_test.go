@@ -99,6 +99,49 @@ func TestWorkOrderTolerates(t *testing.T) {
 	}
 }
 
+// TestWorkOrderNestedFenceInBrief guards against a fenced code sample inside
+// a pipeline's brief being mistaken for the fence that wraps the whole work
+// order: the spec allows "any Markdown" in a brief, and a code sample is an
+// entirely foreseeable thing for a feature describing coding work.
+func TestWorkOrderNestedFenceInBrief(t *testing.T) {
+	clean := readExample(t)
+	// Give the first pipeline's brief a fenced code sample of its own.
+	withSample := strings.Replace(clean, "up to the first ### heading)\n",
+		"up to the first ### heading)\n\n```go\nfunc Example() {}\n```\n", 1)
+	if withSample == clean {
+		t.Fatal("the brief text to extend was not found")
+	}
+
+	// Unwrapped: a plain paste whose brief happens to contain a fence must
+	// still be read as the whole work order, not misread as itself being
+	// wrapped in that inner fence.
+	plainOrder, problems := ParseWorkOrder(withSample)
+	if len(problems) != 0 {
+		t.Fatalf("a brief's own fence broke the unwrapped paste: %+v", problems)
+	}
+	if !IsWorkOrder(withSample) {
+		t.Error("IsWorkOrder false for an unwrapped paste with a fence in its brief")
+	}
+
+	// Wrapped in one outer fence, with a sentence either side, same as
+	// TestWorkOrderTolerates: the inner fence must not be mistaken for the
+	// outer one's close, which would truncate the real work order.
+	wrapped := "Here is the work order you asked for.\n\n```markdown\n" + withSample + "\n```\n\nHope that helps.\n"
+	wrappedOrder, problems := ParseWorkOrder(wrapped)
+	if len(problems) != 0 {
+		t.Fatalf("a brief's own fence broke the outer wrapping fence: %+v", problems)
+	}
+	if !IsWorkOrder(wrapped) {
+		t.Error("IsWorkOrder false for a wrapped work order with a fence in its brief")
+	}
+	if !reflect.DeepEqual(plainOrder, wrappedOrder) {
+		t.Errorf("wrapping changed the result:\n%+v\n%+v", plainOrder, wrappedOrder)
+	}
+	if !strings.Contains(plainOrder.Sessions[0].Prompt, "func Example() {}") {
+		t.Errorf("the brief's own fenced sample was lost: %q", plainOrder.Sessions[0].Prompt)
+	}
+}
+
 func lineOf(t *testing.T, text, marker string) int {
 	t.Helper()
 	idx := strings.Index(text, marker)

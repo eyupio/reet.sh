@@ -505,8 +505,8 @@ verification and verified cross-OS restore remain unproven. Discovered global an
 project instruction files (`CLAUDE.md`, `AGENTS.md`, `.cursorrules`) are
 included as encrypted text; other instruction locations are not inventoried. Existing
 instance and shelf backups below remain separate.
-See [setup discovery and limits](docs/setup-discovery.md) and
-[handoff](handoff.md).
+See [setup discovery and limits](docs/setup-discovery.md) and the
+[handoff log](docs/handoffs/log/).
 
 ### Instance and personal shelf backups
 

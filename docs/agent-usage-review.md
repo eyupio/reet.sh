@@ -5,8 +5,33 @@ description: "Inventory of the instructions, handoffs, checks and scripts that d
 
 # Agent usage review: inventory and assessment
 
-This is an analysis document. Nothing described here has been implemented, and no prompt, configuration, script or
-application file was changed by the review.
+This is an analysis document. The recommendations it accepts were implemented on 28 November 2026 (see Status below);
+no prompt or application file was changed by the review itself.
+
+## Status update — 28 November 2026
+
+This review's recommendations were triaged and the accepted ones implemented:
+
+- **A** — resolved by convention: the pull request adds a handoff entry and the `notes` check is unchanged, so "every
+  change" still needs one.
+- **B** — implemented: the three log headings now follow `## <ID>: ...`.
+- **C** — implemented conservatively: each named dead reference points at `docs/handoffs/archive.md` for a historical
+  entry ID, at `handoff.md` and `docs/handoffs/log/` for current state, or at the real MCP command in
+  `docs/control-centre.md`.
+- **D** — implemented: the contribution checks now match `image.yml`, including the MCP suite and path filters, and the
+  pull-request template lists the handoff entry, changelog fragment and MCP tests.
+- **E** — implemented: `AGENTS.md` is the single statement of the two-file rule; the other files link to it and keep
+  only their operational detail.
+- **F** — implemented: `CONTRIBUTING.md` has a short "Manual agent probes" subsection linking `docs/device-checks.md`
+  and naming the `--yes-spend` guard.
+- **G** — implemented conservatively: a short "Staged work" subsection in the pull-request flow names the stages and
+  keeps the existing merge rule, without adding gates or authority.
+- **H** — implemented cheaply: `handoff.md` indexes the four live continuation notes and says the rest of
+  `docs/handoffs/` outside `log/` and `archive.md` is historical.
+- **I, J, K and L** — declined in this change: consolidating archives or retiring plans loses an in-tree record and
+  needs a link audit; this review is already an unlisted public page like `docs/ux-review.md`; and a check that rejects
+  edits to `handoff.md` or `CHANGELOG.md` would change enforcement for maintainer and release edits, so it needs its
+  own override design.
 
 ## Scope
 
@@ -188,7 +213,7 @@ that can mislead; **S4** historical noise, or a setup heavier than the work need
 
 ## Improvements
 
-Nothing here is implemented. "Mechanical" means wording or path corrections that do not change what an agent is
+Status is recorded above. "Mechanical" means wording or path corrections that do not change what an agent is
 expected to do; "behaviour" means it would change how contributors or agents work and needs a maintainer's decision.
 
 | # | Recommendation | Files it would touch | Benefit | Risk | Effort | Type |

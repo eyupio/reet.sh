@@ -559,7 +559,7 @@ rename and offline end without replacing either original shell.
 
 No production relay, physical phone, macOS or Windows runtime is established by
 these local Linux/Chromium fixtures. Initial-install/enrollment/upgrade terminal
-setup is the next priority recorded in `handoff.md`.
+setup is the next priority recorded in `docs/handoffs/log/`.
 
 ## Account command metadata API
 
@@ -810,7 +810,7 @@ scale and `offsetLeft`, then the document's `clientWidth` and `scrollWidth`, `sc
 the pixel ratio and the viewport meta in force. Use them when the page looks narrower or
 zoomed after focusing a field (a tablet, say): the widths and scale say which.
 It never takes focus or touches, so the keyboard stays open while you read it; nothing
-is stored or sent. See `handoff.md` for what to record.
+is stored or sent. See `docs/handoffs/log/` for what to record.
 
 ## Session workspace details
 

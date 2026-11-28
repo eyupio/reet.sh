@@ -20,7 +20,8 @@ actions, the same model/effort choices in both start dialogs and backlog plans, 
 
 ## Starting a fresh session
 
-1. Read `handoff.md`, this file, `docs/handoffs/session-actions.md`, `docs/handoffs/start-agent-options.md` and
+1. Read `handoff.md` and the latest entries in `docs/handoffs/log/`, this file, `docs/handoffs/session-actions.md`,
+   `docs/handoffs/start-agent-options.md` and
    `docs/handoffs/chat-image-previews.md`. They record the delivered behaviour, the evidence and the limits.
 2. `git fetch origin` and read `gh pr list --state open`. The Gaffer batches are merged; anything still open belongs to a
    different work stream and should be left to it.
@@ -133,7 +134,8 @@ feature handoff.
 
 ## Continuing after these merges
 
-1. Start from main (`0de8f7d` or later) and read `AGENTS.md` if present, `handoff.md`, this file and each feature handoff.
+1. Start from main (`0de8f7d` or later) and read `AGENTS.md` if present, `handoff.md` and the latest entries in
+   `docs/handoffs/log/`, this file and each feature handoff.
 2. Push-triggered runs on main use the self-hosted `zoomies-linux-x64` pool and stay queued when that pool is offline, so
    the pull request matrices (which run on GitHub-hosted runners) were the green evidence for these merges. Do not reopen
    the merged feature PRs or push new work to their branches; validate a follow-up with its own pull request checks.

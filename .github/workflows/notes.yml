@@ -1,8 +1,7 @@
 name: notes
 
-# A pull request leaves a handoff entry (a new docs/handoffs/log/*.md) and, when people running reet would notice the change,
-# a changelog fragment (a new changelog.d/*.md). Both are new files so pull requests never conflict on them; see AGENTS.md.
-# Only the entry is required. Bots (dependency updates) are skipped.
+# Checks the two-file rule in AGENTS.md. Only the handoff entry is required; the changelog fragment is advised. Both are
+# new files so pull requests never conflict on them. Bots (dependency updates) are skipped.
 on:
   pull_request:
 

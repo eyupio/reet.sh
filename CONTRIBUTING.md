@@ -30,13 +30,21 @@ To try it without sign-in on your own machine: `REET_AUTH=none REET_DATA_DIR=/tm
 
 ## Before you open a pull request
 
-Run what CI runs:
+Run what CI runs for the files you changed:
 
 ```sh
-cd web && npm run check && cd ..
+cd web && npm ci && npm run check && cd ..
+cd mcp && npm ci && cd ..
+go build -o /dev/null ./mcp/test/fixture
+cd mcp && npm test && cd ..
 go vet ./...
 go test -race ./...
 ```
+
+`image.yml` runs these only when a pull request touches `cmd/`, `internal/`, `web/`, `mcp/`, `scripts/` or the Go module
+files, so a documentation-only pull request skips the Go run. For docs changes, run the build and browser checks in
+[Documentation website](#documentation-website) below; for UI changes, see the browser suites in
+[docs/ui-verification.md](docs/ui-verification.md).
 
 Then check that:
 
@@ -45,7 +53,9 @@ Then check that:
 - User-visible changes update the README (settings table, commands, screenshots) in the same pull request.
 - No new dependency is added without a reason in the description. The binary stays small on purpose.
 - The UI still works in light and dark mode and at phone width.
-- Do not edit `CHANGELOG.md` or `handoff.md`. Add a changelog fragment in `changelog.d/` for anything a person running reet would notice, and a handoff entry in `docs/handoffs/log/`, so pull requests do not conflict on them. See [AGENTS.md](AGENTS.md).
+- Do not edit `CHANGELOG.md` or `handoff.md`. Follow the two-file rule in [AGENTS.md](AGENTS.md): a handoff entry in
+  `docs/handoffs/log/` for every change, and a changelog fragment in `changelog.d/` for anything a person running reet
+  would notice.
 
 CI performance comparisons compile both revisions first, then interleave eight
 one-second samples with the starting revision reversed on alternate rounds. To
@@ -79,6 +89,13 @@ reloads the sealed test key. Test control routes are compiled only into the test
 binary. Temporary processes, containers and the fixture image are cleaned up.
 See [the acceptance contract](docs/handoffs/gaffer-offline-acceptance.md).
 
+## Manual agent probes
+
+The `scripts/probe-*.py` scripts and `scripts/check-claude-credentials.py` start real agent CLIs against isolated homes
+and stubs; they install nothing and most make no model call. [docs/device-checks.md](docs/device-checks.md) has the
+commands and expected results. `scripts/check-claude-credentials.py prompt` makes a real, billable model call and refuses
+to run without `--yes-spend`.
+
 ## Style
 
 - **Go:** `gofmt`, small packages under `internal/`, errors returned rather than logged and ignored. Comments say why, not what.
@@ -91,8 +108,14 @@ See [the acceptance contract](docs/handoffs/gaffer-offline-acceptance.md).
 1. Fork, then branch from `main`.
 2. Make your change, with tests.
 3. Open a pull request using the template. Say what changed and why, and how you checked it.
-4. CI runs the web checks and the Go tests (in six shards, so about 15 minutes). A maintainer reviews; expect questions, not just approval.
+4. CI runs the web and MCP checks and the Go tests (in six shards, so about 15 minutes). A maintainer reviews; expect questions, not just approval.
 5. Pull requests are squashed or merged by a maintainer once green and approved.
+
+### Staged work
+
+Larger changes move through the same stages: plan, code, review, test, pull request, babysit CI, merge. Write the plan
+down before changing code, review the diff before opening the pull request, and keep the pull request green through
+review. A maintainer merges once green and approved.
 
 ## Brand assets
 

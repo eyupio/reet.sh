@@ -1,4 +1,4 @@
-## ID: a factory pipeline that finishes raises one toast and a Factory tab dot (26 November 2026)
+## FACTORY-FINISHED-1: a factory pipeline that finishes raises one toast and a Factory tab dot (26 November 2026)
 
 What changed.
 

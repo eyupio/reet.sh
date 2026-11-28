@@ -94,7 +94,7 @@ results from verified fleet deployment.
 ## Validation
 
 Run `cd web && npm run check && npm run build`, then the Go vet/race checks
-and MCP suite in CONTRIBUTING.md. For the browser workflow test, start the web
+and `cd mcp && npm ci && npm test` (see `.github/workflows/image.yml`). For the browser workflow test, start the web
 dev server at 127.0.0.1:4173 and run `node web/tests/control.e2e.mjs` from the
 repository root. It uses synthetic API data to exercise `/control` going to Home, navigation, one-to-many
 saves, incoming skill adoption from different machines, partial failures,

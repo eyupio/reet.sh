@@ -24,7 +24,8 @@ Rules:
   `continues takes an outcome's id, as written in its work report.`
 - `objective` is not needed and is ignored: the outcome keeps its own.
 - `crew:` is refused. The outcome's crew was chosen when it started.
-- `project:` is not needed. The outcome stays in its project. If given, it must name that project.
+- `project:` is not needed. The outcome stays in its project. Over MCP, if given, it must name that project. On paste
+  it is not checked: the pipelines join the outcome's project whatever it says.
 - reet checks that the outcome is one of the person's that is still running. Otherwise: `No running outcome of yours has that id. Copy a fresh report from the outcome and use its id.`
 - `pathway:` may be given with `continues`. The new pipelines then follow that pathway under the pathway rules (no
   `stages:`, `tiers:` or parts; see [pathways.md](pathways.md)), and the pathway must be switched on. Leave it out to

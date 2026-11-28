@@ -7,7 +7,7 @@ only says which tool to use when.
 | Tool | Use it to |
 | --- | --- |
 | `reet_check_work_order` | Check a work order without starting anything. Pass `work_order`. Any connection on a writer account may call it. |
-| `reet_start_outcome` | Start the outcome from a checked work order. Pass `work_order`, `project_id` and `confirm: true`. |
+| `reet_start_outcome` | Start the outcome from a checked work order. Pass `work_order`, `project_id`, `agent` (the agent that runs the stages, such as `opencode`) and `confirm: true`. |
 | `reet_add_pipelines` | Add the pipelines of a `continues` work order to that outcome. Pass `work_order`, `outcome_id` and `confirm: true`. |
 | `reet_get_work_report` | Read an outcome as a work report. Pass `outcome_id`. |
 | `reet_list_factory_projects` | Find the project a work order should run in. |

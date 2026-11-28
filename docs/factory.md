@@ -105,8 +105,9 @@ Paste the work order the agent gives you into the outcome box. The dialog says *
 
 A work order with problems is not started. The problems are listed, each as `Line n: …` with what to change, and you
 can fix the text or ask the agent to. A clean one opens the plan review filled in: the pipelines, their stages, tiers
-and parts, the acceptance criteria, and the project and pathway if the work order names them and you have them. Then
-review and approve as for any plan.
+and parts, the acceptance criteria, and the project if the work order names one you have. A pathway it names must be
+one of yours that is switched on; if it is not, that is a problem like any other, and the problem lists the pathways
+that are on. Then review and approve as for any plan.
 
 If the work order suggests a crew, the stages show **Suggested by the work order**. It is for this outcome only.
 **Use my saved crew** puts yours back. Your saved crew is never changed, and **Launch readiness** still says what the
@@ -132,7 +133,7 @@ a failure; the [delivery review](#delivery-review) is the live view.
 ### Continuing an outcome
 
 Your agent can answer a work report with another work order, one that names the outcome. Paste it into **New Factory
-outcome** and reet opens the plan review as **Add to "<objective>"**. **Approve and add** adds the pipelines to the
+outcome** and reet opens the plan review as **Add to “<objective>”**. **Approve and add** adds the pipelines to the
 running outcome. A work order cannot change the outcome's crew or settings.
 
 A connected agent can do the same over MCP; see [Read and steer the Factory](mcp.md#read-and-steer-the-factory).

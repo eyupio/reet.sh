@@ -26,7 +26,7 @@ const running={id:oid,revision:3,objective:'Add CSV export to the reports page',
   sessions:[{key:'a',title:'Export API',prompt:'p',state:'following',note:'The code stage is under way.',updatedAt:now,stage:0,sessionState:'running',stages:[{kind:'code',tool:'opencode',model:'',state:'running',requestId:'r'},{kind:'review',tool:'opencode',model:'',state:'pending',requestId:'r'}]}]}
 const report=`---\nreet: work-report/1\noutcome: ${oid}\nobjective: Add CSV export to the reports page\n---\n\n## Pipeline: Export API\n\nstate: following\n`
 function fixture({machines=everyAgent,reportsProject=true,withOutcome=false}={}){
-  const box={checks:[],approved:[],added:[]}
+  const box={checks:[],approved:[],added:[],revision:3,finished:false}
   const routes={
     '/api/v2/gaffer/providers':{providers:[provider],presets:[],available:true,canUseLocal:true,maxProviders:12},
     '/api/v2/gaffer/crew':{crew:savedCrew,saved:true,tiers:['light','standard','heavy'],defaults:{}},
@@ -52,7 +52,8 @@ function fixture({machines=everyAgent,reportsProject=true,withOutcome=false}={})
       const input=r.postDataJSON();box.approved.push(input)
       return {status:201,json:{id:oid,revision:1,objective:input.objective,state:'settled',note:'',agentId:'a1',projectId:input.projectId,projectName:'reports-api',dir:'/work/reports-api',tool:input.tool,providerId:pid,maxReviews:12,hours:24,sessions:input.sessions.map((s,n)=>({key:'abcde'[n],title:s.title,prompt:s.prompt,state:'following',note:'Started and followed.',updatedAt:now,stage:0,stages:[]})),createdAt:now,updatedAt:now}}
     },
-    [`/api/v2/gaffer/outcomes/${oid}`]:()=>box.added.length?{...running,revision:4,sessions:[...running.sessions,{key:'b',title:'Export endpoint',prompt:'p',state:'following',note:'Started and followed.',updatedAt:now,stage:0,stages:[]}]}:running,
+    // `revision` moves as a running outcome's does; `finished` is the outcome finishing while the person reads.
+    [`/api/v2/gaffer/outcomes/${oid}`]:()=>box.added.length?{...running,revision:box.revision+1,sessions:[...running.sessions,{key:'b',title:'Export endpoint',prompt:'p',state:'following',note:'Started and followed.',updatedAt:now,stage:0,stages:[]}]}:{...running,revision:box.revision,sessions:running.sessions.map(piece=>box.finished?{...piece,state:'done'}:piece)},
     [`/api/v2/gaffer/outcomes/${oid}/sessions`]:r=>{box.added.push(r.postDataJSON());return{...running,revision:4,sessions:[...running.sessions,{key:'b',title:'Export endpoint',prompt:'p',state:'waiting',note:'Waiting its turn.',updatedAt:now,stage:0,stages:[]}]}},
   }
   return {box,routes,machines}
@@ -242,10 +243,14 @@ try{
   // are not offered again, and Approve and add sends the pipelines to the add request with their stages and criteria.
   const continuing=example.replace('objective: Add CSV export to the reports page\n',`continues: ${oid}\n`).replace('project: reports-api\n','').replace('crew: heavy=claude/opus/high, standard=codex\n','')
   for(const [width,theme] of [[1440,'light'],[1440,'dark'],[390,'light'],[390,'dark']]){
-    const {f,w,page,dialog}=await open(width,theme,{withOutcome:true})
+    const {f,w,page,dialog:first}=await open(width,theme,{withOutcome:true})
     try{
-      await paste(dialog,continuing)
-      await dialog.getByRole('button',{name:'Read the work order',exact:true}).click()
+      await paste(first,continuing)
+      await first.getByRole('button',{name:'Read the work order',exact:true}).click()
+      // The dialog says what it now does.
+      const dialog=page.getByRole('dialog',{name:'Add to an outcome',exact:true})
+      await expect(dialog.getByRole('list',{name:'Steps',exact:true})).toContainText('Work order')
+      await expect(dialog).toContainText('The controller starts each added pipeline as a chat in this outcome’s project, with ordinary approvals, never in YOLO')
       await expect(dialog.getByRole('heading',{name:'Add to “Add CSV export to the reports page”',exact:true})).toBeVisible()
       await expect(dialog.getByRole('textbox',{name:'Pipeline 1 title',exact:true})).toHaveValue('Export endpoint')
       await expect(dialog.getByRole('group',{name:'Code parts in pipeline 1',exact:true})).toBeVisible()
@@ -270,10 +275,12 @@ try{
       await page.locator('dialog[open] [data-shell-body]').last().evaluate(el=>{el.scrollTop=0})
       await page.mouse.move(0,0);await page.screenshot({path:`${shots}/add-${width}-${theme}.png`})
       if(width===1440&&theme==='light'){
+        // The outcome moved on while the person read: the add goes to it as it now stands.
+        f.box.revision=7
         await approve.click()
         await expect.poll(()=>f.box.added.length).toBe(1)
         const body=f.box.added[0]
-        expect(body.revision).toBe(3);expect(body.confirmed).toBe(true);expect('pathway' in body).toBe(false)
+        expect(body.revision).toBe(7);expect(body.confirmed).toBe(true);expect('pathway' in body).toBe(false)
         expect(body.sessions.map(s=>s.title)).toEqual(['Export endpoint'])
         expect(body.sessions[0].criteria).toEqual(order.sessions[0].criteria)
         // The same stages a start sends: kinds, parts, briefs and tiers, on the saved crew as the add request uses it.
@@ -287,6 +294,42 @@ try{
     }finally{await w.context.close()}
   }
   console.log('ok - a continuation adds to the running outcome, at 390 px and desktop, light and dark')
+  // An outcome that finished while the person read is not added to, and says so.
+  {
+    const {f,w,page,dialog:first}=await open(1440,'light',{withOutcome:true})
+    try{
+      await paste(first,continuing)
+      await first.getByRole('button',{name:'Read the work order',exact:true}).click()
+      const dialog=page.getByRole('dialog',{name:'Add to an outcome',exact:true})
+      f.box.finished=true
+      await dialog.getByRole('button',{name:'Approve and add',exact:true}).click()
+      await expect(dialog.getByRole('alert')).toHaveText('“Add CSV export to the reports page” has finished since you read the work order. Nothing was added.')
+      expect(f.box.added).toEqual([])
+      await expect(dialog.getByRole('button',{name:'Approve and add',exact:true})).toBeVisible()
+      expect(w.errors).toEqual([])
+    }finally{await w.context.close()}
+    console.log('ok - an outcome that finished meanwhile is not added to')
+  }
+  // Back from adding puts the person's own project, agent and effort back, and the dialog is a new outcome again.
+  {
+    const {w,page,dialog}=await open(1440,'light',{withOutcome:true})
+    try{
+      await dialog.getByRole('combobox',{name:'Project',exact:true}).selectOption('p-billing')
+      await dialog.getByRole('combobox',{name:'Agent',exact:true}).selectOption('claude')
+      await dialog.getByRole('combobox',{name:'Effort',exact:true}).selectOption('high')
+      await paste(dialog,continuing)
+      await dialog.getByRole('button',{name:'Read the work order',exact:true}).click()
+      const added=page.getByRole('dialog',{name:'Add to an outcome',exact:true})
+      await added.getByRole('button',{name:'Back',exact:true}).click()
+      await expect(dialog.getByRole('textbox',{name:'Outcome',exact:true})).toHaveValue(continuing)
+      await expect(dialog.getByRole('combobox',{name:'Project',exact:true})).toHaveValue('p-billing')
+      await expect(dialog.getByRole('combobox',{name:'Agent',exact:true})).toHaveValue('claude')
+      await expect(dialog.getByRole('combobox',{name:'Effort',exact:true})).toHaveValue('high')
+      await expect(dialog.getByRole('list',{name:'Steps',exact:true})).toContainText('Outcome')
+      expect(w.errors).toEqual([])
+    }finally{await w.context.close()}
+    console.log('ok - back from adding puts the earlier choices back')
+  }
 
   // Copy for your agent, in the outcome's menu: the work report on the clipboard, or shown to copy by hand when the
   // browser will not let reet copy.

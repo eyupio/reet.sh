@@ -23,7 +23,7 @@
   import WorkspaceDialog from './terminal/WorkspaceDialog.svelte'
   import { readFloorDefaults, writeFloorDefaults } from './gafferFloor'
   import { BUILT_IN_GOAL_PROMPTS } from './gafferPrompts'
-  import { CREW_TIERS, DEFAULT_STAGES, defaultTier, MAX_OUTCOME_REPLY_BYTES, MAX_OUTCOME_SESSIONS, STAGES, carryCriteria, cleanCriteria, cleanPrompt, objectiveBlocker, orderStages, outcomeSummary, planBlocker, previousPlan, replyBlocker, stagePlan, stageLabel, stageTier, tierLabel, planRatings, withTier, startingProgress, wholeBetween, withReportedEfforts, type Crew, type PlanSession, type PlanTurn, BALANCE_LOW_PERCENT, BALANCE_MIN_PERCENT, BALANCE_MAX_PERCENT, balancePercent, stageParts, withPart, withoutParts, withNewPart, partsBlocker, stageTakesParts, MAX_BACKUPS, savedCrewRows, isWorkOrder, workOrderSessions, workOrderCrew, outsideAgentPrompt, type CrewTier, type WorkOrder } from './gafferOutcome'
+  import { CREW_TIERS, DEFAULT_STAGES, defaultTier, MAX_OUTCOME_REPLY_BYTES, MAX_OUTCOME_SESSIONS, STAGES, carryCriteria, cleanCriteria, cleanPrompt, objectiveBlocker, orderStages, outcomeSummary, planBlocker, previousPlan, replyBlocker, stagePlan, stageLabel, stageTier, tierLabel, planRatings, withTier, startingProgress, wholeBetween, withReportedEfforts, type Crew, type PlanSession, type PlanTurn, BALANCE_LOW_PERCENT, BALANCE_MIN_PERCENT, BALANCE_MAX_PERCENT, balancePercent, stageParts, withPart, withoutParts, withNewPart, partsBlocker, stageTakesParts, outcomeFinished, short, MAX_BACKUPS, savedCrewRows, isWorkOrder, workOrderSessions, workOrderCrew, outsideAgentPrompt, type CrewTier, type WorkOrder } from './gafferOutcome'
   import { copyText } from './clipboard'
   import StageParts from './factory/StageParts.svelte'
   import LaunchReadiness from './factory/LaunchReadiness.svelte'
@@ -89,6 +89,12 @@
   // A work order that continues an outcome: its pipelines are added to that outcome, whose project, crew, approvals,
   // trust and limits were fixed when it started. Only the pipelines are the person's to change here.
   let adding = $state<GafferOutcome | null>(null)
+  // The person's own project, agent, model and effort from before, put back when they leave the adding mode.
+  let beforeAdding: { projectId: string; tool: string; model: string; effort: string } | null = null
+  function leaveAdding() {
+    adding = null
+    if (beforeAdding) { ({ projectId, tool, model, effort } = beforeAdding); beforeAdding = null }
+  }
   let copied = $state(''), copiedTimer: ReturnType<typeof setTimeout> | undefined
   // Where a plan has got to, as the controller reports it, and how long it has been. A failed plan keeps its step, so the
   // list shows which one failed.
@@ -286,7 +292,7 @@
   }
   function useSavedCrew() { if (order) order.crew = undefined; startCrew() }
   // A work order left behind (another objective, a template) takes its crew suggestion with it.
-  function dropOrder() { const had = !!order?.crew || CREW_TIERS.some(({ tier }) => orderFrom[tier]); order = null; adding = null; orderProblems = []; if (had) startCrew() }
+  function dropOrder() { const had = !!order?.crew || CREW_TIERS.some(({ tier }) => orderFrom[tier]); order = null; leaveAdding(); orderProblems = []; if (had) startCrew() }
   // A tier's backups as the saved crew holds them: the first, then any further ones, each with its Cline source.
   const sentSpare = (one: Spare) => ({ tool: one.tool, model: one.model.trim(), effort: one.effort, ...(one.tool === 'cline' && one.source ? { provider: one.source } : {}) })
   function spareFields(tier: 'light' | 'standard' | 'heavy') {
@@ -551,9 +557,15 @@
       // order's suggestion never outlives it. (The server refuses crew with a pathway, so the two never arrive together.)
       dropOrder()
       adding = into
-      // Added stages run as the add request resolves them today: the saved crew where it is set, else the outcome's own
-      // agent and model. The dialog's crew starts the same way on the outcome's machine, so the readiness shown matches.
-      if (into) { projectId = into.projectId; tool = into.tool; model = into.model ?? ''; effort = ''; startCrew() }
+      // Added stages are sent as the Factory's own Add pipelines sends them: each tier on the saved crew where this
+      // machine runs it, else the outcome's own agent, model, the effort its stages on that agent were given, and its
+      // Cline source. The dialog's crew starts the same way on the outcome's machine, so the readiness shown matches.
+      if (into) {
+        beforeAdding = { projectId, tool, model, effort }
+        projectId = into.projectId; tool = into.tool; model = into.model ?? ''
+        effort = into.sessions.flatMap(piece => piece.stages ?? []).find(stage => stage.tool === into.tool && stage.effort)?.effort ?? ''
+        startCrew()
+      }
       else if (answer.projectId) projectId = answer.projectId
       order = { text, notes: answer.notes, crew: read.crew }
       objective = read.objective
@@ -562,6 +574,8 @@
       sessions = workOrderSessions(read)
       applyOrderCrew()
       step = 'plan'
+      // Set once the change of agent has settled, which resets the source.
+      if (into?.provider) { await tick(); source = into.provider; explicitSource = true }
     } catch (e) { if (!life.signal.aborted) planError = e instanceof Error ? e.message : 'The work order could not be read.' }
     finally { reading = false }
   }
@@ -571,14 +585,21 @@
     if (busy || approveBlocker || !into) return
     busy = true; startError = ''
     try {
-      record = await addGafferPipelines(into, sessions.map((item, at) => ({ title: item.title.trim(), prompt: cleanPrompt(item.prompt), ...(cleanCriteria(item.criteria).length ? { criteria: cleanCriteria(item.criteria) } : {}), ...(pathway ? {} : { stages: sentStages[at] }) })), life.signal, pathway?.id)
+      // The outcome moves while the person reads: what is added is added to it as it now stands.
+      const now = await getGafferOutcome(into.id, life.signal)
+      const gone = now.archivedAt ? 'was archived' : now.state === 'stopped' ? 'was stopped' : outcomeFinished(now) ? 'has finished' : ''
+      if (gone) { startError = `“${short(now.objective)}” ${gone} since you read the work order. Nothing was added.`; return }
+      record = await addGafferPipelines(now, sessions.map((item, at) => ({ title: item.title.trim(), prompt: cleanPrompt(item.prompt), ...(cleanCriteria(item.criteria).length ? { criteria: cleanCriteria(item.criteria) } : {}), ...(pathway ? {} : { stages: sentStages[at] }) })), life.signal, pathway?.id)
       step = 'results'; watch(record.id)
       await onstarted()
-    } catch (e) { if (!life.signal.aborted) startError = e instanceof Error ? e.message : 'The pipelines were not added. Nothing was started.' }
+    } catch (e) {
+      if (life.signal.aborted) return
+      startError = e instanceof ApiError && e.status === 409 ? `${e.message} Nothing was added.` : e instanceof Error ? e.message : 'The pipelines were not added. Nothing was started.'
+    }
     finally { busy = false }
   }
   // Back from a work order's plan shows the work order as it was pasted.
-  function back() { if (order) objective = order.text; step = 'objective' }
+  function back() { if (order) objective = order.text; leaveAdding(); step = 'objective' }
   async function copyOutsidePrompt() {
     const text = outsideAgentPrompt(location.origin, { project: project?.name, pathways: pathways.filter(p => p.enabled).map(p => p.name), savedTiers: savedSettings.map(row => row.tier) })
     copied = (await copyText(text)) ? 'Copied.' : 'Could not copy. Try again.'
@@ -716,10 +737,10 @@
   onMount(() => () => { clearInterval(watching); clearTimeout(copiedTimer) })
 </script>
 
-<WorkspaceDialog title="New Factory outcome" {onclose}>
+<WorkspaceDialog title={adding ? 'Add to an outcome' : 'New Factory outcome'} {onclose}>
   <div class="outcome">
     <ol class="steps" aria-label="Steps">
-      {#each [['objective', template ? 'Template' : 'Outcome'],['plan','Plan'],['results','Start']] as [id,name],index (id)}<li aria-current={step===id?'step':undefined} class:done={['objective','plan','results'].indexOf(step)>index}><span class="n">{index+1}</span>{name}</li>{/each}
+      {#each [['objective', template ? 'Template' : adding ? 'Work order' : 'Outcome'],['plan','Plan'],['results','Start']] as [id,name],index (id)}<li aria-current={step===id?'step':undefined} class:done={['objective','plan','results'].indexOf(step)>index}><span class="n">{index+1}</span>{name}</li>{/each}
     </ol>
     {#if step === 'objective'}
       <p>Describe the result you want. Gaffer can draft the plan for your approval. Once you start it, track the work in Factory.</p>
@@ -795,7 +816,8 @@
       {#if declined}
         <p class="declined" role="status">Proposal declined. Nothing was started. Reply below to tell Gaffer what you want instead, or go back to the outcome.</p>
       {:else}
-      <p class="hint">{project?.name}. Each row below is a pipeline: edit its brief{pathway ? '' : ', and tick the stages it runs through'}. The first stage starts with the prompt shown{project?.isRepo ? ', in its own worktree' : ''}; later stages take over in the same folder.</p>
+      {#if adding}<p class="hint">{adding.projectName}. Each row below is a pipeline: edit its brief{pathway ? '' : ', and tick the stages it runs through'}. The controller starts each added pipeline as a chat in this outcome’s project, {adding.yolo ? 'on YOLO like the rest of this outcome' : 'with ordinary approvals, never in YOLO'}, and Gaffer looks after it stage by stage. None of them merges by itself: each stops at <strong>Ready to merge</strong> and waits for you.</p>
+      {:else}<p class="hint">{project?.name}. Each row below is a pipeline: edit its brief{pathway ? '' : ', and tick the stages it runs through'}. The first stage starts with the prompt shown{project?.isRepo ? ', in its own worktree' : ''}; later stages take over in the same folder.</p>{/if}
       {#if !adding}<ImageAttachment bind:files={images} max={MAX_ATTACHMENTS} label="Attach an image to the outcome" disabled={busy} busy={imageUploading} error={imageError} />{/if}
       {#if images.length && !adding}<p class="hint" role="status">{images.length === 1 ? 'The attached image travels' : `All ${images.length} attached images travel`} with every pipeline this outcome starts.</p>{/if}
       {#if order && !adding}{@render where()}{/if}

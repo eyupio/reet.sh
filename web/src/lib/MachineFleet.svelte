@@ -10,7 +10,7 @@
   import MachineHealthStrip from './terminal/MachineHealthStrip.svelte'
   import type { Machine, SyncAgent, SyncEnvironment, SyncJob, SyncSkills, SyncState } from './api'
   import { controlSyncAgent, controlSyncJob, forgetEnvironment, forgetMachine, updateSyncAgent } from './api'
-  import { agentBuild, agentGroups, agentUpdateTarget, groupLabel, machineMatchesSearch, updateJobFor } from './machines'
+  import { agentBuild, agentGroups, agentUpdateState, agentUpdateTarget, groupLabel, machineMatchesSearch, updateJobFor } from './machines'
   import { machineStatus, scanOnlyAgents, supportedAgents } from './machineSetup'
   import MachineCommands from './MachineCommands.svelte'
   import { reenrolCommand } from './machineJoin'
@@ -319,8 +319,8 @@
 <section class="fleet" aria-label="Machines">
   {#if machines.length > 1}
     <div class="fleet-tools">
-      <label class="fleet-search">Search machines
-        <input type="search" bind:value={fleetQuery} placeholder="Machine or skill" />
+      <label class="fleet-search"><span class="vh">Search machines</span>
+        <input type="search" bind:value={fleetQuery} placeholder="Search machines or skills" aria-label="Search machines" />
       </label>
       {#if machines.length > 6}
         <label class="fleet-status">Status
@@ -332,6 +332,7 @@
           </select>
         </label>
       {/if}
+      {#if fleetCounts.attention}<p class="fleet-attention">{fleetCounts.attention} {fleetCounts.attention === 1 ? "needs" : "need"} attention</p>{/if}
       <p class="fleet-count" role="status">{fleetCount}</p>
     </div>
   {/if}
@@ -364,19 +365,20 @@
             <div>
               <h3 id={`machine-${encodeURIComponent(machine.host)}`} title={machine.host}>{machine.host}</h3>
               {#if highlight === machine.host}<p class="added-note">Just added. Active skills follow automatically</p>{/if}
-              {#if machine.aliases?.length}<p class="alias">Also known as {machine.aliases.join(', ')}</p>{:else}<p class="alias">Machine inventory and install locations</p>{/if}
+              {#if machine.aliases?.length}<p class="alias">Also known as {machine.aliases.join(', ')}</p>{/if}
             </div>
           </div>
-          {#if locked && enrolled}<span class="badge locked-badge" title={lockedAt(enrolled) ? formatWhen(lockedAt(enrolled)! * 1000, timeZone, dateFormat) : undefined}>{lockedStatus(lockedAt(enrolled), (at) => agoLabel(at))}</span>{:else}<span class="badge {state}">{stateLabel(machine)}</span>{/if}
-        </header>
-
-        <div class="sync-band {sync.tone}">
-          <div class="sync-copy">
-            <span class="sync-pulse" class:live={sync.tone === 'working'} aria-hidden="true"></span>
-            <div><strong>{sync.label}</strong><small>{sync.detail}</small></div>
+          <div class="status {sync.tone}">
+            <p class="status-line"><span class="sync-pulse" class:live={sync.tone === 'working'} aria-hidden="true"></span><strong>{sync.label}</strong>
+              {#if locked && enrolled}<span class="badge locked-badge" title={lockedAt(enrolled) ? formatWhen(lockedAt(enrolled)! * 1000, timeZone, dateFormat) : undefined}>{lockedStatus(lockedAt(enrolled), (at) => agoLabel(at))}</span>{:else if state !== 'current'}<span class="badge {state}">{stateLabel(machine)}</span>{/if}
+            </p>
+            <p class="status-detail">{sync.detail} <a class="sync-link" href="/sync">View sync status</a></p>
           </div>
-          <div class="sync-cta">
-            <a class="btn sync-now" href="/sync">View sync status</a>
+          <div class="head-actions">
+            {#if terminalAccess && enrolled}
+              {#if locked}<button class="btn" type="button" disabled aria-describedby={`locked-${m}`}>Open terminal</button>{:else}<a class="btn" href={openTerminalHref(enrolled.id)}>Open terminal</a>{/if}
+              <button class="btn" type="button" disabled={!!agentReadiness(enrolled.id)} aria-describedby={locked ? `locked-${m}` : agentReadiness(enrolled.id) ? `start-agent-${m}` : undefined} onclick={(event) => void beginStart(enrolled.id, event.currentTarget)}>Start an agent</button>
+            {/if}
             <details class="sync-menu">
               <summary aria-label={`More options for ${machine.host}`} title="More options"><Icon name="more" size={18} /></summary>
               <div class="sync-menu-panel" role="menu">
@@ -386,33 +388,33 @@
               </div>
             </details>
           </div>
-        </div>
+        </header>
+        {#if terminalAccess&&enrolled&&!locked&&agentReadiness(enrolled.id)}<p class="start-reason" id={`start-agent-${m}`}><Sentence text={agentReadiness(enrolled.id)} /></p>{/if}
         {#if enrolled&&health.machines.some(item=>item.agentId===enrolled.id)}<MachineHealthStrip compact health={health.machines.find(item=>item.agentId===enrolled.id)} serverNow={health.serverNow+healthElapsed} />{/if}
 
-        <div class="meta">
+        <p class="meta">
           <span><strong>{machine.skillCount}</strong> unique {machine.skillCount === 1 ? 'skill' : 'skills'}</span>
-          <span><strong>{groups.length}</strong> install {groups.length === 1 ? 'location' : 'locations'}</span>
           <span>Last report <strong title={lastReport(machine) ? formatWhen(lastReport(machine), timeZone, dateFormat) : undefined}>{lastSeen(machine)}</strong></span>
-          {#if enrolled && !locked}<span class="live {agentTone(enrolled)}"><span aria-hidden="true">●</span> {agentState(enrolled)}</span><span class="build" title={enrolled.commit ? `commit ${enrolled.commit}` : undefined}>reet {agentBuild(enrolled)}</span>{/if}
-        </div>
-        <div class="agent-chips" aria-label="Install locations">
-          {#each supported as group (group.id)}<span class="agent-chip">{groupLabel(group)} <strong>{group.skillCount ?? 0}</strong></span>{/each}
-          {#each scanOnly as group (group.id)}<span class="agent-chip muted">{groupLabel(group)}</span>{/each}
-        </div>
+          {#if enrolled && !locked}{#if agentTone(enrolled) !== 'paused'}<span class="live {agentTone(enrolled)}">{agentState(enrolled)}</span>{/if}<span class="build" title={enrolled.commit ? `commit ${enrolled.commit}` : undefined}>reet {agentBuild(enrolled)}</span>{/if}
+        </p>
 
-        {#if enrolled}
-          <div data-agent-update={enrolled.id}>
-            <AgentUpdate
-              agent={enrolled}
-              job={lastUpdate(machine)}
-              releases={snapshot.releases}
-              {canWrite}
-              busy={!!busy}
-              onreview={() => openReview(enrolled, enrolled.version === 'dev' ? 'dev' : 'latest')}
-              oncancel={() => { const update = lastUpdate(machine); if (update) void cancelUpdate(update) }}
-            />
-          </div>
-        {/if}
+        {#snippet updater()}
+          {#if enrolled}
+            <div data-agent-update={enrolled.id}>
+              <AgentUpdate
+                agent={enrolled}
+                job={lastUpdate(machine)}
+                releases={snapshot.releases}
+                {canWrite}
+                busy={!!busy}
+                onreview={() => openReview(enrolled, enrolled.version === 'dev' ? 'dev' : 'latest')}
+                oncancel={() => { const update = lastUpdate(machine); if (update) void cancelUpdate(update) }}
+              />
+            </div>
+          {/if}
+        {/snippet}
+        <!-- An update that is waiting, running or failed is said on the row; "Not checked" and "Up to date" wait in the details. -->
+        {#if enrolled && !['current', 'unknown'].includes(agentUpdateState(enrolled, snapshot.releases, lastUpdate(machine)))}{@render updater()}{/if}
 
         {#if locked && enrolled}
           <div class="legacy locked" data-locked={enrolled.id}>
@@ -443,19 +445,12 @@
           </div>
         {/if}
 
-        {#if terminalAccess && enrolled}
-          <div class="actions">
-            {#if locked}<button class="btn" type="button" disabled aria-describedby={`locked-${m}`}>Open terminal</button>{:else}<a class="btn" class:primary={sync.tone === 'synced' || sync.tone === 'setup'} href={openTerminalHref(enrolled.id)}>Open terminal</a>{/if}
-            <button class="btn" type="button" disabled={!!agentReadiness(enrolled.id)} aria-describedby={locked ? `locked-${m}` : agentReadiness(enrolled.id) ? `start-agent-${m}` : undefined} onclick={(event) => void beginStart(enrolled.id, event.currentTarget)}>Start an agent</button>
-          </div>
-        {/if}
-        {#if terminalAccess&&enrolled&&!locked&&agentReadiness(enrolled.id)}<p class="start-reason" id={`start-agent-${m}`}><Sentence text={agentReadiness(enrolled.id)} /></p>{/if}
-
         <details class="agent-list">
           <summary>
             <span>Agents on this machine</span>
             <span>{groups.length} install {groups.length === 1 ? 'location' : 'locations'}</span>
           </summary>
+          {#if enrolled && ['current', 'unknown'].includes(agentUpdateState(enrolled, snapshot.releases, lastUpdate(machine)))}{@render updater()}{/if}
           <ul>
             {#each supported as group, i (group.id)}
               <li>
@@ -542,21 +537,23 @@
 
 <style>
   .fleet { margin: 14px 0 0; }
-  .fleet-tools { display: flex; align-items: end; justify-content: space-between; flex-wrap: wrap; gap: 12px 18px; margin-bottom: 12px; }
-  .fleet-search { flex: 1 1 240px; display: grid; gap: 6px; color: var(--muted); font-size: 0.875rem; }
+  .fleet-tools { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px 14px; margin-bottom: 10px; }
+  .fleet-search { flex: 1 1 240px; display: grid; }
   .fleet-search input { width: 100%; }
+  .fleet-attention { margin: 0 0 0 auto; color: var(--bad); font-size: 0.875rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .fleet-attention + .fleet-count { margin: 0; }
   .fleet-count { margin: 0; color: var(--muted); font-size: 0.875rem; font-variant-numeric: tabular-nums; }
-  .fleet-status { flex: 0 1 auto; display: grid; gap: 6px; color: var(--muted); font-size: 0.875rem; }
+  .fleet-status { flex: 0 1 auto; display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 0.875rem; }
   .fleet-status select { min-width: 170px; }
   .fleet-empty { grid-column: 1 / -1; padding: 24px; border: 1px dashed var(--line); border-radius: 12px; background: var(--card); }
   .fleet-empty p { margin: 0 0 12px; color: var(--muted); }
-  .machine-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 430px), 1fr)); gap: 14px; }
+  .machine-grid { display: grid; gap: 10px; }
   .added-note { margin: 2px 0 0; color: var(--good); font-size: 0.875rem; font-weight: 600; }
   .machine.just-added { border-color: var(--good); animation: just-added 6s ease-out; }
   @keyframes just-added { from { background: color-mix(in srgb, var(--good) 22%, var(--card)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--good) 45%, transparent); } to { background: var(--card); box-shadow: var(--shadow); } }
   @media (prefers-reduced-motion: reduce) { .machine.just-added { animation: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--good) 45%, transparent); } }
-  .machine { display: grid; gap: 14px; padding: 20px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); box-shadow: var(--shadow); min-width: 0; }
-  .machine-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+  .machine { display: grid; gap: 8px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); min-width: 0; }
+  .machine-head { display: grid; grid-template-columns: minmax(0, 13rem) minmax(0, 1fr) auto; align-items: center; gap: 8px 16px; }
   .identity { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
   .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; margin-top: 5px; background: var(--muted); }
   .dot.offline { background: transparent; border: 2px solid var(--muted); }
@@ -565,36 +562,34 @@
   .dot.stale { background: var(--warn, #b45309); }
   .dot.partial { background: var(--bad); }
   .dot.empty { background: var(--line); }
-  h3 { margin: 0; font: 500 1.35rem/1.15 var(--serif); letter-spacing: -0.02em; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  h3 { margin: 0; font: 500 1.2rem/1.15 var(--serif); letter-spacing: -0.02em; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .alias { margin: 3px 0 0; color: var(--muted); font-size: 0.875rem; overflow-wrap: anywhere; }
   .badge { flex: none; padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px; color: var(--muted); font-size: 0.875rem; font-variant-numeric: tabular-nums; }
   .badge.current { color: var(--good); border-color: color-mix(in srgb, var(--good) 35%, var(--line)); }
   .badge.stale { color: var(--accent-text); border-color: color-mix(in srgb, var(--accent) 35%, var(--line)); }
   .badge.partial { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 35%, var(--line)); }
-  .meta { display: flex; flex-wrap: wrap; gap: 6px 14px; color: var(--muted); font-size: 0.875rem; }
+  .meta { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 0; padding-left: 19px; color: var(--muted); font-size: 0.875rem; }
   .meta strong { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
   .live.online { color: var(--good); }
   .live.paused { color: var(--warn); }
   .live.offline { color: var(--muted); }
   .build { color: var(--ink); }
-  .sync-band { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: color-mix(in srgb, var(--bg) 52%, var(--card)); }
-  .sync-copy { display: flex; align-items: flex-start; gap: 9px; min-width: 0; flex: 1 1 220px; }
-  .sync-copy > div { display: grid; gap: 1px; min-width: 0; }
-  .sync-copy strong { font-size: 0.875rem; overflow-wrap: anywhere; }
-  .sync-copy small { color: var(--muted); font-size: 0.875rem; line-height: 1.45; overflow-wrap: anywhere; }
-  .sync-pulse { width: 9px; height: 9px; border-radius: 50%; flex: none; margin-top: 5px; background: var(--muted); }
-  .sync-band.action { border-color: color-mix(in srgb, var(--accent) 32%, var(--line)); }
-  .sync-band.action .sync-pulse { background: var(--accent); }
-  .sync-band.review { border-color: color-mix(in srgb, var(--warn) 32%, var(--line)); }
-  .sync-band.review .sync-pulse { background: var(--warn); }
-  .sync-band.attention { border-color: color-mix(in srgb, var(--bad) 30%, var(--line)); }
-  .sync-band.attention .sync-pulse { background: var(--bad); }
-  .sync-band.synced .sync-pulse { background: var(--good); }
-  .sync-band.setup .sync-pulse { background: var(--line-strong); }
-  .sync-pulse.live { background: var(--accent); animation: sync-pulse 1.4s ease-in-out infinite; }
+  /* One status, said once: the label carries the colour only when something needs a person. Healthy rows stay calm. */
+  .status { display: grid; gap: 2px; min-width: 0; }
+  .status p { margin: 0; overflow-wrap: anywhere; }
+  .status-line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 0.875rem; }
+  .status-detail { color: var(--muted); font-size: 0.875rem; line-height: 1.45; }
+  .sync-link { color: inherit; text-decoration: underline; text-underline-offset: 2px; white-space: nowrap; }
+  .sync-link:hover { color: var(--ink); }
+  .status.attention .status-line strong { color: var(--bad); }
+  .status.review .status-line strong { color: var(--warn); }
+  .status.action .status-line strong { color: var(--accent-text); }
+  .status.setup .status-line strong { color: var(--muted); }
+  .sync-pulse { display: none; width: 9px; height: 9px; border-radius: 50%; flex: none; background: var(--accent); }
+  .sync-pulse.live { display: inline-block; animation: sync-pulse 1.4s ease-in-out infinite; }
   @keyframes sync-pulse { 50% { opacity: 0.35; transform: scale(0.8); } }
-  .sync-cta { display: flex; align-items: center; gap: 6px; flex: none; }
-  .sync-now { min-height: 36px; padding: 6px 12px; font-size: 0.875rem; }
+  .head-actions { display: flex; align-items: center; gap: 6px; justify-self: end; }
+  .head-actions .btn { min-height: 36px; padding: 6px 12px; font-size: 0.875rem; }
   .sync-menu { position: relative; }
   .sync-menu > summary { list-style: none; display: grid; place-items: center; width: 38px; height: 38px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--card); color: var(--muted); cursor: pointer; }
   .sync-menu > summary::-webkit-details-marker { display: none; }
@@ -604,14 +599,6 @@
   .sync-menu-panel a, .sync-menu-panel button { display: block; width: 100%; padding: 8px 10px; border: 0; border-radius: 7px; background: transparent; color: var(--ink); font: inherit; font-size: 0.875rem; text-align: left; text-decoration: none; cursor: pointer; }
   .sync-menu-panel a:hover, .sync-menu-panel button:hover:not(:disabled) { background: var(--tint); }
   .sync-menu-panel button:disabled { color: var(--muted); cursor: default; }
-  .sync-track { flex-basis: 100%; height: 4px; overflow: hidden; border-radius: 4px; background: var(--line); }
-  .sync-track span { display: block; height: 100%; background: var(--accent); transition: width 0.4s var(--ease-out); }
-  .agent-chips { display: flex; flex-wrap: wrap; gap: 6px; }
-  /* A scope's label can carry a long folder path with no spaces: let it break anywhere so it never widens the page. */
-  .agent-chip { justify-self: start; align-self: flex-start; min-width: 0; max-width: 100%; padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--muted); font-size: 0.875rem; font-weight: 500; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-  .agent-chip strong { color: var(--ink); font-weight: 600; }
-  .agent-chip.muted { opacity: 0.78; }
-  .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
   .legacy { display: grid; gap: 6px; color: var(--ink); font-size: 0.875rem; line-height: 1.5; }
   .legacy-line { margin: 0; display: flex; gap: 8px; align-items: flex-start; color: var(--warn); font-weight: 500; }
   .legacy .mark { flex: none; width: 20px; height: 20px; display: grid; place-items: center; border: 1px solid currentColor; border-radius: 50%; font-size: 0.875rem; font-weight: 700; }
@@ -628,10 +615,9 @@
   .legacy-how > summary { cursor: pointer; display: list-item; padding: 6px 0; color: var(--muted); }
   .legacy-how > p { margin: 6px 0 10px; color: var(--muted); overflow-wrap: anywhere; }
   @media (pointer: coarse) { .legacy-how > summary { padding: 12px 0; } .legacy .btn { min-height: 44px; } }
-  .start-reason { margin: -6px 0 0; color: var(--muted); font-size: 0.875rem; line-height: 1.5; overflow-wrap: anywhere; }
-  .agent-list { border-top: 1px solid var(--line); padding-top: 12px; }
-  .agent-list > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 34px; cursor: pointer; font-size: 0.875rem; font-weight: 600; }
-  .agent-list > summary span:last-child { color: var(--muted); font-weight: 400; }
+  .start-reason { margin: 0 0 0 19px; color: var(--muted); font-size: 0.875rem; line-height: 1.5; overflow-wrap: anywhere; }
+  .agent-list { margin-left: 19px; }
+  .agent-list > summary { display: flex; align-items: center; gap: 12px; min-height: 34px; cursor: pointer; font-size: 0.875rem; font-weight: 500; color: var(--muted); }
   .agent-list > summary::after { content: ''; width: 7px; height: 7px; flex: none; margin-right: 4px; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: rotate(45deg); transition: transform 160ms ease; }
   .agent-list[open] > summary::after { transform: rotate(-135deg); }
   .agent-list ul { list-style: none; display: grid; gap: 0; padding: 0; margin: 8px 0 0; }
@@ -639,9 +625,6 @@
   .agent-copy { display: grid; gap: 2px; min-width: 0; flex: 1; }
   .agent-copy strong { font-size: 0.875rem; overflow-wrap: anywhere; }
   .agent-copy small { color: var(--muted); font-size: 0.875rem; line-height: 1.45; overflow-wrap: anywhere; }
-  .private-skills { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 4px 0 2px; }
-  .private-skills .btn { min-height: 34px; padding: 5px 12px; font-size: 0.875rem; }
-  .private-skills small { flex: 1 1 200px; min-width: 0; }
   .scope-state { flex: none; color: var(--muted); font-size: 0.875rem; }
   .scan-only { opacity: 0.82; }
   .empty-row { color: var(--muted); font-size: 0.875rem; }
@@ -651,24 +634,26 @@
     .fleet-search, .fleet-status { flex-basis: 100%; }
   }
   @media (pointer: coarse) { .fleet-status select { min-height: 44px; } }
+  @media (max-width: 860px) {
+    .machine-head { grid-template-columns: minmax(0, 1fr); }
+    .head-actions { justify-self: stretch; }
+    .head-actions .btn { flex: 1 1 auto; }
+  }
   @media (max-width: 560px) {
-    .machine { padding: 14px; }
-    .machine-head { flex-direction: column; align-items: flex-start; }
-    .actions .btn { flex: 1 1 auto; }
-    .sync-cta { width: 100%; }
-    .sync-cta .btn { flex: 1 1 auto; }
+    .machine { padding: 12px; }
+    .meta, .start-reason, .agent-list { margin-left: 0; padding-left: 0; }
   }
   /* Touch: every control on a card is a finger-sized (44 px) target. */
   @media (pointer: coarse) {
     .fleet-search input { min-height: 44px; }
-    .sync-now { min-height: 44px; }
+    .head-actions .btn { min-height: 44px; }
     .sync-menu > summary { width: 44px; height: 44px; }
     .sync-menu-panel a, .sync-menu-panel button { min-height: 44px; }
     .agent-list > summary { min-height: 44px; }
     .machine :global(.updater .btn) { min-height: 44px; }
+    .sync-link { display: inline-block; padding: 12px 0; }
   }
   @media (prefers-reduced-motion: reduce) {
     .sync-pulse.live { animation: none; }
-    .sync-track span { transition: none; }
-  }
+    }
 </style>

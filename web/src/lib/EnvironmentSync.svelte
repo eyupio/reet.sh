@@ -235,7 +235,7 @@
     {#if !canWrite}<p class="hint viewer-note">Your account can look but not add machines. Ask an owner or editor to add one.</p>{/if}
     {#if canWrite && visibleMachines.length}<button class="btn quiet" type="button" onclick={() => (importSource = { environmentId: '', name: '' })}>Import a machine skill…</button>{/if}
     <button class="btn quiet" type="button" onclick={() => load()} disabled={loading || busy}>{loading ? 'Refreshing…' : 'Refresh status'}</button>
-    <p class="hint tools-status">{#if loading && !loaded}Reading your machines…{:else if lastRefresh}Status refreshed {agoLabel(lastRefresh)} · updates automatically while this page is open{/if}</p>
+    <p class="hint tools-status">{#if loading && !loaded}Reading your machines…{:else if lastRefresh}Updated {agoLabel(lastRefresh)}. This page refreshes itself.{/if}</p>
   </div>
   {#if focusedMachine}<p class="hint machine-focus"><a href="/machines">All machines</a> / <strong>{focusedMachine.host}</strong></p>{:else if focusHost && !loading}<p class="hint">No machine named {focusHost} is connected. <a href="/machines">Show all machines</a>.</p>{/if}
   <div class="banners">
@@ -249,8 +249,9 @@
     {:else if loaded}
       <section class="sync-empty" aria-labelledby="machines-empty-title">
         <h3 id="machines-empty-title">No machines connected yet</h3>
-        <p>Connect a machine with the reet CLI. It takes about two minutes: install reet once, save this server's address, then scan. Its skills and install locations appear here.</p>
-        {#if !canWrite}<p class="hint">Ask an owner or editor to connect the first machine.</p>{/if}
+        {#if canAdd}<p>Choose Add a machine. You name it, run one command on it, then make a code for it to enter. It takes about two minutes. Its skills and install locations then appear here.</p>
+        {:else if canWrite}<p>Install reet on the machine, save this server's address, then scan. It takes about two minutes. Its skills and install locations then appear here.</p>
+        {:else}<p>Machines that an owner or editor connects appear here.</p>{/if}
       </section>
     {/if}
     <MachineSetup {terminalAccess} {site} machines={visibleMachines} {profiles} codes={accounts && canWrite} {tokenSetup} {serverBuild} snapshot={syncState} {timeZone} {dateFormat} bind:open={setupOpen} bind:host={setupHost} initialMode={initialSetupMode} onrefresh={() => load(true)} />
@@ -258,10 +259,10 @@
   {#if canWrite && machines.length}
     <details class="advanced-fleet">
       <summary>Advanced machine maintenance</summary>
-      <p class="hint">Duplicate reports, fleet refreshes and server-only heartbeats. Most people will not need these.</p>
+      <p class="hint">Fix a machine that appears twice, re-scan every machine, or review machines that only check in. Most people never need these.</p>
       <details class="maintenance">
         <summary>Manage machine names &amp; duplicate reports</summary>
-        <p class="hint">Hostname and --env names can be reports from one machine. Choose the report to move, then keep an existing name to merge duplicates or enter a new name to rename it. Only combine reports you know are the same machine.</p>
+        <p class="hint">One machine can appear twice, for example under its hostname and under an --env name. Choose the report to move, then enter the name of the machine to merge it into, or a new name to rename it. Only merge reports you know come from the same machine.</p>
         <form class="machine-form" onsubmit={previewMachine}>
           <label>Report to move<select aria-label="Report to move" bind:value={maintenanceFrom} required><option value="">Choose a machine</option>{#each reportedMachines as machine (machine.host)}<option value={machine.host}>{machine.host}</option>{/each}</select></label>
           <label>Preferred machine name<input aria-label="Preferred machine name" data-combo-list="machine-names" bind:value={maintenanceTo} maxlength="200" required placeholder="e.g. PROD_Snicket" /></label>
@@ -271,7 +272,7 @@
       </details>
       <details class="maintenance" ontoggle={(event) => { if (event.currentTarget.open && !fleetSince) fleetSince = Date.now() }}>
         <summary>Full fleet inventory refresh</summary>
-        <p class="hint">Run one command per physical machine, using the name you want to keep. If both a hostname and a friendly name appear, choose the friendly-name command only, or merge them above first. These commands never install or remove skills.</p>
+        <p class="hint">Run each command on its own machine to re-scan its install locations. If a machine appears under both a hostname and a friendly name, use the friendly name's command only, or merge them above first. These commands never install or remove skills.</p>
         <button class="btn quiet" onclick={() => (fleetSince = Date.now())}>Start a new refresh check</button>
         {#each machines as machine (machine.host)}
           <div class="fleet-command">
@@ -280,12 +281,12 @@
             <div class="command"><pre>{refreshCommand(machine.host)}</pre><CopyButton text={refreshCommand(machine.host)} label="Copy refresh" ariaLabel={`Copy refresh for ${machine.host}`} /></div>
           </div>
         {/each}
-        <p class="hint">Connected machines refresh inventory automatically. To check immediately, run the commands above, then refresh status.</p>
+        <p class="hint">Connected machines refresh on their own. To check now, run the commands above, then choose Refresh status.</p>
       </details>
       {#if serverMachines.length}
         <details class="maintenance">
           <summary>Server-only reports ({serverMachines.length})</summary>
-          <p class="hint">These machines have reported a heartbeat but no agent inventory. Container restarts may create new host IDs.</p>
+          <p class="hint">These machines have checked in but have not reported any agents. A container that restarts can appear again under a new ID.</p>
           <ul>{#each serverMachines as machine (machine.host)}{#each machine.groups as heartbeat (heartbeat.id)}<li><strong>{machine.host}</strong><p class="hint">{heartbeatStatus(heartbeat)} · <span title={when(heartbeat.scannedAt || heartbeat.lastSeen)}>{humanWhen(heartbeat.scannedAt || heartbeat.lastSeen)}</span></p>{#if canWrite}<button class="btn quiet" onclick={() => (machineChange = { from: machine.host })} disabled={busy}>Forget machine {machine.host}</button>{/if}</li>{/each}{/each}</ul>
         </details>
       {/if}
@@ -318,7 +319,8 @@
   .sync-empty { border: 1px dashed var(--line); border-radius: 12px; padding: 18px; background: var(--card); }
   .sync-empty h3 { margin: 0 0 12px; font: 500 1.3rem/1.2 var(--serif); letter-spacing: -0.02em; }
   .sync-empty p { margin: 12px 0 0; max-width: 60ch; color: var(--muted); font-size: 0.875rem; line-height: 1.6; }
-  .sync { margin-top: 24px; padding: clamp(14px, 2.4vw, 22px); border: 1px solid var(--line); border-radius: 14px; background: var(--card); }
+  /* No frame of its own: the rows are the cards, and a card around cards is a second layer with nothing to say. */
+  .sync { margin-top: 20px; }
   .page-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
   .tools-status { flex: 1 1 240px; margin: 0; text-align: right; font-size: 0.875rem; }
   .hint { color: var(--muted); font-size: 0.875rem; margin: 6px 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
@@ -332,8 +334,8 @@
   .fleet-command > strong { overflow-wrap: anywhere; }
   .command { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 10px 0; padding: 12px; background: var(--card); border: 1px solid var(--line); border-radius: 8px; }
   pre { flex: 1 1 260px; min-width: 0; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 0.875rem/1.6 var(--mono); }
-  .advanced-fleet { margin-top: 24px; border-top: 1px solid var(--line); padding-top: 16px; }
-  .advanced-fleet > summary { cursor: pointer; font-weight: 600; font-size: .88rem; }
+  .advanced-fleet { margin-top: 20px; border-top: 1px solid var(--line); padding-top: 12px; }
+  .advanced-fleet > summary { cursor: pointer; min-height: 32px; color: var(--muted); font-weight: 600; font-size: 0.875rem; }
   .banners { display: contents; }
   .error { padding: 12px; border: 1px solid var(--bad); border-radius: 8px; overflow-wrap: anywhere; }
   @media (max-width: 560px) {

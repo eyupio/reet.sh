@@ -25,7 +25,7 @@
     { label: 'Inventory & connection', href: '/machines', current: true },
     { label: 'Sync', href: '/sync', current: false }
   ]}
-  <PageHeader group="Machines" groupHref={focus ? '/machines' : undefined} title={focus || "Machines"} lede={focus ? "Inspect this machine's install locations and health, or continue in its terminal." : "Connect your machines. Reet keeps your skills in sync and your agents ready to work."} {sections} sectionsLabel="Machines">
+  <PageHeader group="Machines" groupHref={focus ? '/machines' : undefined} title={focus || "Machines"} lede={focus ? "Inspect this machine's install locations and health, or continue in its terminal." : "The computers and servers your agents run on. Reet keeps their skills in sync."} {sections} sectionsLabel="Machines">
     <!-- Software is an action, not a place: beside the title at every width, so a phone does not open the folded menu first. -->
     {#snippet actions()}{#if accounts && canWrite}<button type="button" class="btn software" onclick={() => (softwareOpen = true)}>Software</button>{/if}{/snippet}
   </PageHeader>
@@ -47,6 +47,6 @@
 <style>
  p {font-size:0.875rem;color:var(--muted)}
  .software {min-height:44px}
- .projects-drawer {margin:26px 0 0;border-top:1px solid var(--line);padding-top:14px}
+ .projects-drawer {margin:20px 0 0;border-top:1px solid var(--line);padding-top:12px}
  .projects-drawer > summary {cursor:pointer;color:var(--muted);font-size:0.875rem;font-weight:600;min-height:32px}
 </style>

@@ -326,11 +326,9 @@
 <details class="setup" id="connect-machine" bind:open>
   <summary>
     <span>
-      <span class="eyebrow">Machine setup</span>
-      <strong>Advanced: step-by-step setup</strong>
+      <strong>Set up a machine by hand</strong>
       <small>Install the CLI, authenticate and enrol by hand. Most people can use Add a machine instead.</small>
     </span>
-    <span class="summary-state">Optional</span>
     <span class="chevron" aria-hidden="true"></span>
   </summary>
 
@@ -548,12 +546,11 @@
 
 <style>
   .setup { border: 1px solid var(--line); border-radius: 16px; background: var(--card); box-shadow: var(--shadow); margin: 18px 0 26px; }
-  .setup > summary { list-style: none; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 20px 22px; cursor: pointer; min-height: 64px; }
+  .setup > summary { list-style: none; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 16px; cursor: pointer; min-height: 56px; }
   .setup > summary::-webkit-details-marker { display: none; }
   .setup > summary > span:first-child { display: grid; gap: 3px; }
-  .setup > summary strong { font: 500 1.35rem/1.2 var(--serif); }
+  .setup > summary strong { font-size: 1rem; font-weight: 600; }
   .setup > summary small { color: var(--muted); font-size: 0.875rem; }
-  .summary-state { flex: none; padding: 5px 10px; border: 1px solid var(--line); border-radius: 6px; color: var(--muted); font-size: 0.875rem; }
   .chevron { flex: none; width: 9px; height: 9px; margin-right: 4px; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: rotate(-45deg); transition: transform 160ms ease; }
   .setup[open] .chevron { transform: rotate(45deg); }
   .setup[open] > summary { border-bottom: 1px solid var(--line); }
@@ -643,7 +640,6 @@
   }
   @media (max-width: 700px) {
     .setup > summary { padding: 16px; align-items: flex-start; }
-    .summary-state { display: none; }
     .chevron { margin-left: auto; }
     .setup-body { padding: 16px; }
     .modes { grid-template-columns: 1fr; }

@@ -332,6 +332,7 @@
           </select>
         </label>
       {/if}
+      {#if fleetCounts.attention}<p class="fleet-attention">{fleetCounts.attention} {fleetCounts.attention === 1 ? "needs" : "need"} attention</p>{/if}
       <p class="fleet-count" role="status">{fleetCount}</p>
     </div>
   {/if}
@@ -539,6 +540,8 @@
   .fleet-tools { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px 14px; margin-bottom: 10px; }
   .fleet-search { flex: 1 1 240px; display: grid; }
   .fleet-search input { width: 100%; }
+  .fleet-attention { margin: 0 0 0 auto; color: var(--bad); font-size: 0.875rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .fleet-attention + .fleet-count { margin: 0; }
   .fleet-count { margin: 0; color: var(--muted); font-size: 0.875rem; font-variant-numeric: tabular-nums; }
   .fleet-status { flex: 0 1 auto; display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 0.875rem; }
   .fleet-status select { min-width: 170px; }

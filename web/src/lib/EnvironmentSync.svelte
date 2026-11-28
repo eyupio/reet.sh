@@ -235,7 +235,7 @@
     {#if !canWrite}<p class="hint viewer-note">Your account can look but not add machines. Ask an owner or editor to add one.</p>{/if}
     {#if canWrite && visibleMachines.length}<button class="btn quiet" type="button" onclick={() => (importSource = { environmentId: '', name: '' })}>Import a machine skill…</button>{/if}
     <button class="btn quiet" type="button" onclick={() => load()} disabled={loading || busy}>{loading ? 'Refreshing…' : 'Refresh status'}</button>
-    <p class="hint tools-status">{#if loading && !loaded}Reading your machines…{:else if lastRefresh}Status refreshed {agoLabel(lastRefresh)} · updates automatically while this page is open{/if}</p>
+    <p class="hint tools-status">{#if loading && !loaded}Reading your machines…{:else if lastRefresh}Updated {agoLabel(lastRefresh)}. This page refreshes itself.{/if}</p>
   </div>
   {#if focusedMachine}<p class="hint machine-focus"><a href="/machines">All machines</a> / <strong>{focusedMachine.host}</strong></p>{:else if focusHost && !loading}<p class="hint">No machine named {focusHost} is connected. <a href="/machines">Show all machines</a>.</p>{/if}
   <div class="banners">
@@ -319,7 +319,8 @@
   .sync-empty { border: 1px dashed var(--line); border-radius: 12px; padding: 18px; background: var(--card); }
   .sync-empty h3 { margin: 0 0 12px; font: 500 1.3rem/1.2 var(--serif); letter-spacing: -0.02em; }
   .sync-empty p { margin: 12px 0 0; max-width: 60ch; color: var(--muted); font-size: 0.875rem; line-height: 1.6; }
-  .sync { margin-top: 24px; padding: clamp(14px, 2.4vw, 22px); border: 1px solid var(--line); border-radius: 14px; background: var(--card); }
+  /* No frame of its own: the rows are the cards, and a card around cards is a second layer with nothing to say. */
+  .sync { margin-top: 20px; }
   .page-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
   .tools-status { flex: 1 1 240px; margin: 0; text-align: right; font-size: 0.875rem; }
   .hint { color: var(--muted); font-size: 0.875rem; margin: 6px 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
@@ -333,8 +334,8 @@
   .fleet-command > strong { overflow-wrap: anywhere; }
   .command { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 10px 0; padding: 12px; background: var(--card); border: 1px solid var(--line); border-radius: 8px; }
   pre { flex: 1 1 260px; min-width: 0; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 0.875rem/1.6 var(--mono); }
-  .advanced-fleet { margin-top: 24px; border-top: 1px solid var(--line); padding-top: 16px; }
-  .advanced-fleet > summary { cursor: pointer; font-weight: 600; font-size: .88rem; }
+  .advanced-fleet { margin-top: 20px; border-top: 1px solid var(--line); padding-top: 12px; }
+  .advanced-fleet > summary { cursor: pointer; min-height: 32px; color: var(--muted); font-weight: 600; font-size: 0.875rem; }
   .banners { display: contents; }
   .error { padding: 12px; border: 1px solid var(--bad); border-radius: 8px; overflow-wrap: anywhere; }
   @media (max-width: 560px) {

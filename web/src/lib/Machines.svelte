@@ -47,6 +47,6 @@
 <style>
  p {font-size:0.875rem;color:var(--muted)}
  .software {min-height:44px}
- .projects-drawer {margin:26px 0 0;border-top:1px solid var(--line);padding-top:14px}
+ .projects-drawer {margin:20px 0 0;border-top:1px solid var(--line);padding-top:12px}
  .projects-drawer > summary {cursor:pointer;color:var(--muted);font-size:0.875rem;font-weight:600;min-height:32px}
 </style>

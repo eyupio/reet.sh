@@ -255,7 +255,8 @@ try{
  await page.goto(`${base}/sessions?view=list`)
  const links=page.locator('main .session-row a.open')
  await expect(links).toHaveCount(2)
- expect((await links.first().boundingBox()).y).toBeLessThan(400)
+ // Near the top: above the fold at 900 px, below the summary line and the state chips.
+ expect((await links.first().boundingBox()).y).toBeLessThan(500)
  const stale=page.getByText("Couldn't refresh. Showing what we last saw.",{exact:true})
  failSessions=true
  await page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')))

@@ -29,6 +29,9 @@ UI.
 The summary line and the chips' counts overlap when everything running is also the whole list; the line earns its place
 when something needs the person. Drop one if it reads as noise.
 
+`terminal-workspace.e2e.mjs` asserted the first Sessions row at y < 400 at 1360 x 900; the summary line and chips put it at
+415, so the bound is 500 (still above the fold). CI found this; the local run of the page's own suites did not.
+
 Tests: `sessions.e2e.mjs` follows (chips, More filters, the fold, the panel count of 3 where it was 4, and a new
 section "summary line and state chips"). Ran against a built UI: sessions, add-project, add-project-edit, projects,
 first-machine, device-push, sessions-phone, phone-zoom, phone-dialogs, supporting-nav, navigation, loading-width;

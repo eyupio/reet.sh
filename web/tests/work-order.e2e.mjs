@@ -330,6 +330,29 @@ try{
     }finally{await w.context.close()}
     console.log('ok - back from adding puts the earlier choices back')
   }
+  // On Cline both times, Back puts the person's own Cline source back, not the outcome's.
+  {
+    const clineMachines=[machine([agent('claude'),agent('opencode'),{tool:'cline',adapter:'cline',state:'available',options:[]}])]
+    clineMachines[0].capabilities.acpProvider=true
+    const f=fixture({machines:clineMachines,withOutcome:true})
+    f.routes[`/api/v2/gaffer/outcomes/${oid}`]=()=>({...running,tool:'cline',provider:'cline-pass'})
+    const w=await openWorkspace(browser,{width:1440,height:1000,theme:'light',touch:false,terminalMachines:f.machines,routes:f.routes}),page=w.page
+    try{
+      await page.goto(base+'/factory')
+      await page.getByRole('button',{name:'New Factory outcome',exact:true}).first().click()
+      const dialog=page.getByRole('dialog',{name:'New Factory outcome',exact:true})
+      await dialog.getByRole('combobox',{name:'Project',exact:true}).selectOption('p-reports')
+      await dialog.getByRole('combobox',{name:'Agent',exact:true}).selectOption('cline')
+      await dialog.getByRole('combobox',{name:'Source',exact:true}).selectOption('cline')
+      await paste(dialog,continuing)
+      await dialog.getByRole('button',{name:'Read the work order',exact:true}).click()
+      await page.getByRole('dialog',{name:'Add to an outcome',exact:true}).getByRole('button',{name:'Back',exact:true}).click()
+      await expect(dialog.getByRole('combobox',{name:'Agent',exact:true})).toHaveValue('cline')
+      await expect(dialog.getByRole('combobox',{name:'Source',exact:true})).toHaveValue('cline')
+      expect(w.errors).toEqual([])
+    }finally{await w.context.close()}
+    console.log('ok - back from adding puts the earlier Cline source back')
+  }
 
   // Copy for your agent, in the outcome's menu: the work report on the clipboard, or shown to copy by hand when the
   // browser will not let reet copy.

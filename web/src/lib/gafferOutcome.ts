@@ -784,9 +784,8 @@ export function workOrderSessions(order: WorkOrder): PlanSession[] {
 }
 /** The crew with a work order's suggestions in place: each tier it names takes that agent, model and effort and none of
  *  the saved backups; the other tiers are left as they are. An agent this machine lacks is still applied, so Launch
- *  readiness, not this, says it cannot start; `tools` (the machine's agents) is taken for that reason and changes nothing. */
-export function workOrderCrew(crew: Crew, suggested: WorkOrder['crew'], tools: string[]): { crew: Crew; from: Record<CrewTier, boolean> } {
-  void tools
+ *  readiness, not this, says it cannot start. */
+export function workOrderCrew(crew: Crew, suggested: WorkOrder['crew']): { crew: Crew; from: Record<CrewTier, boolean> } {
   const out = { ...crew }, from: Record<CrewTier, boolean> = { heavy: false, standard: false, light: false }
   for (const { tier } of CREW_TIERS) {
     const one = suggested?.[tier]

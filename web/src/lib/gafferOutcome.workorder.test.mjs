@@ -66,7 +66,7 @@ test('a work order’s crew replaces only the tiers it suggests, for this outcom
     standard: { tool: 'opencode', model: '', backup: spare },
     light: { tool: 'opencode', model: 'small', backup: spare, more: [{ tool: 'claude', model: '' }] },
   }
-  const out = o.workOrderCrew(crew, order.crew, ['claude', 'opencode'])
+  const out = o.workOrderCrew(crew, order.crew)
   assert.deepEqual(out.from, { heavy: true, standard: true, light: false })
   // Suggested tiers take the agent, model and effort given, and none of the saved backups.
   assert.deepEqual(out.crew.heavy, { tool: 'claude', model: 'opus', effort: 'high' })
@@ -75,7 +75,7 @@ test('a work order’s crew replaces only the tiers it suggests, for this outcom
   assert.deepEqual(out.crew.light, crew.light)
   // The crew handed in is not changed.
   assert.equal(crew.heavy.tool, 'opencode')
-  assert.deepEqual(o.workOrderCrew(crew, undefined, []).from, { heavy: false, standard: false, light: false })
+  assert.deepEqual(o.workOrderCrew(crew, undefined).from, { heavy: false, standard: false, light: false })
 })
 
 test('the prompt for an outside agent is the skill’s use line and what the dialog knows', () => {

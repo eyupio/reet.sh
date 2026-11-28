@@ -89,11 +89,12 @@
   // A work order that continues an outcome: its pipelines are added to that outcome, whose project, crew, approvals,
   // trust and limits were fixed when it started. Only the pipelines are the person's to change here.
   let adding = $state<GafferOutcome | null>(null)
-  // The person's own project, agent, model and effort from before, put back when they leave the adding mode.
-  let beforeAdding: { projectId: string; tool: string; model: string; effort: string } | null = null
+  // The person's own project, agent, model, effort and Cline source from before, put back when they leave the adding
+  // mode. The source goes back with its agent, so the change of agent does not reset it.
+  let beforeAdding: { projectId: string; tool: string; model: string; effort: string; source: string; explicitSource: boolean } | null = null
   function leaveAdding() {
     adding = null
-    if (beforeAdding) { ({ projectId, tool, model, effort } = beforeAdding); beforeAdding = null }
+    if (beforeAdding) { ({ projectId, tool, model, effort, source, explicitSource } = beforeAdding); lastTool = tool; beforeAdding = null }
   }
   let copied = $state(''), copiedTimer: ReturnType<typeof setTimeout> | undefined
   // Where a plan has got to, as the controller reports it, and how long it has been. A failed plan keeps its step, so the
@@ -280,7 +281,7 @@
   // machine), until the person puts the saved crew back. Its tiers take none of the saved backups.
   function applyOrderCrew() {
     if (!order?.crew) return
-    const out = workOrderCrew(crewSent, order.crew, tools)
+    const out = workOrderCrew(crewSent, order.crew)
     for (const { tier } of CREW_TIERS) {
       if (!out.from[tier]) continue
       const one = out.crew[tier]
@@ -561,7 +562,7 @@
       // machine runs it, else the outcome's own agent, model, the effort its stages on that agent were given, and its
       // Cline source. The dialog's crew starts the same way on the outcome's machine, so the readiness shown matches.
       if (into) {
-        beforeAdding = { projectId, tool, model, effort }
+        beforeAdding = { projectId, tool, model, effort, source, explicitSource }
         projectId = into.projectId; tool = into.tool; model = into.model ?? ''
         effort = into.sessions.flatMap(piece => piece.stages ?? []).find(stage => stage.tool === into.tool && stage.effort)?.effort ?? ''
         startCrew()

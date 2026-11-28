@@ -36,8 +36,10 @@ Wire the handler and reuse the report's read permission.
 
 ## Sending it
 
-- Put the work order on its own, or inside one code fence. Text before it outside a fence is refused. Anything after
-  the closing fence is ignored.
+- Put the work order on its own, or inside one code fence. Text before it outside a fence is refused. The fence closes
+  at the first line of only its own characters, at least as long, that is not closing a code block inside a brief;
+  anything after that line is ignored, unless a section of the work order follows it, which is refused. If a brief
+  holds a bare code fence of the same characters, wrap the work order in a longer fence (````).
 - One work order per paste. A second `reet: work-order/` header is refused.
 - At most 64 KB in all.
 - Write plain text. Everything is shown to the person as written.
@@ -61,12 +63,14 @@ Any other key is refused. There is no key for YOLO, folder trust, merging, appro
 
 Start each with `## Pipeline: <title>`. Pipeline titles are unique within the order. Part titles are unique within their stage. Then, in this order:
 
-1. Optional setting lines directly under the heading: `stages:` and `tiers:`, each at most once.
+1. Optional setting lines directly under the heading: `stages:` and `tiers:`, each at most once, written exactly so
+   (lower case, with a colon). A line there that starts with `stage`, `stages`, `tier` or `tiers` and `:` or `=` in
+   any other way is refused, never read as the brief. Further down, the brief may start a line with these words.
 2. The brief: self-contained prose. Say what to change, where, and how it will be checked.
 3. Optional `### Part: <stage> / <title>` sections.
 4. Optional `### Criteria`, once.
 
-Only these headings are sections. Inside a brief use headings of level 4 (`####`) or deeper; a heading of level 1, 2
+Only these headings are sections. A heading indented by up to three spaces is still a heading. Inside a brief use headings of level 4 (`####`) or deeper; a heading of level 1, 2
 or 3 that is not one of the sections above is refused. A line of only `---` is refused unless it sits inside a fenced
 code block. Fenced code (``` or ~~~) is left alone, so a brief may quote a work order or a header.
 
@@ -87,13 +91,14 @@ four. Parts of a stage run in the order written.
 
 ### Tiers
 
-`tiers:` gives a stage's tier as `<stage>=<tier>` pairs, for example `tiers: code=heavy, review=standard`. A part's
-own `tier:` line overrides it. See [tiers-and-crew.md](tiers-and-crew.md).
+`tiers:` gives a stage's tier as `<stage>=<tier>` pairs, each stage once, for example
+`tiers: code=heavy, review=standard`. A part's own `tier:` line, directly under its heading, overrides it. See [tiers-and-crew.md](tiers-and-crew.md).
 
 ### Criteria
 
 A list of `- ` items (or `* `): what the person will check the delivery against. Criteria can only add a stop for the
-person's review of the delivery. They never remove one. Each is one line.
+person's review of the delivery. They never remove one. Each is one line. A `### Criteria` heading with no items is
+refused.
 
 ## Limits
 
@@ -130,6 +135,7 @@ The ones you are most likely to meet:
 - `Add at least one ## Pipeline: <title> section.`
 - `Give the pipeline a title of 1 to 80 plain characters.`
 - `Send the work order on its own, or inside one code fence. Remove the text before it.`
+- `The code fence around the work order closes here, but the work order goes on after it. Wrap the work order in a longer fence (````) than any fence inside it.`
 - `Send one work order per paste. Remove everything from this line on.`
 - `Start each pipeline with ## Pipeline: <title>.`
 - `“<heading>” is not a section of a work order. Use ## Pipeline: <title>, ### Part: <stage> / <title> or ### Criteria; inside a brief use headings of level 4 or deeper.`
@@ -138,10 +144,14 @@ The ones you are most likely to meet:
 - `“<name>” is not a stage. The stages are plan, design, code, review, test, pr, babysit, merge.`
 - `Put the stages in pipeline order, each once: plan, design, code, review, test, pr, babysit, merge.`
 - `tiers names “<stage>”, which is not one of this pipeline's stages.`
+- `tiers gives <stage> a tier twice. Keep one.`
+- `Write this setting as stages: <stage>, <stage>, in lower case with a colon.` (and the same for `tiers: <stage>=<tier>, <stage>=<tier>` under a pipeline, or `tier: light, standard or heavy` under a part)
+- `“<key>:” is given twice for this pipeline. Keep one.`
 - `Split a stage into 2 to 4 parts, or give “<stage>” no parts.`
 - `The <stage> stage is not split into parts. Split plan, design, code, review or test.`
 - `Write a part as ### Part: <stage> / <title>.`
 - `A pipeline has one ### Criteria list. Merge them.`
+- `This ### Criteria list is empty. Add “- ” items, or remove the heading.`
 - `Write each criterion as a list item starting with “- ”.`
 - `A work order has at most 5 pipelines. Remove this one, or send it in another work order.`
 - `Give each pipeline its own title; “<title>” is used twice.`

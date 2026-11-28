@@ -64,11 +64,26 @@ func workOrderBlock(text string) (block []string, offset, stray int, found bool)
 			continue
 		}
 		if i > 0 && strings.HasPrefix(strings.TrimSpace(lines[i-1]), "```") {
-			fence := strings.TrimSpace(lines[i-1])
-			depth := len(fence) - len(strings.TrimLeft(fence, "`"))
-			for j := len(lines) - 1; j > i; j-- {
-				if t := strings.TrimSpace(lines[j]); strings.Trim(t, "`") == "" && len(t) >= depth {
+			// The wrapper closes at its first closing line while no fence inside the order is open.
+			wrap, wrapLen := fenceRun(strings.TrimSpace(lines[i-1]))
+			var inner byte
+			innerLen := 0
+			for j := i + 1; j < len(lines); j++ {
+				t := strings.TrimSpace(lines[j])
+				c, run := fenceRun(t)
+				switch {
+				case c == 0:
+				case inner == 0 && c == wrap && run >= wrapLen && run == len(t):
+					for _, rest := range lines[j+1:] {
+						if workOrderSection(rest) {
+							return lines[i:j], i, j, true // the order goes on after its fence closed
+						}
+					}
 					return lines[i:j], i, -1, true
+				case inner == 0:
+					inner, innerLen = c, run
+				case c == inner && run >= innerLen && run == len(t):
+					inner = 0
 				}
 			}
 			return lines[i:], i, -1, true
@@ -121,7 +136,9 @@ func ParseWorkOrder(text string) (WorkOrder, []WorkOrderProblem) {
 	}
 	bad := func(i int, msg string) { problems = append(problems, WorkOrderProblem{offset + i + 1, msg}) }
 	whole := func(msg string) { problems = append(problems, WorkOrderProblem{0, msg}) }
-	if stray >= 0 {
+	if stray > offset {
+		problems = append(problems, WorkOrderProblem{stray + 1, "The code fence around the work order closes here, but the work order goes on after it. Wrap the work order in a longer fence (````) than any fence inside it."})
+	} else if stray >= 0 {
 		problems = append(problems, WorkOrderProblem{stray + 1, "Send the work order on its own, or inside one code fence. Remove the text before it."})
 	}
 
@@ -210,12 +227,11 @@ func ParseWorkOrder(text string) (WorkOrder, []WorkOrderProblem) {
 		line := strings.TrimRight(block[i], " \t")
 		trimmed := strings.TrimSpace(line)
 		inFence := fenceChar != 0
-		if trimmed != "" && (trimmed[0] == '`' || trimmed[0] == '~') {
-			run := len(trimmed) - len(strings.TrimLeft(trimmed, trimmed[:1]))
+		if c, run := fenceRun(trimmed); c != 0 {
 			switch {
-			case !inFence && run >= 3:
-				fenceChar, fenceLen, fenceAt = trimmed[0], run, i
-			case inFence && trimmed[0] == fenceChar && run >= fenceLen && run == len(trimmed):
+			case !inFence:
+				fenceChar, fenceLen, fenceAt = c, run, i
+			case c == fenceChar && run >= fenceLen && run == len(trimmed):
 				fenceChar = 0
 			}
 		}
@@ -232,7 +248,7 @@ func ParseWorkOrder(text string) (WorkOrder, []WorkOrderProblem) {
 			continue
 		}
 		if heading := headingLevel(line); !inFence && heading > 0 && heading <= 3 {
-			title := strings.TrimSpace(strings.TrimLeft(line, "#"))
+			title := strings.TrimSpace(strings.TrimLeft(trimmed, "#"))
 			switch {
 			case heading == 2 && strings.HasPrefix(title, "Pipeline:"):
 				last = &woPipe{line: i, title: strings.TrimSpace(strings.TrimPrefix(title, "Pipeline:"))}
@@ -251,7 +267,7 @@ func ParseWorkOrder(text string) (WorkOrder, []WorkOrderProblem) {
 				last.critLine = i + 1
 				cur = &last.crit
 			default:
-				bad(i, "“"+strings.TrimSpace(line)+"” is not a section of a work order. Use ## Pipeline: <title>, ### Part: <stage> / <title> or ### Criteria; inside a brief use headings of level 4 or deeper.")
+				bad(i, "“"+trimmed+"” is not a section of a work order. Use ## Pipeline: <title>, ### Part: <stage> / <title> or ### Criteria; inside a brief use headings of level 4 or deeper.")
 				cur = nil
 			}
 			started = true
@@ -325,13 +341,87 @@ func workOrderWhy(err error) string {
 }
 
 // headingLevel is the number of # opening a Markdown heading line, else 0.
+// Up to three leading spaces still make a heading.
 func headingLevel(line string) int {
+	for k := 0; k < 3 && strings.HasPrefix(line, " "); k++ {
+		line = line[1:]
+	}
 	n := len(line) - len(strings.TrimLeft(line, "#"))
 	if n == 0 || n > 6 || len(line) == n || line[n] != ' ' {
 		return 0
 	}
 	return n
 }
+
+// workOrderSection reports a line that opens one of a work order's sections.
+func workOrderSection(line string) bool {
+	title := strings.TrimSpace(strings.TrimLeft(strings.TrimSpace(line), "#"))
+	switch headingLevel(line) {
+	case 2:
+		return strings.HasPrefix(title, "Pipeline:")
+	case 3:
+		return strings.HasPrefix(title, "Part:") || title == "Criteria"
+	}
+	return false
+}
+
+// fenceRun is the character and length of the code fence a trimmed line
+// starts with, or 0 when it starts none.
+func fenceRun(t string) (byte, int) {
+	if t == "" || t[0] != '`' && t[0] != '~' {
+		return 0, 0
+	}
+	if run := len(t) - len(strings.TrimLeft(t, t[:1])); run >= 3 {
+		return t[0], run
+	}
+	return 0, 0
+}
+
+// woSettings reads the setting lines directly under a heading. forms gives,
+// for each of stage, stages, tier and tiers, the setting to write here; a
+// line written as one of them (before : or =) in any other way is refused
+// with that form. It returns the lines after the settings.
+func woSettings(lines []woLine, forms map[string]string, place string, bad func(int, string)) (map[string]string, map[string]int, []woLine) {
+	settings, at := map[string]string{}, map[string]int{}
+	for len(lines) > 0 {
+		t := strings.TrimSpace(lines[0].s)
+		if t == "" {
+			lines = lines[1:]
+			continue
+		}
+		cut := strings.IndexAny(t, ":=")
+		if cut < 0 {
+			break
+		}
+		raw := strings.TrimSpace(t[:cut])
+		key := strings.ToLower(raw)
+		form, ok := forms[key]
+		if !ok {
+			break
+		}
+		switch {
+		case raw != key || t[cut] != ':' || !strings.HasPrefix(form, key+":"):
+			bad(lines[0].n, "Write this setting as "+form+", in lower case with a colon.")
+		case at[key] != 0: // a body line is never line 0
+			bad(lines[0].n, "“"+key+":” is given twice for this "+place+". Keep one.")
+		default:
+			settings[key], at[key] = strings.TrimSpace(t[cut+1:]), lines[0].n
+		}
+		lines = lines[1:]
+	}
+	return settings, at, lines
+}
+
+const (
+	stagesForm = "stages: <stage>, <stage>"
+	tiersForm  = "tiers: <stage>=<tier>, <stage>=<tier>"
+	tierForm   = "tier: light, standard or heavy"
+)
+
+var (
+	pipelineSettings = map[string]string{"stage": stagesForm, "stages": stagesForm, "tier": tiersForm, "tiers": tiersForm}
+	partSettings     = map[string]string{"stage": tierForm, "stages": tierForm, "tier": tierForm, "tiers": tierForm}
+)
 
 // workOrderCrew reads <tier>=<agent>[/<model>[/<effort>]] entries.
 func workOrderCrew(raw string, bad func(string)) map[string]WorkOrderMember {
@@ -369,34 +459,23 @@ func workOrderCrew(raw string, bad func(string)) map[string]WorkOrderMember {
 
 // workOrderSession turns one pipeline section into a session.
 func workOrderSession(p *woPipe, onPathway bool, bad func(int, string)) OutcomeSession {
-	rest := p.lead
-	settings, settingAt := map[string]string{}, map[string]int{}
-	for len(rest) > 0 {
-		if strings.TrimSpace(rest[0].s) == "" {
-			rest = rest[1:]
-			continue
-		}
-		key, value, ok := strings.Cut(rest[0].s, ":")
-		if key = strings.TrimSpace(key); !ok || key != "stages" && key != "tiers" {
-			break
-		}
-		if _, dup := settings[key]; dup {
-			bad(rest[0].n, "“"+key+":” is given twice for this pipeline. Keep one.")
-		}
-		settings[key], settingAt[key] = strings.TrimSpace(value), rest[0].n
-		rest = rest[1:]
-	}
+	settings, settingAt, rest := woSettings(p.lead, pipelineSettings, "pipeline", bad)
 	session := OutcomeSession{Title: p.title, Prompt: workOrderText(rest)}
+	written := false
 	for _, c := range p.crit {
 		if strings.TrimSpace(c.s) == "" {
 			continue
 		}
+		written = true
 		text := strings.TrimSpace(c.s)
 		if !strings.HasPrefix(text, "- ") && !strings.HasPrefix(text, "* ") {
 			bad(c.n, "Write each criterion as a list item starting with “- ”.")
 			continue
 		}
 		session.Criteria = append(session.Criteria, strings.TrimSpace(text[2:]))
+	}
+	if p.critLine != 0 && !written {
+		bad(p.critLine-1, "This ### Criteria list is empty. Add “- ” items, or remove the heading.")
 	}
 	if onPathway {
 		for _, key := range []string{"stages", "tiers"} {
@@ -445,6 +524,8 @@ func workOrderSession(p *woPipe, onPathway bool, bad func(int, string)) OutcomeS
 				bad(settingAt["tiers"], "tiers names “"+kind+"”, which is not one of this pipeline's stages.")
 			case !validStageTier(tier):
 				bad(settingAt["tiers"], "The tier of "+kind+" is light, standard or heavy, not “"+tier+"”.")
+			case tiers[kind] != "":
+				bad(settingAt["tiers"], "tiers gives "+kind+" a tier twice. Keep one.")
 			default:
 				tiers[kind] = tier
 			}
@@ -464,16 +545,12 @@ func workOrderSession(p *woPipe, onPathway bool, bad func(int, string)) OutcomeS
 			continue
 		}
 		stage := OutcomeStageInput{Kind: part.kind, Part: part.title, Tier: tiers[part.kind]}
-		body := part.body
-		for len(body) > 0 && strings.TrimSpace(body[0].s) == "" {
-			body = body[1:]
-		}
-		if len(body) > 0 && strings.HasPrefix(strings.TrimSpace(body[0].s), "tier:") {
-			stage.Tier = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(body[0].s), "tier:"))
-			if !validStageTier(stage.Tier) {
-				bad(body[0].n, "A part's tier is light, standard or heavy, not “"+stage.Tier+"”.")
+		own, ownAt, body := woSettings(part.body, partSettings, "part", bad)
+		if tier, ok := own["tier"]; ok {
+			stage.Tier = tier
+			if !validStageTier(tier) {
+				bad(ownAt["tier"], "A part's tier is light, standard or heavy, not “"+tier+"”.")
 			}
-			body = body[1:]
 		}
 		stage.Brief = workOrderText(body)
 		if len(split[part.kind]) == 0 {

@@ -21,8 +21,12 @@ const order={objective:'Add CSV export to the reports page',project:'reports-api
 // The saved crew: OpenCode on every tier, with a backup on Heavy that the work order's suggestion leaves out.
 const savedCrew={light:{tool:'opencode',model:''},standard:{tool:'opencode',model:''},heavy:{tool:'opencode',model:'',backup:{tool:'claude',model:''}}}
 
-function fixture({machines=everyAgent,reportsProject=true}={}){
-  const box={checks:[],approved:[]}
+// A running outcome of the person's, to add to and to copy the report of.
+const running={id:oid,revision:3,objective:'Add CSV export to the reports page',state:'settled',note:'',agentId:'a1',projectId:'p-reports',projectName:'reports-api',dir:'/work/reports-api',tool:'opencode',model:'',providerId:pid,maxReviews:12,hours:24,trust:false,yolo:false,createdAt:now-3600000,updatedAt:now,
+  sessions:[{key:'a',title:'Export API',prompt:'p',state:'following',note:'The code stage is under way.',updatedAt:now,stage:0,sessionState:'running',stages:[{kind:'code',tool:'opencode',model:'',state:'running',requestId:'r'},{kind:'review',tool:'opencode',model:'',state:'pending',requestId:'r'}]}]}
+const report=`---\nreet: work-report/1\noutcome: ${oid}\nobjective: Add CSV export to the reports page\n---\n\n## Pipeline: Export API\n\nstate: following\n`
+function fixture({machines=everyAgent,reportsProject=true,withOutcome=false}={}){
+  const box={checks:[],approved:[],added:[]}
   const routes={
     '/api/v2/gaffer/providers':{providers:[provider],presets:[],available:true,canUseLocal:true,maxProviders:12},
     '/api/v2/gaffer/crew':{crew:savedCrew,saved:true,tiers:['light','standard','heavy'],defaults:{}},
@@ -39,15 +43,17 @@ function fixture({machines=everyAgent,reportsProject=true}={}){
       const empty={order:null,problems:[],projectId:'',pathwayId:'',notes:[]}
       if(text.includes('yolo: true'))return{...empty,problems:[{line:4,text:'The header has no “yolo” key. Use reet, objective, project, crew, pathway or continues.'}]}
       if(text.includes('crew: light=claude'))return{...empty,order:{...order,crew:{light:{tool:'claude'}}},projectId:'p-reports'}
-      if(text.includes('continues:'))return{...empty,order:{...order,objective:'',continues:oid}}
+      // The parser clears the objective of a continuation, and refuses crew with it.
+      if(text.includes('continues:')){const {crew:_,...rest}=order;return{...empty,order:{...rest,objective:'',project:undefined,continues:oid}}}
       return reportsProject?{...empty,order,projectId:'p-reports'}:{...empty,order,notes:['No project of yours is called “reports-api”. Choose a project when you approve it.']}
     },
     '/api/v2/gaffer/outcomes':r=>{
-      if(r.method()!=='POST')return {outcomes:[]}
+      if(r.method()!=='POST')return {outcomes:withOutcome?[running]:[]}
       const input=r.postDataJSON();box.approved.push(input)
       return {status:201,json:{id:oid,revision:1,objective:input.objective,state:'settled',note:'',agentId:'a1',projectId:input.projectId,projectName:'reports-api',dir:'/work/reports-api',tool:input.tool,providerId:pid,maxReviews:12,hours:24,sessions:input.sessions.map((s,n)=>({key:'abcde'[n],title:s.title,prompt:s.prompt,state:'following',note:'Started and followed.',updatedAt:now,stage:0,stages:[]})),createdAt:now,updatedAt:now}}
     },
-    [`/api/v2/gaffer/outcomes/${oid}`]:()=>({id:oid,revision:1,objective:order.objective,state:'settled',note:'',agentId:'a1',projectId:'p-reports',sessions:[],createdAt:now,updatedAt:now}),
+    [`/api/v2/gaffer/outcomes/${oid}`]:()=>box.added.length?{...running,revision:4,sessions:[...running.sessions,{key:'b',title:'Export endpoint',prompt:'p',state:'following',note:'Started and followed.',updatedAt:now,stage:0,stages:[]}]}:running,
+    [`/api/v2/gaffer/outcomes/${oid}/sessions`]:r=>{box.added.push(r.postDataJSON());return{...running,revision:4,sessions:[...running.sessions,{key:'b',title:'Export endpoint',prompt:'p',state:'waiting',note:'Waiting its turn.',updatedAt:now,stage:0,stages:[]}]}},
   }
   return {box,routes,machines}
 }
@@ -232,18 +238,90 @@ try{
   }
   console.log('ok - problems are listed by line and nothing moves on')
 
-  // Continuing a running outcome is not here yet: it says so and does nothing else.
-  {
-    const {f,w,dialog}=await open(1440,'light')
+  // A work order that continues a running outcome opens the same plan review in an adding mode: the outcome's own choices
+  // are not offered again, and Approve and add sends the pipelines to the add request with their stages and criteria.
+  const continuing=example.replace('objective: Add CSV export to the reports page\n',`continues: ${oid}\n`).replace('project: reports-api\n','').replace('crew: heavy=claude/opus/high, standard=codex\n','')
+  for(const [width,theme] of [[1440,'light'],[1440,'dark'],[390,'light'],[390,'dark']]){
+    const {f,w,page,dialog}=await open(width,theme,{withOutcome:true})
     try{
-      await paste(dialog,example.replace('objective: Add CSV export to the reports page\n',`continues: ${oid}\n`))
+      await paste(dialog,continuing)
       await dialog.getByRole('button',{name:'Read the work order',exact:true}).click()
-      await expect(dialog.getByRole('alert')).toHaveText('This work order adds to an outcome that is already running. That is not available here yet.')
-      await expect(dialog.getByRole('list',{name:'Planned sessions',exact:true})).toHaveCount(0)
-      expect(f.box.approved).toEqual([])
+      await expect(dialog.getByRole('heading',{name:'Add to “Add CSV export to the reports page”',exact:true})).toBeVisible()
+      await expect(dialog.getByRole('textbox',{name:'Pipeline 1 title',exact:true})).toHaveValue('Export endpoint')
+      await expect(dialog.getByRole('group',{name:'Code parts in pipeline 1',exact:true})).toBeVisible()
+      await expect(dialog.getByRole('textbox',{name:'Criterion 2 for pipeline 1',exact:true})).toHaveValue(order.sessions[0].criteria[1])
+      // What the outcome fixed when it started is not offered again.
+      await expect(dialog.getByRole('combobox',{name:'Project',exact:true})).toHaveCount(0)
+      await expect(dialog.getByRole('combobox',{name:'Agent',exact:true})).toHaveCount(0)
+      await expect(dialog.locator('details.crew')).toHaveCount(0)
+      await expect(dialog.getByRole('button',{name:/^Choose who does what/})).toHaveCount(0)
+      await expect(dialog.getByRole('radiogroup',{name:'Approvals',exact:true})).toHaveCount(0)
+      await expect(dialog.getByRole('radiogroup',{name:'Decisions',exact:true})).toHaveCount(0)
+      await expect(dialog.getByRole('checkbox')).toHaveCount(0)
+      await expect(dialog.getByText('Change limits')).toHaveCount(0)
+      await expect(dialog.getByRole('region',{name:'Reply to Gaffer',exact:true})).toHaveCount(0)
+      await expect(dialog.getByRole('button',{name:/^Approve and start/})).toHaveCount(0)
+      await expect(dialog.getByRole('button',{name:'Attach an image to the outcome'})).toHaveCount(0)
+      const approve=dialog.getByRole('button',{name:'Approve and add',exact:true})
+      await expect(approve).toBeEnabled()
+      await page.evaluate(()=>document.documentElement.scrollWidth).then(sw=>expect(sw).toBeLessThanOrEqual(width))
+      await dialogFits(page)
+      if(width<500)await targets(page)
+      await page.locator('dialog[open] [data-shell-body]').last().evaluate(el=>{el.scrollTop=0})
+      await page.mouse.move(0,0);await page.screenshot({path:`${shots}/add-${width}-${theme}.png`})
+      if(width===1440&&theme==='light'){
+        await approve.click()
+        await expect.poll(()=>f.box.added.length).toBe(1)
+        const body=f.box.added[0]
+        expect(body.revision).toBe(3);expect(body.confirmed).toBe(true);expect('pathway' in body).toBe(false)
+        expect(body.sessions.map(s=>s.title)).toEqual(['Export endpoint'])
+        expect(body.sessions[0].criteria).toEqual(order.sessions[0].criteria)
+        // The same stages a start sends: kinds, parts, briefs and tiers, on the saved crew as the add request uses it.
+        expect(body.sessions[0].stages.map(s=>[s.kind,s.part??'',s.tier,s.tool])).toEqual([['plan','','heavy','opencode'],['code','Streaming writer','heavy','opencode'],['code','Endpoint and auth','heavy','opencode'],['review','','standard','opencode'],['test','','standard','opencode'],['pr','','light','opencode']])
+        expect(body.sessions[0].stages[1].brief).toBe('Write rows as they are read, never the whole file in memory.')
+        expect(JSON.stringify(body)).not.toMatch(/"(yolo|trust|autoMerge)":true/)
+        expect(f.box.approved).toEqual([])
+        await expect(dialog.getByRole('list',{name:'Outcome sessions',exact:true})).toContainText('Export endpoint')
+      }
+      expect(w.errors).toEqual([])
     }finally{await w.context.close()}
-    console.log('ok - continues is not available here yet')
   }
+  console.log('ok - a continuation adds to the running outcome, at 390 px and desktop, light and dark')
+
+  // Copy for your agent, in the outcome's menu: the work report on the clipboard, or shown to copy by hand when the
+  // browser will not let reet copy.
+  for(const [width,theme,copies] of [[1440,'light',true],[1440,'dark',false],[390,'light',true],[390,'dark',false]]){
+    const f=fixture({withOutcome:true}),w=await openWorkspace(browser,{width,height:width<500?844:1000,theme,touch:width<1000,terminalMachines:f.machines,routes:f.routes})
+    const page=w.page,reads=[]
+    // The report is plain text, which the shared helper does not answer.
+    await page.route(`**/api/v2/gaffer/outcomes/${oid}/work-report`,route=>{reads.push(route.request().method());return route.fulfill({status:200,contentType:'text/plain; charset=utf-8',body:report})})
+    if(copies)await w.context.grantPermissions(['clipboard-read','clipboard-write'],{origin:new URL(base).origin})
+    else await page.addInitScript(()=>{Object.defineProperty(navigator,'clipboard',{value:{writeText:()=>Promise.reject(new DOMException('Write permission denied.','NotAllowedError'))}});document.execCommand=()=>false})
+    try{
+      await page.goto(`${base}/factory?pipeline=${oid}.a`)
+      const more=page.getByRole('button',{name:'More for this outcome',exact:true})
+      await more.click()
+      const item=page.getByRole('button',{name:'Copy for your agent',exact:true})
+      await expect(item).toBeVisible()
+      if(width<500)expect((await item.boundingBox()).height).toBeGreaterThanOrEqual(44)
+      await page.mouse.move(0,0);await page.screenshot({path:`${shots}/menu-${width}-${theme}.png`})
+      await item.click()
+      expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
+      if(copies){
+        await expect(page.getByText('Copied the work report for “Add CSV export to the reports page”. Paste it to your agent.',{exact:true})).toBeVisible()
+        const copied=await page.evaluate(()=>navigator.clipboard.readText())
+        expect(copied.startsWith('---\nreet: work-report/1')).toBe(true);expect(copied).toBe(report)
+      }else{
+        const shown=page.getByRole('dialog',{name:'Work report',exact:true})
+        await expect(shown).toContainText('This browser did not let reet copy it.')
+        await expect(shown.getByRole('textbox',{name:'Work report',exact:true})).toHaveValue(report)
+        await page.screenshot({path:`${shots}/menu-failed-${width}-${theme}.png`})
+      }
+      expect(reads).toEqual(['GET'])
+      expect(w.errors).toEqual([])
+    }finally{await w.context.close()}
+  }
+  console.log('ok - copy for your agent, and the report to copy by hand when the browser will not')
 
   // The prompt for an outside agent: the skill's use line for this controller, then what the dialog holds and no more.
   {

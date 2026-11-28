@@ -4,7 +4,7 @@
   // controller start each session through the ordinary launch and put it in Gaffer's care. This dialog only watches:
   // the work carries on if it is closed. Nothing starts on the model's say-so: a proposed session is text until Approve.
   import { onMount, tick, untrack } from 'svelte'
-  import { ApiError, checkWorkOrder, createGafferOutcome, diffGafferTemplate, getGafferCrew, getGafferTemplate, launchGafferTemplate, type Template, type TemplateDiff, type TemplateLaunchInput, type GafferOutcomeInput, saveGafferCrew, type GafferCrew, getGafferOutcome, getGafferSettings, getProfile, getYoloSetting, listGafferPathways, listModelFavourites, planGafferOutcome, type GafferOutcomePlan, type Pathway, type GafferPlanPhase, stopGafferOutcome, type GafferOutcome, type GafferProvider, type YoloSetting } from './api'
+  import { ApiError, addGafferPipelines, checkWorkOrder, createGafferOutcome, diffGafferTemplate, getGafferCrew, getGafferTemplate, launchGafferTemplate, type Template, type TemplateDiff, type TemplateLaunchInput, type GafferOutcomeInput, saveGafferCrew, type GafferCrew, getGafferOutcome, getGafferSettings, getProfile, getYoloSetting, listGafferPathways, listModelFavourites, planGafferOutcome, type GafferOutcomePlan, type Pathway, type GafferPlanPhase, stopGafferOutcome, type GafferOutcome, type GafferProvider, type YoloSetting } from './api'
   import { chatToolName, launchUpload, listFolderProjects, machineAccounts, machineModels, structuredAgent, terminalMachines, type FolderProject, type TerminalMachine } from './terminal/api'
   import { imageFiles } from './terminal/upload'
   import ImageAttachment from './ImageAttachment.svelte'
@@ -86,6 +86,9 @@
   let order = $state<{ text: string; notes: string[]; crew?: WorkOrder['crew'] } | null>(null), reading = $state(false)
   let orderProblems = $state<{ line: number; text: string }[]>([]), problemList = $state<HTMLElement>()
   let orderFrom = $state<Record<CrewTier, boolean>>({ heavy: false, standard: false, light: false })
+  // A work order that continues an outcome: its pipelines are added to that outcome, whose project, crew, approvals,
+  // trust and limits were fixed when it started. Only the pipelines are the person's to change here.
+  let adding = $state<GafferOutcome | null>(null)
   let copied = $state(''), copiedTimer: ReturnType<typeof setTimeout> | undefined
   // Where a plan has got to, as the controller reports it, and how long it has been. A failed plan keeps its step, so the
   // list shows which one failed.
@@ -283,7 +286,7 @@
   }
   function useSavedCrew() { if (order) order.crew = undefined; startCrew() }
   // A work order left behind (another objective, a template) takes its crew suggestion with it.
-  function dropOrder() { const had = !!order?.crew || CREW_TIERS.some(({ tier }) => orderFrom[tier]); order = null; orderProblems = []; if (had) startCrew() }
+  function dropOrder() { const had = !!order?.crew || CREW_TIERS.some(({ tier }) => orderFrom[tier]); order = null; adding = null; orderProblems = []; if (had) startCrew() }
   // A tier's backups as the saved crew holds them: the first, then any further ones, each with its Cline source.
   const sentSpare = (one: Spare) => ({ tool: one.tool, model: one.model.trim(), effort: one.effort, ...(one.tool === 'cline' && one.source ? { provider: one.source } : {}) })
   function spareFields(tier: 'light' | 'standard' | 'heavy') {
@@ -426,7 +429,7 @@
     return split.length > 1 ? split.map(part => ({ stage, crew: tierLabel(part.tier), readiness: tierReady[part.tier] })) : [{ stage, crew: tierLabel(stageTier(kind, item).tier), readiness: tierReady[stageTier(kind, item).tier] }]
   }))))
   const unknownCrew = $derived(crewRead === 'failed' && pathwayRuns.some(run => run.origin === 'unknown-crew') ? 'Your saved Factory crew could not be read, so reet cannot tell which agent this pathway’s stages run on. Nothing can start until the crew can be read.' : '')
-  const approveBlocker = $derived(crewRead === 'reading' ? 'Reading your saved Factory crew…' : ((template || order) && blocker) || (pathway ? planBlocker(sessions.map(item => ({ ...item, stages: undefined })), room) : planBlocker(sessions, room) || partsBlocker(sessions)) || unknownCrew || launch.blocker || (template && gaps.length && !skipOk ? 'Tick “Start without these skills” to go on, or choose another version.' : '') || (runTools.includes('antigravity') && !trust ? `Google Antigravity starts only in a folder you trust. Tick the folder trust box below, or ${pathway ? 'change the stage in the pathway' : 'choose another agent'}.` : ''))
+  const approveBlocker = $derived(crewRead === 'reading' ? 'Reading your saved Factory crew…' : ((template || (order && !adding)) && blocker) || (pathway ? planBlocker(sessions.map(item => ({ ...item, stages: undefined })), room) : planBlocker(sessions, room) || partsBlocker(sessions)) || unknownCrew || launch.blocker || (template && gaps.length && !skipOk ? 'Tick “Start without these skills” to go on, or choose another version.' : '') || (!adding && runTools.includes('antigravity') && !trust ? `Google Antigravity starts only in a folder you trust. Tick the folder trust box below, or ${pathway ? 'change the stage in the pathway' : 'choose another agent'}.` : ''))
   // A machine that is only locked is waiting, not failing: the hold is said quietly.
   const waitOnly = $derived(!!approveBlocker && approveBlocker === launch.blocker && launch.waiting === launch.blocked)
   // The status by Approve is one element for good, so that a blocker clearing is announced as well as one appearing.
@@ -541,13 +544,17 @@
         return
       }
       const read = answer.order
-      // Task 7 continues a running outcome from here.
-      if (read.continues) { planError = 'This work order adds to an outcome that is already running. That is not available here yet.'; return }
-      if (!answer.projectId && github && !(await ensureProject())) return
+      // The server has checked it is a running outcome of the person's; it is read for its project, agent and revision.
+      const into = read.continues ? await getGafferOutcome(read.continues, life.signal) : null
+      if (!into && !answer.projectId && github && !(await ensureProject())) return
       // Nothing is changed until every check has passed. Each read starts from the saved crew, so an earlier work
       // order's suggestion never outlives it. (The server refuses crew with a pathway, so the two never arrive together.)
       dropOrder()
-      if (answer.projectId) projectId = answer.projectId
+      adding = into
+      // Added stages run as the add request resolves them today: the saved crew where it is set, else the outcome's own
+      // agent and model. The dialog's crew starts the same way on the outcome's machine, so the readiness shown matches.
+      if (into) { projectId = into.projectId; tool = into.tool; model = into.model ?? ''; effort = ''; startCrew() }
+      else if (answer.projectId) projectId = answer.projectId
       order = { text, notes: answer.notes, crew: read.crew }
       objective = read.objective
       suggestion = undefined; pathwayId = answer.pathwayId; pathwayTouched = !!answer.pathwayId
@@ -557,6 +564,18 @@
       step = 'plan'
     } catch (e) { if (!life.signal.aborted) planError = e instanceof Error ? e.message : 'The work order could not be read.' }
     finally { reading = false }
+  }
+  // Added pipelines go through the add request with the same stages a start sends; the outcome's own rules apply there.
+  async function addToOutcome() {
+    const into = adding
+    if (busy || approveBlocker || !into) return
+    busy = true; startError = ''
+    try {
+      record = await addGafferPipelines(into, sessions.map((item, at) => ({ title: item.title.trim(), prompt: cleanPrompt(item.prompt), ...(cleanCriteria(item.criteria).length ? { criteria: cleanCriteria(item.criteria) } : {}), ...(pathway ? {} : { stages: sentStages[at] }) })), life.signal, pathway?.id)
+      step = 'results'; watch(record.id)
+      await onstarted()
+    } catch (e) { if (!life.signal.aborted) startError = e instanceof Error ? e.message : 'The pipelines were not added. Nothing was started.' }
+    finally { busy = false }
   }
   // Back from a work order's plan shows the work order as it was pasted.
   function back() { if (order) objective = order.text; step = 'objective' }
@@ -761,9 +780,11 @@
         <div class="actions"><button class="btn primary" type="button" disabled={busy || tplReading || !!approveBlocker} aria-describedby={[merging ? `${formId}-merging` : '', approveBlocker ? `${formId}-blocker` : ''].filter(Boolean).join(' ') || undefined} onclick={() => void startFromTemplate()}>{busy ? 'Starting…' : `Start ${sessions.length} ${sessions.length === 1 ? 'pipeline' : 'pipelines'} from this template`}</button><button class="btn quiet" type="button" disabled={busy} onclick={leaveTemplate}>Back</button></div>
       {/if}
     {:else if step === 'plan'}
-      <p class="objective"><span class="eyebrow">Outcome</span>{objective.trim()}</p>
+      {#if adding}<h3 class="adding-head">Add to “{adding.objective}”</h3>
+        <p class="hint">These pipelines join the outcome while it runs. Its project, approvals, folder trust and limits stay as they were chosen when it started. Each added stage runs on your saved crew for its tier, or on the outcome’s own agent where no crew is saved.</p>
+      {:else}<p class="objective"><span class="eyebrow">Outcome</span>{objective.trim()}</p>{/if}
       <!-- A change of radio, or a click on one (the checked suggestion included), is the person's own choice; Tab past is not. -->
-      {#if !declined}<div class="pathway-choice" onclick={touchPathway} onchange={touchPathway} role="presentation"><PathwayChoice bind:pathways bind:value={pathwayId} {suggested}/></div>{/if}
+      {#if !declined && !adding}<div class="pathway-choice" onclick={touchPathway} onchange={touchPathway} role="presentation"><PathwayChoice bind:pathways bind:value={pathwayId} {suggested}/></div>{/if}
       {#if planThread.length}
         <section class="talk" aria-label="Conversation with Gaffer">
           {#each planThread as turn, index (index)}
@@ -775,10 +796,10 @@
         <p class="declined" role="status">Proposal declined. Nothing was started. Reply below to tell Gaffer what you want instead, or go back to the outcome.</p>
       {:else}
       <p class="hint">{project?.name}. Each row below is a pipeline: edit its brief{pathway ? '' : ', and tick the stages it runs through'}. The first stage starts with the prompt shown{project?.isRepo ? ', in its own worktree' : ''}; later stages take over in the same folder.</p>
-      <ImageAttachment bind:files={images} max={MAX_ATTACHMENTS} label="Attach an image to the outcome" disabled={busy} busy={imageUploading} error={imageError} />
-      {#if images.length}<p class="hint" role="status">{images.length === 1 ? 'The attached image travels' : `All ${images.length} attached images travel`} with every pipeline this outcome starts.</p>{/if}
-      {#if order}{@render where()}{/if}
-      {#if !pathway}{@render crewDetails()}{/if}
+      {#if !adding}<ImageAttachment bind:files={images} max={MAX_ATTACHMENTS} label="Attach an image to the outcome" disabled={busy} busy={imageUploading} error={imageError} />{/if}
+      {#if images.length && !adding}<p class="hint" role="status">{images.length === 1 ? 'The attached image travels' : `All ${images.length} attached images travel`} with every pipeline this outcome starts.</p>{/if}
+      {#if order && !adding}{@render where()}{/if}
+      {#if !pathway && !adding}{@render crewDetails()}{/if}
       {@render readinessPanel()}
       {#if order?.notes.length}<ul class="order-notes" aria-label="Notes on the work order">{#each order.notes as note, at (at)}<li><span aria-hidden="true">!</span> {note}</li>{/each}</ul>{/if}
       <ol class="plan" aria-label="Planned sessions">
@@ -823,12 +844,12 @@
         </li>{/each}
       </ol>
       {#if sessions.length < cap}<button class="btn quiet add" type="button" onclick={addSession}>Add a pipeline</button>{/if}
-      {@render launchChoices()}
+      {#if !adding}{@render launchChoices()}{/if}
       <p class="status" class:warning={!!approveBlocker && !waitOnly} class:hint={!approveBlocker || waitOnly} id={`${formId}-blocker`} role="status"><Sentence text={approveBlocker || (blockerSeen ? 'Nothing is holding the plan now.' : '')} /></p>
       {#if !approveBlocker && !limitsOk}<p class="warning" role="status">Choose a whole number of reviews from 1 to 48 and hours from 1 to 168.</p>{/if}
       {#if startError}<p class="warning" role="alert">{startError}</p>{/if}
       {/if}
-      <section class="reply" aria-label="Reply to Gaffer">
+      {#if !adding}<section class="reply" aria-label="Reply to Gaffer">
         <label for={`${formId}-reply`}>Reply to Gaffer</label>
         <textarea id={`${formId}-reply`} aria-label="Reply to Gaffer" bind:value={reply} rows="3" placeholder="Not that — keep the export in one session and put its tests with it." disabled={planning}></textarea>
         <p class="hint">Gaffer reads this as an answer to the proposal above. Use it when the split or the scope is wrong; the rows are still yours to edit. Up to {MAX_OUTCOME_REPLY_BYTES.toLocaleString('en-GB')} bytes, sent only when you choose.</p>
@@ -836,9 +857,10 @@
         <div class="actions"><button class="btn" type="button" disabled={planning || !!replyProblem} onclick={() => void sendReply()}>{planning ? 'Gaffer is reading your reply…' : 'Send reply'}</button></div>
         {@render planProgress()}
         {#if planError}<p class="warning" role="alert">{planError}</p>{/if}
-      </section>
+      </section>{/if}
       <div class="actions">
-        {#if declined}<button class="btn" type="button" onclick={back}>Back to the outcome</button>
+        {#if adding}<button class="btn primary" type="button" disabled={busy || !!approveBlocker} aria-describedby={approveBlocker ? `${formId}-blocker` : undefined} onclick={() => void addToOutcome()}>{busy ? 'Adding…' : 'Approve and add'}</button><button class="btn quiet" type="button" disabled={busy} onclick={back}>Back</button>
+        {:else if declined}<button class="btn" type="button" onclick={back}>Back to the outcome</button>
         {:else}<button class="btn primary" type="button" disabled={busy || planning || !!approveBlocker || !limitsOk} aria-describedby={approveBlocker ? `${formId}-blocker` : undefined} onclick={() => void approve()}>{busy ? 'Saving the plan…' : `Approve and start ${sessions.length} ${sessions.length === 1 ? 'pipeline' : 'pipelines'}`}</button><button class="btn quiet" type="button" disabled={busy || planning} onclick={() => declining = true}>Decline proposal</button><button class="btn quiet" type="button" disabled={busy || planning} onclick={back}>Back</button>{/if}
       </div>
     {:else if record}
@@ -940,7 +962,7 @@
         {#if launch.causes.length}<ul>{#each launch.causes as cause (cause.text)}<li class={cause.waiting ? 'waiting' : cause.level}>
           <span class="mark" aria-hidden="true">{cause.waiting ? '!' : cause.level === 'blocked' ? '✕' : cause.level === 'look' ? '!' : '·'}</span>
           <span class="text"><strong>{cause.waiting ? 'Waiting to be unlocked' : cause.level === 'blocked' ? 'Cannot start' : cause.level === 'look' ? 'Look at' : 'Note'}</strong> · {cause.machine ? 'Every stage' : pathway ? `Used by ${inWords(cause.stages)}` : `${inWords(cause.crews)} ${cause.crews.length === 1 ? 'crew' : 'crews'}, used by ${inWords(cause.stages)}`}. <Sentence text={cause.text} /></span>
-          {#if cause.level !== 'note' && !cause.machine && !pathway}<button class="btn" type="button" onclick={() => void chooseWho(cause.crews)}>Choose who does what<span class="sr-only"> for the {inWords(cause.crews)} {cause.crews.length === 1 ? 'crew' : 'crews'}</span></button>{/if}
+          {#if cause.level !== 'note' && !cause.machine && !pathway && !adding}<button class="btn" type="button" onclick={() => void chooseWho(cause.crews)}>Choose who does what<span class="sr-only"> for the {inWords(cause.crews)} {cause.crews.length === 1 ? 'crew' : 'crews'}</span></button>{/if}
         </li>{/each}</ul>{/if}
       </section>{/if}
 {/snippet}
@@ -1031,7 +1053,7 @@
   .reply{display:grid;gap:8px;border-top:1px solid var(--line);padding-top:14px}
   .plan{list-style:none;margin:0;padding:0;display:grid;gap:12px}.plan li{display:grid;gap:8px;padding:12px;border:1px solid var(--line);border-radius:12px;min-width:0}
   .plan-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.link{border:0;background:none;color:var(--accent-text);font:600 14px var(--sans);cursor:pointer;min-height:44px;padding:0 4px}
-  .add{justify-self:start}
+  .add{justify-self:start}.adding-head{margin:0;font:600 16px/1.4 var(--sans);overflow-wrap:anywhere}
   .starts{display:flex;flex-wrap:wrap;align-items:center;gap:0 16px}.copied{font-size:0.875rem;color:var(--muted)}
   .order-line{color:var(--ink)}.order-problems{margin:0;padding-left:20px;display:grid;gap:4px;overflow-wrap:anywhere}.order-problems:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
   .order-notes{list-style:none;margin:0;padding:0;display:grid;gap:4px;color:var(--ink-soft)}.order-notes span{color:var(--warn);font-weight:700}.crew-role .crew-from{color:var(--accent-text);font-weight:600}

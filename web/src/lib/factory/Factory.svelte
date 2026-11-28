@@ -3,7 +3,7 @@
   // and what is finished, beside the detail of the one chosen (on a narrow screen, the detail is a screen of its own).
   // Reading the page starts nothing; the only things that act are the buttons, and each says what it does.
   import { onMount, tick } from 'svelte'
-  import { addGafferPipelines, listGafferOutcomeHistory, type Event as ActivityEvent, sendGafferPipelineBack, setGafferPipelineAutoMerge, getGafferSettings, getProfile, archiveGafferOutcome, restoreGafferOutcome, deleteGafferOutcome, listGafferGoals, listGafferOutcomes, reviewGafferOutcome, setGafferOutcomeAutomation, setGafferOutcomeYolo, stopGafferOutcome, type GafferGoalOverview, type GafferOutcome as Outcome, type GafferOutcomeSession } from '../api'
+  import { addGafferPipelines, getWorkReport, listGafferOutcomeHistory, type Event as ActivityEvent, sendGafferPipelineBack, setGafferPipelineAutoMerge, getGafferSettings, getProfile, archiveGafferOutcome, restoreGafferOutcome, deleteGafferOutcome, listGafferGoals, listGafferOutcomes, reviewGafferOutcome, setGafferOutcomeAutomation, setGafferOutcomeYolo, stopGafferOutcome, type GafferGoalOverview, type GafferOutcome as Outcome, type GafferOutcomeSession } from '../api'
   import { chatToolName, folderProjectList, listFolderProjects, listProjectGroups, machineHealth, terminalMachines, terminalSessions, TerminalError, type FolderProject, type ProjectGroup, type TerminalSession } from '../terminal/api'
   import { UnauthorizedError } from '../api'
   import { projectRunning, projectWorktrees } from '../home'
@@ -23,6 +23,8 @@
   import TemplateSave from './TemplateSave.svelte'
   import GafferFollowedSessions from '../GafferFollowedSessions.svelte'
   import ConfirmDialog from '../ConfirmDialog.svelte'
+  import WorkspaceDialog from '../terminal/WorkspaceDialog.svelte'
+  import { copyText } from '../clipboard'
   import AddPipelines, { type AddedPipeline } from './AddPipelines.svelte'
   import PipelineNote from './PipelineNote.svelte'
   import ProjectPicker from './ProjectPicker.svelte'
@@ -325,6 +327,17 @@
     const now = ticked(record)
     picked = { ...picked, [record.id]: on ? [...now, title] : now.filter(item => item !== title) }
   }
+  // The outcome as an outside agent reads it, copied for the person to paste. Where the browser will not copy, the report
+  // is shown to select and copy by hand.
+  let reportShown = $state('')
+  async function copyReport(record: Outcome) {
+    notice = ''; bad = false
+    try {
+      const text = await getWorkReport(record.id)
+      if (await copyText(text)) notice = `Copied the work report for “${short(record.objective)}”. Paste it to your agent.`
+      else reportShown = text
+    } catch (e) { fail(e, 'The work report could not be read.') }
+  }
   async function add(chosen: AddedPipeline[], pathway: string) {
     if (!adding || busy) return
     const record = adding
@@ -522,7 +535,7 @@
   const actions: DetailActions = {
     choose, setDecisions, setYolo, mergeMode, report, loadHistory, stop, putAway, pick,
     retry: (record, piece) => choose({ id: 'restart', label: 'Try again' }, record, piece),
-    releasing: record => choices?.release(record), deleting: record => { deleting = record }, adding: record => { adding = record }, savingTemplate: record => { savingTemplate = record }, openTemplate: id => { templateWanted = id; templatesOpen = true },
+    releasing: record => choices?.release(record), copyReport: record => void copyReport(record), deleting: record => { deleting = record }, adding: record => { adding = record }, savingTemplate: record => { savingTemplate = record }, openTemplate: id => { templateWanted = id; templatesOpen = true },
     moving: ({ record, piece }) => choose({ id: 'move', label: 'Move on' }, record, piece),
     telling: ({ record, piece }) => choose({ id: 'tell', label: 'Tell the agent…' }, record, piece), sending: pair => { sending = pair },
     merging: ({ record, piece }) => choose({ id: 'merge', label: 'Approve merge' }, record, piece), managing: goal => choices?.manage(goal),
@@ -627,6 +640,10 @@
 {#if savingTemplate}<TemplateSave record={savingTemplate} onclose={() => (savingTemplate = null)} onsaved={saved => { savingTemplate = null; notice = `Saved as template “${saved.content.name}”, version ${saved.version}.`; savedTemplate = { id: saved.id, notice }; bad = false }}/>{/if}
 {#if outcomeOpen}<GafferOutcome template={outcomeTemplate} {timeZone} {dateFormat} projectId={outcomeProject} initialObjective={outcomeObjective} room={floorRoom(goals.map(row => row.goal))} {userId} onstarted={load} onclose={() => void closeOutcome()}/>{/if}
 <PipelineChoices bind:this={choices} bind:busy {userId} {timeZone} {dateFormat} goals={byConversation} {latest} onchanged={load} onnotice={(text, failed = false) => { notice = text; bad = failed }} {onsignedout}/>
+{#if reportShown}<WorkspaceDialog title="Work report" onclose={() => (reportShown = '')}>
+  <p class="report-why">This browser did not let reet copy it. Select the report below and copy it to your agent.</p>
+  <textarea class="report-text" aria-label="Work report" readonly rows="16" value={reportShown} onfocus={event => event.currentTarget.select()}></textarea>
+</WorkspaceDialog>{/if}
 {#if deleting}<ConfirmDialog title={`Delete “${short(deleting.objective)}”?`} body="This erases the outcome, its report and its totals from reet for good. The sessions and pull requests it started are not touched. To keep the record out of sight instead, archive it." confirmLabel="Delete outcome" danger oncancel={() => deleting = null} onconfirm={() => deleting && void putAway(deleting, 'delete')}/>{/if}
 {#if adding}<AddPipelines record={adding} proposals={chosenProposals(adding)} {busy} error={dialogError} oncancel={() => adding = null} onconfirm={(pipelines, pathway) => void add(pipelines, pathway)}/>{/if}
 {#if sending}{@const upTo = Math.min(sending.piece.stage ?? 0, (sending.piece.stages?.length ?? 1) - 1)}<PipelineNote title={`Send “${sending.piece.title}” back`} intro="The stage you choose, and every stage after it, is done again in a fresh agent session in the same folder and branch. The agent is told your reason. Nothing already committed is undone." label="Why it is going back" placeholder="The review found the export leaks other tenants’ rows." confirmLabel="Send back" stages={[...new Map((sending.piece.stages ?? []).slice(0, upTo + 1).map(item => [stageKey(item), stageName(item)]))].map(([kind, label]) => ({ kind, label }))} {busy} error={dialogError} oncancel={() => sending = null} onconfirm={(text, stage) => void sendBack(text, stage)}/>{/if}
@@ -651,6 +668,7 @@
   .top{display:flex;align-items:center;justify-content:space-between;gap:12px 20px;flex-wrap:wrap}.identity{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 18px;min-width:0;flex:1 1 320px}.counts{font-size:0.9375rem}
   .top-actions{display:flex;gap:8px;flex-wrap:wrap}.top-actions .btn{min-height:44px;text-decoration:none;display:inline-flex;align-items:center}
   /* What an action did, in the flow under the head: it never covers what it is about. */
+  .report-why{margin:0;color:var(--ink-soft)}.report-text{font:14px/1.5 var(--mono);width:100%;box-sizing:border-box;min-height:44px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);resize:vertical}
   .notice{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:10px 14px;border:1px solid var(--line);border-radius:10px;background:var(--card);box-shadow:var(--shadow)}.notice.bad{border-color:var(--bad);color:var(--bad)}.notice p{min-width:0}.notice .inline{flex:none}
   .setup{display:grid;grid-template-columns:auto 1fr;gap:16px;padding:16px;border:1px solid var(--line);border-radius:14px;background:var(--tint)}.setup-body{display:grid;gap:12px;min-width:0}.setup ol{list-style:none;margin:0;padding:0;display:grid;gap:10px}.setup li{display:grid;grid-template-columns:auto 1fr;gap:10px;align-items:start}.setup li p{color:var(--muted)}.tick{display:inline-grid;place-items:center;width:24px;height:24px;border-radius:50%;border:1px solid var(--line-strong);font-size:0.875rem;font-variant-numeric:tabular-nums}.setup li.done .tick{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}.setup a{color:var(--accent-text);font-weight:600}
   .empty{padding:28px 20px;border:1px dashed var(--line-strong);border-radius:14px;display:grid;gap:8px;text-align:center;justify-items:center}.empty p{color:var(--muted);max-width:56ch}

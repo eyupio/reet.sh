@@ -21,6 +21,8 @@
     releasing: (record: Outcome) => void
     deleting: (record: Outcome) => void
     adding: (record: Outcome) => void
+    /** Copies the outcome's work report, the Markdown an outside agent reads, to the clipboard. */
+    copyReport: (record: Outcome) => void
     /** Saves the finished outcome's plan as a private template. */
     savingTemplate: (record: Outcome) => void
     /** Opens a template, from the line that says an outcome was started from it. */
@@ -245,6 +247,7 @@
         <ul>
           {#if record.archivedAt}<li><button type="button" disabled={busy} onclick={() => fromMenu(() => actions.putAway(record, 'restore'))}>Restore</button></li>
           {:else}
+            <li><button type="button" onclick={() => fromMenu(() => actions.copyReport(record))}>Copy for your agent</button></li>
             {#if record.state === 'starting'}<li><button type="button" disabled={busy} onclick={() => fromMenu(() => actions.stop(record))}>Stop starting sessions</button></li>{/if}
             {#if !finished}<li><button type="button" disabled={busy} onclick={() => fromMenu(() => actions.releasing(record))}>Stop following</button></li>
             {:else}{#snippet archive()}<li><button type="button" disabled={busy} onclick={() => fromMenu(() => actions.putAway(record, 'archive'))}>Archive</button></li>{/snippet}

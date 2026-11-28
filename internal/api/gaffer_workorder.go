@@ -18,7 +18,8 @@ func (s *server) gafferWorkOrderCheck(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Text string `json:"text"`
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, gaffer.MaxWorkOrderBytes+1024)
+	// A newline is two bytes of JSON; the parser holds the text itself to its limit.
+	r.Body = http.MaxBytesReader(w, r.Body, 2*gaffer.MaxWorkOrderBytes+1024)
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		var tooBig *http.MaxBytesError
 		if errors.As(err, &tooBig) {
@@ -60,8 +61,15 @@ func (s *server) gafferWorkOrderCheck(w http.ResponseWriter, r *http.Request) {
 			problems = append(problems, gaffer.WorkOrderProblem{Line: 0, Text: problem})
 		}
 	}
-	if order.Continues != "" && !s.workOrderRunning(uid, order.Continues) {
-		problems = append(problems, gaffer.WorkOrderProblem{Line: 0, Text: workOrderNotRunning})
+	if order.Continues != "" {
+		running, err := s.workOrderRunning(uid, order.Continues)
+		if err != nil {
+			gafferOutcomeError(w, err)
+			return
+		}
+		if !running {
+			problems = append(problems, gaffer.WorkOrderProblem{Line: 0, Text: workOrderNotRunning})
+		}
 	}
 	if len(problems) > 0 {
 		out["problems"] = problems
@@ -127,10 +135,16 @@ func (s *server) workOrderPathway(uid int64, name string) (found store.GafferPat
 
 // workOrderRunning says whether an outcome of the person's can still be
 // continued. One answer for not yours, not there, archived and finished, so
-// nothing leaks.
-func (s *server) workOrderRunning(uid int64, id string) bool {
+// nothing leaks. An error is a fault reading the store, never "not there".
+func (s *server) workOrderRunning(uid int64, id string) (bool, error) {
 	o, err := s.gafferProviders.Outcome(uid, id)
-	return err == nil && o.ArchivedAt == 0 && o.State != "stopped" && !o.Finished()
+	if errors.Is(err, store.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return o.ArchivedAt == 0 && o.State != "stopped" && !o.Finished(), nil
 }
 
 // gafferWorkReport is an outcome as the Markdown an outside agent reads.

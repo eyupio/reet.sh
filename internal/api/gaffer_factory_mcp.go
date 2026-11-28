@@ -450,8 +450,12 @@ func (s *server) runMCPFactory(ctx context.Context, access mcpAccess, name strin
 	// A work order that continues an outcome gets one sentence for not yours,
 	// not there, finished and archived, as the page's check gives.
 	if text, ok := args["work_order"].(string); ok && name == "reet_add_pipelines" {
-		if order, problems := gaffer.ParseWorkOrder(text); len(problems) == 0 && order.Continues != "" && !s.workOrderRunning(uid, order.Continues) {
-			return nil, errors.New(workOrderNotRunning)
+		if order, problems := gaffer.ParseWorkOrder(text); len(problems) == 0 && order.Continues != "" {
+			if running, err := s.workOrderRunning(uid, order.Continues); err != nil {
+				return nil, err
+			} else if !running {
+				return nil, errors.New(workOrderNotRunning)
+			}
 		}
 	}
 	if name == "reet_tell_pipeline_agent" || name == "reet_add_pipelines" || name == "reet_send_pipeline_back" ||
@@ -732,8 +736,14 @@ func (s *server) mcpCheckWorkOrder(uid int64, text string) (map[string]any, erro
 			onPathway = append(onPathway, store.GafferOutcomeStage{Kind: st.Kind, Name: st.Name}.Label())
 		}
 	}
-	if order.Continues != "" && !s.workOrderRunning(uid, order.Continues) {
-		problems = append(problems, gaffer.WorkOrderProblem{Text: workOrderNotRunning})
+	if order.Continues != "" {
+		running, err := s.workOrderRunning(uid, order.Continues)
+		if err != nil {
+			return nil, err
+		}
+		if !running {
+			problems = append(problems, gaffer.WorkOrderProblem{Text: workOrderNotRunning})
+		}
 	}
 	if len(problems) > 0 {
 		out["problems"] = problems

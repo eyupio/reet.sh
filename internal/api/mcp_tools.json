@@ -902,7 +902,7 @@
   {
     "name": "reet_check_work_order",
     "title": "Check a work order",
-    "description": "Read a work order and say what it would start, without starting anything: ok, problems (each with the line it is about, always an array), plan (each pipeline with its stages, tiers and how many criteria it has) and, when the order suggests a crew, a note that over MCP the saved crew decides. It also names the project and pathway the order asks for, where it finds them. Not available to a read-only account. Does not change anything. Returns {data: object} as structured content and text.",
+    "description": "Read a work order and say what it would start, without starting anything: ok, problems (each with the line it is about, always an array), plan (each pipeline with its stages, tiers and how many criteria it has) and, when the order suggests a crew, a note that over MCP the saved crew decides. It also names the project and pathway the order asks for, where it finds them. Not available to a read-only account. Does not change anything. The format is in the factory-contract skill, served at /eyupio/factory-contract on this controller. Returns {data: object} as structured content and text.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1203,7 +1203,7 @@
           "maxLength": 60
         },
         "work_order": {
-          "description": "A work order: the whole text of one, as another agent wrote it, with its reet: work-order/1 header. Give it instead of objective, pipelines and pathway (they must then be absent); reet_check_work_order reads it first. Its crew line is ignored: the saved crew decides.",
+          "description": "A work order: the whole text of one, as another agent wrote it, with its reet: work-order/1 header. Give it instead of objective, pipelines and pathway (they must then be absent); reet_check_work_order reads it first. Its crew line is ignored: the saved crew decides. The format is in the factory-contract skill, served at /eyupio/factory-contract on this controller.",
           "type": "string",
           "minLength": 1,
           "maxLength": 65536
@@ -1406,7 +1406,7 @@
           "maxLength": 60
         },
         "work_order": {
-          "description": "A work order: the whole text of one, as another agent wrote it, with its reet: work-order/1 header. Give it instead of objective, pipelines and pathway (they must then be absent); reet_check_work_order reads it first. Its crew line is ignored: the saved crew decides.",
+          "description": "A work order: the whole text of one, as another agent wrote it, with its reet: work-order/1 header. Give it instead of objective, pipelines and pathway (they must then be absent); reet_check_work_order reads it first. Its crew line is ignored: the saved crew decides. The format is in the factory-contract skill, served at /eyupio/factory-contract on this controller.",
           "type": "string",
           "minLength": 1,
           "maxLength": 65536

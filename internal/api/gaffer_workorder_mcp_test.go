@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -148,12 +150,39 @@ func TestMCPAddsAWorkOrderAndKeepsItsRefusals(t *testing.T) {
 		t.Fatalf("confirm: %v", err)
 	}
 	// YOLO is refused as ever.
+	// The outcome supervisor writes the outcome in the background, so a
+	// revision read here can be stale; the store hands back the current one.
 	o, _ = s.st.GafferOutcomeFor(user.ID, id)
-	if _, err := s.st.UpdateGafferOutcomeFor(user.ID, id, o.Revision, func(o *store.GafferOutcome) bool { o.Yolo = true; return true }); err != nil {
-		t.Fatal(err)
+	for {
+		cur, err := s.st.UpdateGafferOutcomeFor(user.ID, id, o.Revision, func(o *store.GafferOutcome) bool { o.Yolo = true; return true })
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, store.ErrGafferOutcomeBusy) || cur.Revision == o.Revision {
+			t.Fatal(err)
+		}
+		o = cur
 	}
 	if _, err := add(""); err == nil || !strings.Contains(err.Error(), "YOLO") {
 		t.Fatalf("yolo: %v", err)
+	}
+	if _, err := add("continues: " + id + "\n"); err == nil || !strings.Contains(err.Error(), "YOLO") {
+		t.Fatalf("yolo, continued: %v", err)
+	}
+}
+
+func TestMCPWorkOrderContinuesOnAStoreFaultIsNotNotFound(t *testing.T) {
+	t.Parallel()
+	s, user, write, _, _ := factoryMCPPathways(t)
+	ctx := context.Background()
+	id := runningOutcome(t, s.st, user.ID, strings.Repeat("d", 32)).ID
+	breakOutcome(t, s.st, id)
+	order := mcpWorkOrder("continues: "+id+"\n", mcpOrderBody)
+	if _, err := s.executeMCPFactory(ctx, write, "reet_add_pipelines", map[string]any{"outcome_id": id, "confirm": true, "work_order": order}); err == nil || err.Error() == workOrderNotRunning {
+		t.Fatalf("add: %v", err)
+	}
+	if out, err := s.executeMCPFactory(ctx, write, "reet_check_work_order", map[string]any{"work_order": order}); err == nil {
+		t.Fatalf("check: %v", out)
 	}
 }
 
@@ -233,5 +262,22 @@ func TestMCPAddWorkOrderContinuesGivesOneAnswer(t *testing.T) {
 	}
 	if seen[0] != workOrderNotRunning || seen[0] != seen[1] || seen[1] != seen[2] {
 		t.Fatalf("answers differ: %q", seen)
+	}
+}
+
+// An agent that meets work_order learns where the format is.
+func TestMCPWorkOrderToolsNameTheSkill(t *testing.T) {
+	const where = "factory-contract skill, served at /eyupio/factory-contract"
+	for _, tool := range mcpToolDefinitions {
+		text := tool.Description
+		if tool.Name == "reet_start_outcome" || tool.Name == "reet_add_pipelines" {
+			raw, _ := json.Marshal(tool.InputSchema)
+			text = string(raw)
+		} else if tool.Name != "reet_check_work_order" {
+			continue
+		}
+		if !strings.Contains(text, where) {
+			t.Errorf("%s does not name the skill", tool.Name)
+		}
 	}
 }

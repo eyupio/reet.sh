@@ -1,13 +1,16 @@
 package api
 
 import (
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/eyupio/reet.sh/internal/auth"
+	"github.com/eyupio/reet.sh/internal/gaffer"
 	"github.com/eyupio/reet.sh/internal/store"
 )
 
@@ -138,8 +141,45 @@ func TestWorkOrderRoutesRefuseReadOnlyAndSignedOutAndOversize(t *testing.T) {
 			t.Fatalf("read-only %v: %d", route, code)
 		}
 	}
-	if code, _, _ := checkWorkOrder(t, owner, srv, strings.Repeat("x", 70<<10)); code != 413 {
+	if code, _, _ := checkWorkOrder(t, owner, srv, strings.Repeat("x", 2*gaffer.MaxWorkOrderBytes+2048)); code != 413 {
 		t.Fatalf("oversize: %d", code)
+	}
+}
+
+// A newline is two bytes of JSON, so the body may be twice the order; the parser holds the order to its limit.
+func TestWorkOrderCheckJudgesTheTextNotTheBody(t *testing.T) {
+	_, srv, owner := templateServer(t)
+	padded := func(n int) string {
+		order := workOrderText("")
+		return strings.Replace(order, "---\n## Pipeline", "---\n"+strings.Repeat("\n", n-len(order))+"## Pipeline", 1)
+	}
+	if code, a, body := checkWorkOrder(t, owner, srv, padded(gaffer.MaxWorkOrderBytes)); code != 200 || len(a.Problems) != 0 || a.Order == nil {
+		t.Fatalf("at the limit: %d %.300s", code, body)
+	}
+	if code, a, body := checkWorkOrder(t, owner, srv, padded(gaffer.MaxWorkOrderBytes+1)); code != 200 || len(a.Problems) != 1 || !strings.Contains(a.Problems[0].Text, "over 64 KB") {
+		t.Fatalf("over the limit: %d %.300s", code, body)
+	}
+}
+
+// breakOutcome leaves the outcome's row unreadable, as a store fault would.
+func breakOutcome(t *testing.T, st *store.Store, id string) {
+	t.Helper()
+	db, err := sql.Open("sqlite", filepath.Join(st.Dir(), "reet.db")+"?_pragma=busy_timeout(5000)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`UPDATE gaffer_outcomes SET data='[]' WHERE id=?`, id); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestWorkOrderCheckContinuesOnAStoreFaultIsNotNotFound(t *testing.T) {
+	st, srv, owner := templateServer(t)
+	o := runningOutcome(t, st, 1, strings.Repeat("a", 32))
+	breakOutcome(t, st, o.ID)
+	if code, _, body := checkWorkOrder(t, owner, srv, workOrderText("continues: "+o.ID+"\n")); code != 500 || strings.Contains(body, workOrderNotRunning) {
+		t.Fatalf("store fault: %d %s", code, body)
 	}
 }
 

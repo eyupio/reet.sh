@@ -93,11 +93,14 @@ func writeWorkReportPipeline(b *strings.Builder, piece store.GafferOutcomeSessio
 // stageReportStatus is one stage's line in a pipeline's stage list: "in
 // hand" for the one awaiting work, "done" with its tier (when the stage was
 // judged to need one) for a finished stage, or its own raw state, read the
-// same minimal way, for anything else. A stage is given "pending" as soon as
-// it joins its outcome (outcome_manage.go), so a future, not-yet-started
-// stage already reads that way; a blank state only ever exists in memory
-// before that write, so it falls back to the same word rather than the
-// empty string.
+// same minimal way, for anything else. A pipeline added to an existing
+// outcome has every stage set to "pending" before it is saved
+// (outcome_manage.go), but a freshly started outcome's own stages are built
+// with no State at all (outcomePieces, outcome_runs.go) and saved that way;
+// the zero value then persists until the supervisor's first advance tick
+// picks the outcome up. So a blank state is a real, if short-lived, stored
+// value, not only an in-memory one, and it falls back to "pending" rather
+// than the empty string.
 func stageReportStatus(stage store.GafferOutcomeStage, inHand bool) string {
 	switch {
 	case inHand:

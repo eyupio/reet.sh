@@ -44,7 +44,7 @@
   const recover = $derived(!item.archived && filled?.id !== 'replace-worker' ? item.need?.choices.find(choice => choice.id === 'replace-worker' && usable(choice)) : undefined)
   // The session is a link on the card, not a button: it is a place to go. When opening it is the filled choice, that button does it.
   const session = $derived(!item.archived && sessionHref ? item.need?.choices.find(choice => choice.id === 'open' && !choice.primary && usable(choice)) : undefined)
-  const tone = $derived(item.section === 'waiting' ? (item.need?.problem ? 'bad' : 'you') : item.kind === 'running' ? 'good' : 'plain')
+  const tone = $derived(item.kind === 'failed' || (item.section === 'waiting' && item.need?.problem) ? 'bad' : item.section === 'waiting' ? 'you' : item.kind === 'running' ? 'good' : 'plain')
   // What the stage's agent is doing, so the person can judge before opening its session.
   const activity = $derived.by(() => { const text = item.agent ? agentActivity(item.agent, Date.now()).text : ''; return text ? `Agent: ${text[0].toLowerCase()}${text.slice(1)}` : '' })
   const detailsLabel = $derived(`Details and other actions for ${item.title}`)

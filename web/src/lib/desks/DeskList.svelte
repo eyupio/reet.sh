@@ -5,9 +5,10 @@
   import DeskMenu from './DeskMenu.svelte'
   import type { DeskSummary } from './api'
 
-  // Every desk, as cards in the person's order: name and colour, tab and pane counts, the machines it spans, how many of
-  // its shells are live and how many wait for the person. New desk starts an empty one; From a template copies a template.
-  // The templates follow as a second group of cards, each opening the template's own page, with Rename and Delete.
+  // Every desk, one row each: its colour, name, the tabs, panes and machines it holds, and how many of its shells are
+  // live, wait for the person or can be reopened. Desks with a shell waiting come first, under Waiting for you, tinted in
+  // the product's waiting colour and with an Open button; the rest follow. New desk starts an empty one; From a template
+  // copies a template. The templates are a second list, each opening the template's own page, with Rename and Delete.
   let { desks, sessions, machines, failed = false, busy = false, onopen, onnew, onfromtemplate, ondesk, oncolour }: {
     desks: DeskSummary[]
     sessions: TerminalSession[]
@@ -21,8 +22,6 @@
     oncolour: (desk: DeskSummary, colour: ProjectColour) => void
   } = $props()
 
-  const cards = $derived(desks.filter(d => !d.template))
-  const templates = $derived(desks.filter(d => d.template))
   const byId = $derived(new Map(sessions.map(s => [s.id, s])))
   const hostName = $derived(new Map(machines.map(m => [m.agentId, m.host])))
   const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`
@@ -39,6 +38,18 @@
     }
     return { live, waiting, reopen }
   }
+  /** The machines a desk spans, each once; machines since removed are counted together. */
+  function where(d: DeskSummary): string {
+    const names = [...new Set(d.hosts.map(h => hostName.get(h)).filter((n): n is string => !!n))]
+    const gone = new Set(d.hosts.filter(h => !hostName.has(h))).size
+    if (gone) names.push(gone === 1 ? 'a removed machine' : `${gone} removed machines`)
+    return names.join(', ')
+  }
+
+  const ranked = $derived(desks.filter(d => !d.template).map(d => ({ d, c: counts(d) })))
+  const needing = $derived(ranked.filter(r => r.c.waiting))
+  const others = $derived(ranked.filter(r => !r.c.waiting))
+  const templates = $derived(desks.filter(d => d.template))
 
   let menu = $state<{ kind: 'card' | 'template' | 'templates'; desk?: DeskSummary; x: number; y: number; opener: HTMLElement } | null>(null)
   function openMenu(event: MouseEvent, kind: 'card' | 'template' | 'templates', desk?: DeskSummary) {
@@ -46,7 +57,7 @@
     const opener = event.currentTarget as HTMLElement, box = opener.getBoundingClientRect()
     menu = { kind, desk, opener, x: kind === 'templates' ? box.left : box.right - 220, y: box.bottom + 4 }
   }
-  /** A card's name opens it in this tab; a modified click is left to the browser. */
+  /** A desk's name opens it in this tab; a modified click is left to the browser. */
   function follow(event: MouseEvent, id: string) {
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return
     event.preventDefault()
@@ -56,11 +67,34 @@
   function then(action: 'rename' | 'duplicate' | 'template' | 'delete') { const d = menu?.desk; closeMenu(false); if (d) ondesk(action, d) }
 </script>
 
+{#snippet row(d: DeskSummary, c: ReturnType<typeof counts> | null)}
+  {@const machinesLine = where(d)}
+  <li class="row" class:tpl={!c} data-status={c?.waiting ? 'waiting' : undefined} style={`--pc:${d.colour ? projectColourHex(d.colour) : 'var(--line-strong)'}`}>
+    <span class="sw" aria-hidden="true"></span>
+    <a class="name" href={`/desks/${encodeURIComponent(d.id)}`} onclick={event => follow(event, d.id)}>{d.name}</a>
+    <div class="meta">
+      <span>{plural(d.tabs, 'tab')} · {plural(d.panes, 'pane')}</span>
+      {#if machinesLine}<span class="on">{machinesLine}</span>{/if}
+    </div>
+    {#if c && (c.waiting || c.live || c.reopen)}
+      <div class="pills">
+        {#if c.waiting}<span class="pill" data-status="waiting"><i></i>{plural(c.waiting, 'shell')} {c.waiting === 1 ? 'needs' : 'need'} you</span>{/if}
+        {#if c.live}<span class="pill" data-status="working"><i></i>{plural(c.live, 'shell')} live</span>{/if}
+        {#if c.reopen}<span class="pill" data-status="ended"><i></i>{plural(c.reopen, 'shell')} to reopen</span>{/if}
+      </div>
+    {/if}
+    <div class="end">
+      {#if c?.waiting}<a class="btn primary" href={`/desks/${encodeURIComponent(d.id)}`} aria-label={`Open ${d.name}`} onclick={event => follow(event, d.id)}>Open</a>{/if}
+      <button type="button" class="more" aria-label={`Actions for ${d.name}`} aria-haspopup="menu" aria-expanded={menu?.desk?.id === d.id} onclick={event => openMenu(event, c ? 'card' : 'template', d)}>⋮</button>
+    </div>
+  </li>
+{/snippet}
+
 <section class="desk-list" aria-labelledby="desks-title">
   <header class="head">
     <div>
       <h1 id="desks-title">Desks</h1>
-      <p class="lede">Saved sets of terminals. Each one comes back as you left it.</p>
+      <p class="lede">A desk is a saved set of terminals. Open one to carry on where you left it.</p>
     </div>
     <div class="actions">
       <button type="button" class="btn" aria-haspopup="menu" aria-expanded={menu?.kind === 'templates'} disabled={busy || templates.length === 0}
@@ -69,60 +103,27 @@
     </div>
   </header>
   {#if failed}<p class="notice bad" role="alert">The desks could not be read just now. reet will try again shortly.</p>{/if}
-  {#if cards.length === 0 && !failed}
+  {#if ranked.length === 0 && !failed}
     <div class="empty">
       <h2>No desks yet.</h2>
-      <p>A desk keeps a set of terminals together: their tabs, their folders and their history.</p>
+      <p>A desk keeps a set of terminals together: their tabs, their folders and their history. Start one, then add a tab for each shell.</p>
       <button type="button" class="btn primary" disabled={busy} onclick={onnew}>New desk</button>
     </div>
   {:else}
-    <ul class="cards">
-      {#each cards as d (d.id)}
-        {@const c = counts(d)}
-        <li class="card" style={`--pc:${d.colour ? projectColourHex(d.colour) : 'var(--line-strong)'}`}>
-          <div class="t">
-            <span class="sw" aria-hidden="true"></span>
-            <a href={`/desks/${encodeURIComponent(d.id)}`} onclick={event => follow(event, d.id)}>{d.name}</a>
-            <button type="button" class="more" aria-label={`Actions for ${d.name}`} aria-haspopup="menu" aria-expanded={menu?.desk?.id === d.id} onclick={event => openMenu(event, 'card', d)}>⋮</button>
-          </div>
-          <div class="mini" aria-hidden="true">{#each Array.from({ length: Math.max(1, Math.min(d.tabs, 6)) }) as _, i (i)}<i></i>{/each}</div>
-          <div class="meta">
-            <span>{plural(d.tabs, 'tab')} · {plural(d.panes, 'pane')}</span>
-            {#if d.hosts.length}<span>{d.hosts.map(h => hostName.get(h) ?? 'a removed machine').join(', ')}</span>{/if}
-          </div>
-          {#if c.waiting || c.live || c.reopen}
-            <div class="pills">
-              {#if c.waiting}<span class="pill w">{c.waiting} need{c.waiting === 1 ? 's' : ''} you</span>{/if}
-              {#if c.live}<span class="pill">{c.live} live</span>{/if}
-              {#if c.reopen}<span class="pill">{c.reopen} to reopen</span>{/if}
-            </div>
-          {/if}
-        </li>
-      {/each}
-      <li class="card new">
-        <button type="button" disabled={busy} onclick={onnew}><b>New desk</b><span>{templates.length ? `Start empty, or from “${templates[0].name}”.` : 'Start empty, then add a tab for each shell.'}</span></button>
-      </li>
-    </ul>
+    {#if needing.length}
+      <h2 class="group-title" id="desks-waiting">Waiting for you</h2>
+      <ul class="rows" aria-labelledby="desks-waiting">{#each needing as { d, c } (d.id)}{@render row(d, c)}{/each}</ul>
+    {/if}
+    {#if others.length}
+      {#if needing.length}<h2 class="group-title" id="desks-others">Other desks</h2>{/if}
+      <ul class="rows" aria-labelledby={needing.length ? 'desks-others' : 'desks-title'}>{#each others as { d, c } (d.id)}{@render row(d, c)}{/each}</ul>
+    {/if}
   {/if}
   {#if templates.length}
     <section class="group" aria-labelledby="desk-templates-title">
-      <h2 id="desk-templates-title">Templates</h2>
-      <ul class="cards">
-        {#each templates as d (d.id)}
-          <li class="card tpl" style={`--pc:${d.colour ? projectColourHex(d.colour) : 'var(--line-strong)'}`}>
-            <div class="t">
-              <span class="sw" aria-hidden="true"></span>
-              <a href={`/desks/${encodeURIComponent(d.id)}`} onclick={event => follow(event, d.id)}>{d.name}</a>
-              <button type="button" class="more" aria-label={`Actions for ${d.name}`} aria-haspopup="menu" aria-expanded={menu?.desk?.id === d.id} onclick={event => openMenu(event, 'template', d)}>⋮</button>
-            </div>
-            <div class="mini" aria-hidden="true">{#each Array.from({ length: Math.max(1, Math.min(d.tabs, 6)) }) as _, i (i)}<i></i>{/each}</div>
-            <div class="meta">
-              <span>{plural(d.tabs, 'tab')} · {plural(d.panes, 'pane')}</span>
-              {#if d.hosts.length}<span>{d.hosts.map(h => hostName.get(h) ?? 'a removed machine').join(', ')}</span>{/if}
-            </div>
-          </li>
-        {/each}
-      </ul>
+      <h2 class="group-title" id="desk-templates-title">Templates</h2>
+      <p class="hint">Start a new desk from one of these. The template itself is not changed.</p>
+      <ul class="rows">{#each templates as d (d.id)}{@render row(d, null)}{/each}</ul>
     </section>
   {/if}
 </section>
@@ -165,27 +166,34 @@
   .empty { margin-top: 40px; padding: 40px 24px; border: 1px dashed var(--line-strong); border-radius: var(--radius); display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; }
   .empty h2 { margin: 0; font: 600 1.375rem/1.2 var(--serif); }
   .empty p { margin: 0; color: var(--muted); max-width: 46ch; }
-  .cards { list-style: none; margin: 24px 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
-  .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
-  .t { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 1rem; min-width: 0; }
-  .t a { color: var(--ink); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
-  .t a:hover { text-decoration: underline; }
-  .sw { width: 10px; height: 10px; border-radius: 3px; flex: none; background: var(--pc); }
-  .more { margin-left: auto; width: 32px; height: 32px; flex: none; border: 0; border-radius: 6px; background: none; color: var(--faint); cursor: pointer; font-size: 16px; }
+  .group-title { margin: 32px 0 0; font: 600 1.25rem/1.2 var(--serif); letter-spacing: -0.01em; }
+  .group .group-title { margin-top: 40px; }
+  .hint { margin: 4px 0 0; color: var(--muted); }
+  /* One bordered list, hairlines between rows: no card per desk. A row that waits for the person takes the product's
+     waiting tint (the whole row, not an edge) and the Open button, so it reads first. */
+  .rows { list-style: none; margin: 14px 0 0; padding: 0; border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); }
+  .row { display: grid; grid-template-columns: 10px minmax(0, 1.3fr) minmax(0, 1fr) auto auto; grid-template-areas: 'sw name meta pills end'; align-items: center; gap: 4px 16px; padding: 10px 12px 10px 16px; min-height: 60px; min-width: 0; }
+  .row + .row { border-top: 1px solid var(--line-soft); }
+  .row:first-child { border-radius: calc(var(--radius) - 1px) calc(var(--radius) - 1px) 0 0; }
+  .row:last-child { border-radius: 0 0 calc(var(--radius) - 1px) calc(var(--radius) - 1px); }
+  .row:only-child { border-radius: calc(var(--radius) - 1px); }
+  .row[data-status='waiting'] { background: var(--status-wash); }
+  .sw { grid-area: sw; width: 10px; height: 10px; border-radius: 3px; background: var(--pc); }
+  .name { grid-area: name; min-width: 0; color: var(--ink); font-weight: 600; font-size: 1rem; text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .name:hover { text-decoration: underline; }
+  .meta { grid-area: meta; min-width: 0; display: flex; flex-wrap: wrap; gap: 0 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .on { overflow-wrap: anywhere; }
+  .pills { grid-area: pills; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border: 1px solid var(--status-edge); border-radius: 6px; background: var(--status-wash); color: var(--status-ink); font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .pill i { width: 6px; height: 6px; flex: none; border-radius: 50%; background: var(--status); }
+  .end { grid-area: end; display: flex; align-items: center; gap: 4px; justify-self: end; }
+  .more { width: 32px; height: 32px; flex: none; border: 0; border-radius: 6px; background: none; color: var(--faint); cursor: pointer; font-size: 16px; }
   .more:hover { color: var(--ink); background: var(--line-soft); }
-  .mini { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 2px; height: 56px; padding: 2px; border-radius: 6px; background: var(--line-soft); }
-  .mini i { border-radius: 3px; background: var(--bg-sunk); border-left: 2px solid var(--pc); }
-  .meta { display: flex; flex-wrap: wrap; gap: 4px 12px; color: var(--muted); font-size: 14px; }
-  .pills { display: flex; flex-wrap: wrap; gap: 6px; }
-  .pill { font-size: 14px; border-radius: 999px; padding: 0 9px; border: 1px solid var(--line); color: var(--muted); }
-  .pill.w { border-color: var(--status-waiting); color: var(--status-waiting); }
-  .card.new { padding: 0; border-style: dashed; background: none; }
-  .card.new button { flex: 1; min-height: 150px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 14px; border: 0; border-radius: var(--radius); background: none; color: var(--muted); cursor: pointer; text-align: center; }
-  .card.new button:hover:not(:disabled) { color: var(--ink); background: var(--card); }
-  .card.new b { color: var(--ink); }
-  .group { margin-top: 32px; }
-  .group h2 { margin: 0; font: 600 1.25rem/1.2 var(--serif); letter-spacing: -0.01em; }
-  .group .cards { margin-top: 14px; }
-  @media (max-width: 760px) { .desk-list { padding: 24px 16px 40px; } h1 { font-size: 1.75rem; } }
-  @media (pointer: coarse) { .more { width: 44px; height: 44px; } .t a { line-height: 44px; } }
+  @media (max-width: 760px) {
+    .desk-list { padding: 24px 16px 40px; }
+    h1 { font-size: 1.75rem; }
+    .row { grid-template-columns: 10px minmax(0, 1fr) auto; grid-template-areas: 'sw name end' '. meta meta' '. pills pills'; padding: 10px 8px 12px 14px; }
+    .pills { justify-content: flex-start; margin-top: 4px; }
+  }
+  @media (pointer: coarse) { .more { width: 44px; height: 44px; } .name { display: flex; align-items: center; min-height: 44px; } .end .btn { min-height: 44px; } }
 </style>
